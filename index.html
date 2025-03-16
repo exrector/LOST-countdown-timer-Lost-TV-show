@@ -21,11 +21,11 @@
                 width: 692px;
                 margin: 0 auto;
                 background: #000;
-                box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
-                border-radius: 10px;
+                /box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
+             /   border-radius: 10px;
                 padding: 20px;
                 margin-top: 20px;
-                margin-bottom: 40px;
+                margin-bottom: 400px;
             }
 
             @media only screen and (max-width: 700px) {
@@ -38,7 +38,7 @@
                 text-align: center;
                 margin-top: 20px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 5px;
             }
 
             .timer-mode {
@@ -59,7 +59,7 @@
         <script>
             let consoleWindow = null;
             
-            $(function() {
+           $(function() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const seconds = urlParams.get('seconds') ? urlParams.get('seconds') : 60 * 108;
                 
