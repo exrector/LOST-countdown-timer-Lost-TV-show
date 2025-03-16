@@ -7,7 +7,7 @@
         
         <style>
             body {
-                background: #181818;
+                background: #000;
                 margin: 0;
                 padding: 0;
                 font-family: 'Helvetica', sans-serif;
@@ -18,10 +18,10 @@
                 width: calc(100% - 40px);
                 margin: 0 auto;
                 background: #000000;
-                box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
+                box-shadow: 0px 0px 0px rgba(255, 255, 255, 0.5);
                 border-radius: 10px;
                 margin-top: 20px;
-                height: 250px;
+                height: 1000px;
                 padding-left: 15px;
                 padding-right: 15px;
                 padding-top: 5px;
@@ -71,11 +71,11 @@
                         consoleInput.disabled = !event.data.enabled;
                         if (event.data.enabled) {
                             consoleInput.focus();
-                            timerStatus.textContent = `Time remaining: ${event.data.remainingTime} seconds`;
+                            timerStatus.textContent = `Оставшееся время для ввода кода: ${event.data.remainingTime} секунд`;
                         } else {
                             consoleInput.value = '';
                             timerStatus.textContent = event.data.remainingTime > 240 ? 
-                                'Waiting for 4 minutes countdown...' : 'Time expired!';
+                                'Терминал активируется через...' : 'Time expired!';
                         }
                     }
                 });
@@ -94,6 +94,9 @@
         </script>
     </head>
     <body>
+    <div class="timer-status">
+            Терминал активируется после сигнала...
+        </div>
         <div class="console-container">
             <div class="console-prompt">
                 >:
@@ -101,9 +104,6 @@
             <div class="console-input">
                 <input type="text" class="my-console" disabled /> 
             </div>
-        </div>
-        <div class="timer-status">
-            Waiting for 4 minutes countdown...
         </div>
     </body>
 </html>
