@@ -371,17 +371,6 @@ var lostTimer = ( function() {
 				( self.totalSeconds < 10 )
 			) {
 				self.playAudio( 'alarm' );
-				if (self.totalSeconds === 10) {
-        // Simulate key press for ⌃⇧⌘P
-        var keyboardEvent = new KeyboardEvent('keydown', {
-            key: 'P',
-            code: 'KeyP',
-            ctrlKey: true,
-            shiftKey: true,
-            metaKey: true,
-        });
-        document.dispatchEvent(keyboardEvent);
-    }
 			}
 
     		self.updateTimeVars();
