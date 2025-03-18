@@ -75,7 +75,7 @@
                         } else {
                             consoleInput.value = '';
                             timerStatus.textContent = event.data.remainingTime > 240 ? 
-                                'Терминал активируется через...' : 'Time expired!';
+                                'Терминал не активирован' : 'Time expired!';
                         }
                     }
                 });
@@ -95,7 +95,7 @@
     </head>
     <body>
     <div class="timer-status">
-            Терминал активируется после сигнала...
+        Терминал не активирован
         </div>
         <div class="console-container">
             <div class="console-prompt">
