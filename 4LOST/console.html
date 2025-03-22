@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Lost Timer - Console</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+        
+        <link href="css/lost-timer.css" rel="stylesheet" type="text/css">
+        
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const consoleInput = document.querySelector('.my-console');
+                const timerStatus = document.querySelector('.timer-status');
+                
+                // Listen for messages from main window
+                window.addEventListener('message', (event) => {
+                    if (event.data.type === 'enableConsole') {
+                        consoleInput.disabled = !event.data.enabled;
+                        if (event.data.enabled) {
+                            consoleInput.focus();
+                            timerStatus.textContent = `Оставшееся время для ввода кода: ${event.data.remainingTime} секунд`;
+                        } else {
+                            consoleInput.value = '';
+                            timerStatus.textContent = event.data.remainingTime > 240 ? 
+                                'Терминал не активирован' : 'Time expired!';
+                        }
+                    }
+                });
+
+                // Handle input submission
+                consoleInput.addEventListener('keyup', (e) => {
+                    if (e.key === 'Enter') {
+                        window.opener.postMessage({
+                            type: 'numberSubmitted',
+                            value: consoleInput.value
+                        }, '*');
+                        consoleInput.value = '';
+                    }
+                });
+            });
+        </script>
+    </head>
+    <body>
+        <div class="timer-status">
+            Терминал не активирован
+        </div>
+        <div class="console-container">
+            <div class="console-prompt">
+                >:
+            </div>
+            <div class="console-input">
+                <input type="text" class="my-console" disabled /> 
+            </div>
+        </div>
+    </body>
+</html>
