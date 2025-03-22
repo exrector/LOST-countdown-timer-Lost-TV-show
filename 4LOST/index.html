@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Lost Timer - Main</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+        
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+        <link href="css/lost-timer.css" rel="stylesheet" type="text/css">
+        
+        <script src="js/lost-timer.js"></script>
+        <script>
+            let consoleWindow = null;
+            
+            $(function() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const seconds = urlParams.get('seconds') ? urlParams.get('seconds') : 60 * 108;
+                
+                const timer = new lostTimer({
+                    initialSeconds: parseInt(seconds),
+                    mode: urlParams.get('mode'),
+                    height: $(window).width() > 700 ? 200 : 70,
+                    onTick: function() {
+                        if (timer.totalSeconds <= 240 && timer.totalSeconds > 0) {
+                            // Send message to console window
+                            if (consoleWindow && !consoleWindow.closed) {
+                                consoleWindow.postMessage({
+                                    type: 'enableConsole',
+                                    enabled: true,
+                                    remainingTime: timer.totalSeconds
+                                }, '*');
+                            }
+                        } else {
+                            if (consoleWindow && !consoleWindow.closed) {
+                                consoleWindow.postMessage({
+                                    type: 'enableConsole',
+                                    enabled: false,
+                                    remainingTime: timer.totalSeconds
+                                }, '*');
+                            }
+                        }
+                    }
+                });
+
+                // Open console window
+                document.getElementById('openConsole').addEventListener('click', () => {
+                    consoleWindow = window.open('console.html', 'ConsoleWindow',
+                        'width=800,height=400,menubar=no,toolbar=no,location=no,status=no');
+                });
+
+                // Listen for messages from console window
+                window.addEventListener('message', (event) => {
+                    if (event.data.type === 'numberSubmitted' && 
+                        event.data.value === timer.theNumbersString) {
+                        timer.reset();
+                    }
+                });
+            });
+        </script>
+    </head>
+    <body>
+        <div class="my-timer-container">
+            <div class="lost-timer">
+            </div>
+        </div>
+
+        <div class="timer-modes">
+            <div class="timer-mode">
+                <button id="openConsole">Open Console</button>
+            </div>
+            <div class="timer-mode">
+                <a href="?mode=dev">Dev Mode</a>
+            </div>
+            <div class="timer-mode">
+                <a href="?mode=live">Live Mode</a>
+            </div>
+        </div>
+    </body>
+</html>
