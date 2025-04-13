@@ -4,7 +4,7 @@ body {
     background: #000;
     margin: 0;
     padding: 0;
-    font-family: 'DotGothic16', monospace; /* Используем моноширинный шрифт для ретро-стиля */
+    font-family: Helvetica, sans-serif; /* Используем моноширинный шрифт для ретро-стиля */
     overflow-x: hidden;
 }
 
@@ -79,7 +79,7 @@ a:hover {
     background: transparent;
     color: #00ff00; /* Зеленый цвет текста */
     width: 100%;
-    font-family: 'DotGothic16',monospace; 
+    font-family: Helvetica, sans-serif;
 }
 
 .timer-status {
@@ -90,7 +90,7 @@ a:hover {
 }
 
 .lost-timer {
-    font-family: 'DotGothic16', monospace; /* Моноширинный шрифт */
+    font-family: Helvetica, sans-serif; /* Моноширинный шрифт */
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
