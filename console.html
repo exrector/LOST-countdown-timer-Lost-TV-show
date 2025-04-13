@@ -5,61 +5,8 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
         
-        <style>
-            body {
-                background: #000;
-                margin: 0;
-                padding: 0;
-                font-family: 'Helvetica', sans-serif;
-                overflow-x: hidden;
-            }
-
-            .console-container {
-                width: calc(100% - 40px);
-                margin: 0 auto;
-                background: #000000;
-                box-shadow: 0px 0px 0px rgba(255, 255, 255, 0.5);
-                border-radius: 10px;
-                margin-top: 20px;
-                height: 1000px;
-                padding-left: 15px;
-                padding-right: 15px;
-                padding-top: 5px;
-                padding-bottom: 15px;
-                box-sizing: border-box;
-            }
-
-            .console-prompt {
-                font-size: 40px;
-                display: inline-block;
-                color: #43b047;
-            }
-
-            .console-input {
-                width: calc(100% - 50px);
-                display: inline-block;
-                margin-left: 5px;
-            }
-
-            .my-console {
-                outline: none;
-                border: none;
-                box-sizing: border-box;
-                font-size: 32px;
-                background: transparent;
-                color: #43b047;
-                width: 100%;
-                font-family: inherit;
-            }
-
-            .timer-status {
-                color: #43b047;
-                text-align: center;
-                margin-top: 20px;
-                font-size: 24px;
-            }
-        </style>
-
+        <link href="css/lost-timer.css" rel="stylesheet" type="text/css">
+        
         <script>
             document.addEventListener('DOMContentLoaded', () => {
                 const consoleInput = document.querySelector('.my-console');
@@ -94,8 +41,8 @@
         </script>
     </head>
     <body>
-    <div class="timer-status">
-        Терминал не активирован
+        <div class="timer-status">
+            Терминал не активирован
         </div>
         <div class="console-container">
             <div class="console-prompt">
