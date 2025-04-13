@@ -86,11 +86,11 @@ a:hover {
     font-family: Arial;
 }
 
-.timer-status {
-    color: #fff; /* Зеленый цвет текста */
-    text-align: center;
-    margin-top: 20px;
-    font-size: 20px;
+.timer-modes {
+    display: flex;
+    justify-content: center; /* centers the items horizontally */
+    gap: 20px; /* space between buttons/links */
+    margin-top: 100px;
 }
 
 .lost-timer {
