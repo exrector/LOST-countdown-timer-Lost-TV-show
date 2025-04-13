@@ -8,58 +8,11 @@
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
         <link href="css/lost-timer.css" rel="stylesheet" type="text/css">
         
-        <style>
-            body {
-                background: #000;
-                margin: 0;
-                padding: 0;
-                font-family: 'Helvetica', sans-serif;
-                overflow-x: hidden;
-            }
-
-            .my-timer-container {
-                width: 692px;
-                margin: 0 auto;
-                background: #000;
-                /box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.5);
-             /   border-radius: 10px;
-                padding: 20px;
-                margin-top: 20px;
-                margin-bottom: 400px;
-            }
-
-            @media only screen and (max-width: 700px) {
-                .my-timer-container {
-                    width: 287px;
-                }
-            }
-
-            .timer-modes {
-                text-align: center;
-                margin-top: 20px;
-                font-weight: bold;
-                font-size: 5px;
-            }
-
-            .timer-mode {
-                margin-bottom: 10px;
-            }
-
-            a {
-                color: #049cd8;
-                text-decoration: none;
-            }
-
-            a:hover {
-                text-decoration: underline;
-            }
-        </style>
-
         <script src="js/lost-timer.js"></script>
         <script>
             let consoleWindow = null;
             
-           $(function() {
+            $(function() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const seconds = urlParams.get('seconds') ? urlParams.get('seconds') : 60 * 108;
                 
