@@ -1,13 +1,10 @@
 @charset "utf-8";
 
-/* Подключаем шрифт Arial через Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Arial&display=swap');
-
 body {
     background: #000;
     margin: 0;
     padding: 0;
-    font-family: 'arial', monospace; /* Используем Doto для ретро-стиля */
+    font-family: 'Courier New', monospace; /* Используем моноширинный шрифт для ретро-стиля */
     overflow-x: hidden;
 }
 
@@ -17,7 +14,7 @@ body {
     background: #000;
     padding: 20px;
     margin-top: 20px;
-    margin-bottom: 40px;
+    margin-bottom: 400px;
 }
 
 @media only screen and (max-width: 700px) {
@@ -30,8 +27,8 @@ body {
     text-align: center;
     margin-top: 20px;
     font-weight: bold;
-    font-size: 16px;
-    color: #fff; /* ???????????????Зеленый цвет текста */
+    font-size: 16px; /* Увеличиваем размер шрифта для лучшей читаемости */
+    color: #000000; /* Зеленый цвет текста для ретро-стиля */
 }
 
 .timer-mode {
@@ -39,20 +36,19 @@ body {
 }
 
 a {
-    color: #fff; /* Зеленый цвет ссылок */
+    color: #00ff00; /* Зеленый цвет ссылок */
     text-decoration: none;
 }
 
 a:hover {
     text-decoration: underline;
 }
-/* КОНСОЛЬ */
 
 .console-container {
     width: calc(100% - 40px);
     margin: 0 auto;
-    background: #000;
-    box-shadow: 0px 0px 10px rgba(0, 255, 0, 0.5); /* Зеленая тень */
+    background: #000000;
+    box-shadow: 0px 0px 10px rgba(0, 255, 0, 0.5); /* Зеленая тень для ретро-эффекта */
     border-radius: 10px;
     margin-top: 20px;
     height: 1000px;
@@ -66,7 +62,7 @@ a:hover {
 .console-prompt {
     font-size: 40px;
     display: inline-block;
-    color: #fff; /* Зеленый цвет текста */
+    color: #00ff00; /* Зеленый цвет текста */
 }
 
 .console-input {
@@ -81,20 +77,20 @@ a:hover {
     box-sizing: border-box;
     font-size: 32px;
     background: transparent;
-    color: #fff; /* Зеленый цвет текста */
+    color: #00ff00; /* Зеленый цвет текста */
     width: 100%;
-    font-family: Arial;
+    font-family: inherit;
 }
 
 .timer-status {
-    color: #fff; /* Зеленый цвет текста */
+    color: #00ff00; /* Зеленый цвет текста */
     text-align: center;
     margin-top: 20px;
-    font-size: 20px;
+    font-size: 24px;
 }
 
 .lost-timer {
-    font-family: 'Arial', monospace; /* Используем VT323 */
+    font-family: 'Courier New', monospace; /* Моноширинный шрифт */
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
@@ -113,12 +109,12 @@ a:hover {
 
 .lost-timer-side-left {
     float: left;
-    color: #fff; /* Зеленый цвет текста */
+    color: #000000; /* Зеленый цвет текста */
 }
 
 .lost-timer-side-right {
     display: inline-block;
-    color: #fff; /* Зеленый цвет текста */
+    color: #000000; /* Зеленый цвет текста */
 }
 
 .lost-timer-number {
@@ -133,7 +129,7 @@ a:hover {
 .lost-timer-number-center-bar {
     position: absolute;
     height: 2px;
-    background: #000; /* Зеленый цвет полосы */
+    background: #000000; /* Черная полоска */
     width: 100%;
     left: 0;
     top: calc(50% - 1px);
@@ -172,33 +168,33 @@ a:hover {
     bottom: 0;
     transition: 0.4s all linear;
     transform-style: preserve-3d;
-    -webkit-mask: linear-gradient(#000, #000) top/100% 50% no-repeat;
-    mask: linear-gradient(#000, #000) top/100% 50% no-repeat;
+    -webkit-mask: linear-gradient(#fff, #fff) top/100% 50% no-repeat;
+    mask: linear-gradient(#fff, #fff) top/100% 50% no-repeat;
 }
-/* ТАЙМЕР */ 
+
 .lost-flipper-number-after {
     -webkit-mask-position: bottom;
     mask-position: bottom;
 }
 
 .lost-flipper-bg-white .lost-flipper-number-before {
-    color: #000000;/* секунды цвет текста */ 
-    background: #b1b1b1;
+    color: #000000;
+    background: #f8f6f6;
 }
 
 .lost-flipper-bg-white .lost-flipper-number-after {
-    color: #000000; /* секунды цвет текста */ 
-    background: #ebebeb;
+    color: #050505;
+    background: #f7f5f5;
 }
 
 .lost-flipper-bg-black .lost-flipper-number-before {
-    color: #fff; /* верх трех цвет текста */  
-    background: #000;
+    color: hsl(0, 24%, 96%); /* Зеленый цвет текста */
+    background: #060606;
 }
 
 .lost-flipper-bg-black .lost-flipper-number-after {
-    color: #fff; /* низ трех Зеленый цвет текста */
-    background: #686868;
+    color: #f2f6f2; /* Зеленый цвет текста */
+    background: #383839;
 }
 
 .lost-flipper-next {
@@ -249,15 +245,14 @@ a:hover {
     font-weight: bold;
     font-size: 12px;
 }
-/* МЕНЮ РАЗРАБА */ 
 
 .lost-timer-dev-main-text {
-    color: #fff; /* Зеленый цвет текста */
+    color: #00ff00; /* Зеленый цвет текста */
     margin-bottom: 10px;
 }
 
 .lost-timer-dev-action {
-    color: #fff; /* Зеленый цвет текста */
+    color: #00ff00; /* Зеленый цвет текста */
     cursor: pointer;
     margin-top: 5px;
 }
