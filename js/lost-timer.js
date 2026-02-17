@@ -326,7 +326,8 @@ var lostTimer = ( function() {
 		var self = this;
 
 		// calculate minutes and seconds
-        self.minutes = parseInt( self.totalSeconds / 60 );
+		// above 4 minutes seconds are hidden, so use ceil to flip minutes every 60s
+        self.minutes = self.totalSeconds > 240 ? Math.ceil( self.totalSeconds / 60 ) : parseInt( self.totalSeconds / 60 );
         self.seconds = parseInt( self.totalSeconds % 60 );
 
         if ( self.minutes < 100 && self.minutes > 9 ) { // two digit range needing one zero
