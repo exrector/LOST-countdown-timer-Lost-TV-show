@@ -16,10 +16,22 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const seconds = urlParams.get('seconds') ? urlParams.get('seconds') : 60 * 108;
                 
+                const isKiosk = urlParams.get('kiosk') === 'true';
+                var timerHeight;
+
+                if (isKiosk) {
+                    // height from window width: total width ≈ 3.1 * height + 65
+                    timerHeight = Math.floor(($(window).width() - 65) / 3.1);
+                    $('body').addClass('kiosk');
+                    $('.timer-modes').hide();
+                } else {
+                    timerHeight = $(window).width() > 700 ? 200 : 70;
+                }
+
                 const timer = new lostTimer({
                     initialSeconds: parseInt(seconds),
                     mode: urlParams.get('mode'),
-                    height: $(window).width() > 700 ? 200 : 70,
+                    height: timerHeight,
                     onTick: function() {
                         if (timer.totalSeconds <= 240 && timer.totalSeconds > 0) {
                             // Send message to console window
