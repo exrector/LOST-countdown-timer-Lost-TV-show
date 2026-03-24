@@ -4,17 +4,16 @@ body {
     background: #000;
     margin: 0;
     padding: 0;
-    font-family: Helvetica, sans-serif; /* Используем моноширинный шрифт для ретро-стиля */
+    font-family: Helvetica, sans-serif;
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
 }
 
 .my-timer-container {
-    width: 692px;
-    margin: 0 auto;
     background: #000;
-    padding: 20px;
-    margin-top: 20px;
-    margin-bottom: 40px;
 }
 
 body.kiosk {
@@ -44,7 +43,7 @@ body.kiosk .my-timer-container {
     font-weight: bold;
     font-size: 12px;
     position: fixed;
-    bottom: -120px;
+    bottom: -200px;
     left: 0;
     right: 0;
     transition: bottom 0.3s ease;
