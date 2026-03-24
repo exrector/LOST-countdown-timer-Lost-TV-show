@@ -293,7 +293,6 @@ var lostTimer = ( function() {
 		// update the number slots html
 		self.updateNumbers( false );
 	};
-	};
 
 	/**
 	 * Update the timer numbers
