@@ -15,16 +15,11 @@
             $(function() {
                 const urlParams = new URLSearchParams(window.location.search);
 
-                // localStorage: restore saved time, or use URL param, or default 108 min
-                const savedSeconds = localStorage.getItem('lost-timer-seconds');
+                // URL param or default 108 min
                 const urlSeconds = urlParams.get('seconds') ? parseInt(urlParams.get('seconds')) : null;
-                const initialSec = urlSeconds || (savedSeconds ? parseInt(savedSeconds) : 60 * 108);
-                // above 4 minutes seconds are not shown — round to minute boundary to avoid showing stale seconds
-                const cleanSec = initialSec > 240 ? Math.ceil(initialSec / 60) * 60 : initialSec;
+                const initialSec = urlSeconds || 60 * 108;
 
                 // Pre-fill custom minutes input with current value
-                const displayMins = Math.ceil(initialSec / 60);
-
                 const isKiosk = urlParams.get('kiosk') === 'true';
                 var timerHeight;
 
@@ -37,17 +32,10 @@
                 }
 
                 const timer = new lostTimer({
-                    initialSeconds: cleanSec,
+                    initialSeconds: initialSec,
                     mode: urlParams.get('mode'),
                     height: timerHeight,
                     onTick: function() {
-                        // Save remaining time to localStorage on every tick
-                        if (timer.totalSeconds > 0) {
-                            localStorage.setItem('lost-timer-seconds', timer.totalSeconds);
-                        } else {
-                            localStorage.removeItem('lost-timer-seconds');
-                        }
-
                         if (timer.totalSeconds <= 240 && timer.totalSeconds > 0) {
                             if (consoleWindow && !consoleWindow.closed) {
                                 consoleWindow.postMessage({
@@ -99,7 +87,6 @@
                 window.addEventListener('message', (event) => {
                     if (event.data.type === 'numberSubmitted' && 
                         event.data.value === timer.theNumbersString) {
-                        localStorage.removeItem('lost-timer-seconds');
                         timer.reset();
                     }
                 });
