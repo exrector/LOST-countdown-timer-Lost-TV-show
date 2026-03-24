@@ -96,10 +96,7 @@
                     var el = document.querySelector('.lost-timer');
                     if (!el) return;
                     el.style.transform = '';
-                    var scale = Math.min(
-                        window.innerWidth  / el.offsetWidth,
-                        window.innerHeight / el.offsetHeight
-                    ) * 0.98;
+                    var scale = (window.innerWidth / el.offsetWidth) * 0.98;
                     el.style.transform = 'scale(' + scale + ')';
                     el.style.transformOrigin = 'top center';
                 }
