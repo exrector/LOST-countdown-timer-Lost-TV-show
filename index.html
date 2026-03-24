@@ -14,13 +14,21 @@
             
             $(function() {
                 const urlParams = new URLSearchParams(window.location.search);
-                const seconds = urlParams.get('seconds') ? urlParams.get('seconds') : 60 * 108;
-                
+
+                // localStorage: restore saved time, or use URL param, or default 108 min
+                const savedSeconds = localStorage.getItem('lost-timer-seconds');
+                const urlSeconds = urlParams.get('seconds') ? parseInt(urlParams.get('seconds')) : null;
+                const initialSec = urlSeconds || (savedSeconds ? parseInt(savedSeconds) : 60 * 108);
+                // above 4 minutes seconds are not shown — round to minute boundary to avoid showing stale seconds
+                const cleanSec = initialSec > 240 ? Math.ceil(initialSec / 60) * 60 : initialSec;
+
+                // Pre-fill custom minutes input with current value
+                const displayMins = Math.ceil(initialSec / 60);
+
                 const isKiosk = urlParams.get('kiosk') === 'true';
                 var timerHeight;
 
                 if (isKiosk) {
-                    // height from window width: total width ≈ 3.1 * height + 65
                     timerHeight = Math.floor(($(window).width() - 65) / 3.1);
                     $('body').addClass('kiosk');
                     $('.timer-modes').hide();
@@ -29,12 +37,18 @@
                 }
 
                 const timer = new lostTimer({
-                    initialSeconds: parseInt(seconds),
+                    initialSeconds: cleanSec,
                     mode: urlParams.get('mode'),
                     height: timerHeight,
                     onTick: function() {
+                        // Save remaining time to localStorage on every tick
+                        if (timer.totalSeconds > 0) {
+                            localStorage.setItem('lost-timer-seconds', timer.totalSeconds);
+                        } else {
+                            localStorage.removeItem('lost-timer-seconds');
+                        }
+
                         if (timer.totalSeconds <= 240 && timer.totalSeconds > 0) {
-                            // Send message to console window
                             if (consoleWindow && !consoleWindow.closed) {
                                 consoleWindow.postMessage({
                                     type: 'enableConsole',
@@ -57,13 +71,35 @@
                 // Open console window
                 document.getElementById('openConsole').addEventListener('click', () => {
                     consoleWindow = window.open('console.html', 'ConsoleWindow',
-                        'width=800,height=400,menubar=no,toolbar=no,location=no,status=no');
+                        'width=800,height=380,menubar=no,toolbar=no,location=no,status=no');
+                });
+
+                // Pause / Resume button
+                document.getElementById('pauseResume').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    timer.pauseResume();
+                    e.target.textContent = timer.paused ? '▶ Старт' : '⏸ Пауза';
+                });
+
+                // Fullscreen button
+                document.getElementById('fullscreen').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (!document.fullscreenElement) {
+                        document.documentElement.requestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                });
+                document.addEventListener('fullscreenchange', () => {
+                    document.getElementById('fullscreen').textContent =
+                        document.fullscreenElement ? '⛶ Свернуть' : '⛶ Полный экран';
                 });
 
                 // Listen for messages from console window
                 window.addEventListener('message', (event) => {
                     if (event.data.type === 'numberSubmitted' && 
                         event.data.value === timer.theNumbersString) {
+                        localStorage.removeItem('lost-timer-seconds');
                         timer.reset();
                     }
                 });
@@ -79,6 +115,12 @@
         <div class="timer-modes">
             <div class="timer-mode">
                 <a href="#" id="openConsole">Open Console</a>
+            </div>
+            <div class="timer-mode">
+                <a href="#" id="pauseResume">⏸ Пауза</a>
+            </div>
+            <div class="timer-mode">
+                <a href="#" id="fullscreen">⛶ Полный экран</a>
             </div>
             <div class="timer-mode">
                 <a href="?mode=dev">Dev Mode</a>
