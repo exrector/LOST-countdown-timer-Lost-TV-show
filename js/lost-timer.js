@@ -291,7 +291,13 @@ var lostTimer = ( function() {
 		self.updateTimeVars();
 
 		// update the number slots html
-		self.updateNumbers( false );		
+		self.updateNumbers( false );
+
+		// clear seconds cells when above 4 minutes — they should be blank until revealed
+		if ( self.totalSeconds >= 240 ) {
+			$( self.containerClassCss + '-number-4 .lost-flipper-number-table-cell' ).html( '' );
+			$( self.containerClassCss + '-number-5 .lost-flipper-number-table-cell' ).html( '' );
+		}
 	};
 
 	/**
