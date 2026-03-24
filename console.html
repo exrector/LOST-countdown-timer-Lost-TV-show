@@ -11,6 +11,17 @@
             document.addEventListener('DOMContentLoaded', () => {
                 const consoleInput = document.querySelector('.my-console');
                 const timerStatus = document.querySelector('.timer-status');
+                const cursor = document.querySelector('.console-cursor');
+
+                // Measure text width using canvas and move cursor after typed text
+                function updateCursorPosition() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const style = window.getComputedStyle(consoleInput);
+                    ctx.font = style.fontSize + ' ' + style.fontFamily;
+                    const textWidth = ctx.measureText(consoleInput.value).width;
+                    cursor.style.left = textWidth + 'px';
+                }
                 
                 // Listen for messages from main window
                 window.addEventListener('message', (event) => {
@@ -18,9 +29,11 @@
                         consoleInput.disabled = !event.data.enabled;
                         if (event.data.enabled) {
                             consoleInput.focus();
+                            updateCursorPosition();
                             timerStatus.textContent = `Оставшееся время для ввода кода: ${event.data.remainingTime} секунд`;
                         } else {
                             consoleInput.value = '';
+                            updateCursorPosition();
                             timerStatus.textContent = event.data.remainingTime > 240 ? 
                                 'Терминал не активирован' : 'Time expired!';
                         }
@@ -29,12 +42,14 @@
 
                 // Handle input submission
                 consoleInput.addEventListener('keyup', (e) => {
+                    updateCursorPosition();
                     if (e.key === 'Enter') {
                         window.opener.postMessage({
                             type: 'numberSubmitted',
                             value: consoleInput.value
                         }, '*');
                         consoleInput.value = '';
+                        updateCursorPosition();
                     }
                 });
             });
