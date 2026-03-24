@@ -292,12 +292,7 @@ var lostTimer = ( function() {
 
 		// update the number slots html
 		self.updateNumbers( false );
-
-		// clear seconds cells when above 4 minutes — they should be blank until revealed
-		if ( self.totalSeconds >= 240 ) {
-			$( self.containerClassCss + '-number-4 .lost-flipper-number-table-cell' ).html( '' );
-			$( self.containerClassCss + '-number-5 .lost-flipper-number-table-cell' ).html( '' );
-		}
+	};
 	};
 
 	/**
@@ -631,6 +626,22 @@ var lostTimer = ( function() {
 
 			self.playAudio( 'thud' );
 		}, 46000 );
+	};
+
+	/**
+	 * Pause or resume the timer
+	 *
+	 * @return void
+	 */
+	lostTimer.prototype.pauseResume = function() {
+		var self = this;
+		if ( self.paused ) {
+			self.paused = false;
+			self.startTimer();
+		} else {
+			self.paused = true;
+			clearInterval( self.timer );
+		}
 	};
 
 	/**
