@@ -290,13 +290,14 @@ var lostTimer = ( function() {
 		// update time vars
 		self.updateTimeVars();
 
-		// hide seconds (right side) above 4 minutes
-		if ( self.totalSeconds >= 240 ) {
-			$( self.containerClassCss + ' .lost-timer-side-right' ).hide();
-		}
-
 		// update the number slots html
-		self.updateNumbers( false );		
+		self.updateNumbers( false );
+
+		// above 4 minutes seconds panels stay visible but blank
+		if ( self.totalSeconds >= 240 ) {
+			$( self.containerClassCss + '-number-4 .lost-flipper-number-table-cell' ).html( '' );
+			$( self.containerClassCss + '-number-5 .lost-flipper-number-table-cell' ).html( '' );
+		}
 	};
 
 	/**
@@ -391,12 +392,9 @@ var lostTimer = ( function() {
 	        self.flip( '3', self.num3 );
 
 	        if ( self.totalSeconds < 240 ) { // under four minutes display and flip seconds
-	        	$( self.containerClassCss + ' .lost-timer-side-right' ).show();
 	        	self.flip( '4', self.num4 );
 	        	self.flip( '5', self.num5 );
-	       	} else {
-	       		$( self.containerClassCss + ' .lost-timer-side-right' ).hide();
-	       	}
+	       	} 
 
 	        if ( --self.totalSeconds < 0 ) { // decrement total seconds and check if less than zero
 	            // clear the timer interval so it stops
@@ -531,9 +529,6 @@ var lostTimer = ( function() {
 
 		// stop the timer
 		clearInterval( self.timer );
-
-		// show right side (seconds) so glyphs appear on all 5 digits
-		$( self.containerClassCss + ' .lost-timer-side-right' ).show();
 
 		// play timeout sound
 		self.playAudio( 'timeout' );
