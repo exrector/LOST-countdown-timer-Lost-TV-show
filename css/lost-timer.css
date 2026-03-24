@@ -5,7 +5,7 @@ body {
     margin: 0;
     padding: 0;
     font-family: Helvetica, sans-serif; /* Используем моноширинный шрифт для ретро-стиля */
-    overflow-x: hidden;
+    overflow: hidden;
 }
 
 .my-timer-container {
@@ -14,7 +14,7 @@ body {
     background: #000;
     padding: 20px;
     margin-top: 20px;
-    margin-bottom: 100px;
+    margin-bottom: 40px;
 }
 
 body.kiosk {
@@ -67,7 +67,7 @@ a:hover {
     box-shadow: 0px 0px 15px rgba(0, 255, 0, 0.3), inset 0 0 80px rgba(0, 255, 0, 0.04);
     border-radius: 10px;
     margin-top: 20px;
-    height: 1000px;
+    height: calc(100vh - 75px);
     padding-left: 15px;
     padding-right: 15px;
     padding-top: 5px;
@@ -119,6 +119,7 @@ a:hover {
     width: calc(100% - 50px);
     display: inline-block;
     margin-left: 5px;
+    position: relative;
 }
 
 .my-console {
@@ -141,8 +142,12 @@ a:hover {
     height: 22px;
     background: #00ff00;
     animation: blink 1s step-end infinite;
-    vertical-align: middle;
     box-shadow: 0 0 5px rgba(0, 255, 0, 0.6);
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 0;
+    pointer-events: none;
 }
 
 @keyframes blink {

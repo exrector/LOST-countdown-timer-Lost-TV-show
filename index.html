@@ -90,6 +90,21 @@
                         timer.reset();
                     }
                 });
+
+                // Scale timer to fit viewport
+                function scaleTimer() {
+                    var el = document.querySelector('.lost-timer');
+                    if (!el) return;
+                    el.style.transform = '';
+                    var scale = Math.min(
+                        window.innerWidth  / el.offsetWidth,
+                        window.innerHeight / el.offsetHeight
+                    ) * 0.92;
+                    el.style.transform = 'scale(' + scale + ')';
+                    el.style.transformOrigin = 'top center';
+                }
+                setTimeout(scaleTimer, 100);
+                window.addEventListener('resize', scaleTimer);
             });
         </script>
     </head>
