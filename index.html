@@ -102,6 +102,16 @@
                 }
                 setTimeout(scaleTimer, 100);
                 window.addEventListener('resize', scaleTimer);
+
+                // Show menu when mouse near bottom edge
+                document.addEventListener('mousemove', function(e) {
+                    var menu = document.querySelector('.timer-modes');
+                    if (e.clientY > window.innerHeight - 20) {
+                        menu.style.bottom = '0';
+                    } else {
+                        menu.style.bottom = '';
+                    }
+                });
             });
         </script>
     </head>
