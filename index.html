@@ -98,7 +98,7 @@
                     el.style.transform = '';
                     var scale = (window.innerWidth / el.offsetWidth) * 0.98;
                     el.style.transform = 'scale(' + scale + ')';
-                    el.style.transformOrigin = 'top center';
+                    el.style.transformOrigin = 'center center';
                 }
                 setTimeout(scaleTimer, 100);
                 window.addEventListener('resize', scaleTimer);
