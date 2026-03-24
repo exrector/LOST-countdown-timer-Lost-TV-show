@@ -291,13 +291,7 @@ var lostTimer = ( function() {
 		self.updateTimeVars();
 
 		// update the number slots html
-		self.updateNumbers( false );
-
-		// above 4 minutes seconds panels stay visible but blank
-		if ( self.totalSeconds >= 240 ) {
-			$( self.containerClassCss + '-number-4 .lost-flipper-number-table-cell' ).html( '' );
-			$( self.containerClassCss + '-number-5 .lost-flipper-number-table-cell' ).html( '' );
-		}
+		self.updateNumbers( false );		
 	};
 
 	/**
@@ -631,26 +625,6 @@ var lostTimer = ( function() {
 
 			self.playAudio( 'thud' );
 		}, 46000 );
-	};
-
-	/**
-	 * Pause or resume the timer
-	 *
-	 * @return void
-	 */
-	lostTimer.prototype.pauseResume = function() {
-		var self = this;
-
-		if ( self.paused ) {
-			self.paused = false;
-			self.startTimer();
-		} else {
-			self.paused = true;
-			clearInterval( self.timer );
-			$( self.containerClassCss + ' audio' ).each( function() {
-				this.pause();
-			} );
-		}
 	};
 
 	/**
