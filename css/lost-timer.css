@@ -41,10 +41,13 @@ body.kiosk .my-timer-container {
 
 .timer-modes {
     text-align: center;
-    margin-top: 20px;
     font-weight: bold;
     font-size: 12px; /* ссылки  размер шрифта  */
     color: #000000; /* Зеленый цвет текста для ретро-стиля */
+    position: fixed;
+    bottom: 10px;
+    left: 0;
+    right: 0;
 }
 
 .timer-mode {
