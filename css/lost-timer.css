@@ -45,7 +45,7 @@ body.kiosk .my-timer-container {
     font-size: 12px; /* ссылки  размер шрифта  */
     color: #000000; /* Зеленый цвет текста для ретро-стиля */
     position: fixed;
-    bottom: 10px;
+    bottom: 40px;
     left: 0;
     right: 0;
 }
