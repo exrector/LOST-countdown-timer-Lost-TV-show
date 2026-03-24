@@ -359,6 +359,20 @@ var lostTimer = ( function() {
 		self.timer = setInterval( function () {
 			self.onTick();
 
+	        if ( --self.totalSeconds < 0 ) { // decrement and check if time is up
+	            clearInterval( self.timer );
+	            setTimeout( function() {
+					self.rollGlyphs();
+				}, 1000 );
+	            return;
+	        }
+
+    		self.updateTimeVars();
+
+	        if ( 'dev' == self.mode ) { // update js timer
+	       		$( self.containerClassCss + '-timer' ).html( self.minutes + ":" + self.seconds );
+	       	}
+
 			if ( 0 == self.seconds || self.totalSeconds < 240 ) { // play ticker below four minutes
 				self.playAudio( 'tick' );
 			}
@@ -374,12 +388,6 @@ var lostTimer = ( function() {
 				self.playAudio( 'alarm' );
 			}
 
-    		self.updateTimeVars();
-
-	        if ( 'dev' == self.mode ) { // update js timer
-	       		$( self.containerClassCss + '-timer' ).html( self.minutes + ":" + self.seconds );
-	       	}
-
 	        // always try and flip the first three numbers
 	        self.flip( '1', self.num1 );
 	        self.flip( '2', self.num2 );
@@ -389,15 +397,6 @@ var lostTimer = ( function() {
 	        	self.flip( '4', self.num4 );
 	        	self.flip( '5', self.num5 );
 	       	} 
-
-	        if ( --self.totalSeconds < 0 ) { // decrement total seconds and check if less than zero
-	            // clear the timer interval so it stops
-				clearInterval( self.timer );
-	            
-	            setTimeout( function() { // wait one seconds and then roll glyphs
-					self.rollGlyphs();
-				}, 1000 );
-	        }
 	    }, 1000 ); 
 	};
 
