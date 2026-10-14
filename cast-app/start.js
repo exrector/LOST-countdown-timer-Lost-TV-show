@@ -7,11 +7,14 @@ const { start, events } = require('./server');
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
+const children = [];
+function track(child) { children.push(child); return child; }
+
 function openTerminalWindow(url) {
     // чистое окно без адресной строки, если есть Chrome; иначе обычный браузер по умолчанию
     if (fs.existsSync(CHROME)) {
         const profile = path.join(require('os').tmpdir(), 'lost-terminal-profile');
-        spawn(CHROME, [`--app=${url}`, '--window-size=800,600', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true }).unref();
+        track(spawn(CHROME, [`--app=${url}`, '--window-size=800,600', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
     } else {
         execFileSync('open', [url]);
     }
@@ -38,13 +41,13 @@ function findDisplay(name) {
 function openTimerOnDisplay(url, display) {
     if (!fs.existsSync(CHROME)) { console.log('⚠ Нужен Google Chrome для окна таймера на втором экране.'); return false; }
     const profile = path.join(require('os').tmpdir(), 'lost-timer-profile');
-    spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
+    track(spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
         '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required',
         // таймер идёт в окне на втором экране: без этих флагов Chrome притормаживает скрытые/перекрытые окна
         '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
         '--disable-features=CalculateNativeWinOcclusion',
         '--force-device-scale-factor=1'], // 1 CSS-пиксель = 1 физический: размер таймера не зависит от масштаба экрана macOS
-        { stdio: 'ignore', detached: true }).unref();
+        { stdio: 'ignore', detached: true })).unref();
     return true;
 }
 
@@ -90,15 +93,22 @@ function openTimerOnDisplay(url, display) {
         }
     }, 5000);
 
-    // Закрыли оба окна (таймер и терминал) — программа завершается сама
-    let emptySince = 0, hadPeers = false;
-    events.on('peers', p => { const n = p.tv + p.console; if (n > 0) { hadPeers = true; emptySince = 0; } else if (hadPeers && !emptySince) emptySince = Date.now(); });
-    setInterval(() => { if (emptySince && Date.now() - emptySince > 60000) { console.log('Оба окна закрыты — завершаю работу.'); bye(); } }, 5000);
+    // Закрыли окно терминала (кнопкой, ⌘W или ⌘Q) — программа завершается целиком, вместе с окном таймера.
+    // Небольшая пауза, чтобы не завершиться при перезагрузке страницы терминала.
+    let consoleGoneSince = 0, hadConsole = false;
+    events.on('peers', p => { if (p.console > 0) { hadConsole = true; consoleGoneSince = 0; } else if (hadConsole && !consoleGoneSince) consoleGoneSince = Date.now(); });
+    setInterval(() => { if (consoleGoneSince && Date.now() - consoleGoneSince > 10000) { console.log('Окно терминала закрыто — завершаю работу.'); bye(); } }, 2000);
+    events.on('quit', () => { console.log('Выход (по команде).'); bye(); });
 
     openTerminalWindow(`http://localhost:${port}/console.html`);
     console.log('Терминал открыт. Остановить: Ctrl+C или закрыть это окно.');
 
-    const bye = () => { try { session && session.close(); } catch (_) {} process.exit(0); };
+    const bye = () => {
+        try { session && session.close(); } catch (_) {}
+        children.forEach(c => { try { process.kill(c.pid, 'SIGTERM'); } catch (_) {} });      // окна таймера и терминала
+        try { execFileSync('pkill', ['-f', 'lost-(timer|terminal)-profile']); } catch (_) {}  // на случай оставшихся процессов Chrome
+        process.exit(0);
+    };
     process.on('SIGINT', bye);
     process.on('SIGTERM', bye);
     process.on('SIGHUP', bye);
