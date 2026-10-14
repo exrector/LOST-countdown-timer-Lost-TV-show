@@ -5,7 +5,8 @@ const { Client } = require('castv2');
 const DASHCAST_APP_ID = '84912283';
 const DASHCAST_NS = 'urn:x-cast:com.madmod.dashcast';
 
-function castSite(host, url, { timeout = 15000 } = {}) {
+function castSite(host, url, opts = {}) {
+    const timeout = opts.timeout || 15000;
     return new Promise((resolve, reject) => {
         const client = new Client();
         let done = false;
@@ -20,6 +21,7 @@ function castSite(host, url, { timeout = 15000 } = {}) {
             const receiver = client.createChannel('sender-0', 'receiver-0', 'urn:x-cast:com.google.cast.receiver', 'JSON');
             conn.send({ type: 'CONNECT' });
             heartbeat.send({ type: 'PING' });
+            heartbeat.on('message', m => { if (m.type === 'PING') { try { heartbeat.send({ type: 'PONG' }); } catch (_) {} } }); // без PONG Chromecast считает отправителя мёртвым
 
             let sent = false;
             receiver.on('message', msg => {
@@ -37,7 +39,7 @@ function castSite(host, url, { timeout = 15000 } = {}) {
                 clearTimeout(timer);
                 // соединение держим открытым (пульс), иначе Chromecast закрывает страницу вместе с отправителем
                 const beat = setInterval(() => { try { heartbeat.send({ type: 'PING' }); } catch (_) {} }, 5000);
-                client.on('close', () => clearInterval(beat));
+                client.on('close', () => { clearInterval(beat); if (!done && opts.onClose) opts.onClose(); });
                 resolve({ close: () => { clearInterval(beat); close(); } });
             });
             receiver.send({ type: 'LAUNCH', appId: DASHCAST_APP_ID, requestId: 1 });
