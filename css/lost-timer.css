@@ -7,6 +7,11 @@ body {
     font-family: Helvetica, sans-serif;
 }
 
+/* Терминал — палитра exrector.com: люминофор #33ff88, фон #030906, панель #09120d */
+body.console-page {
+    background: #030906;
+}
+
 body.timer-page {
     overflow: hidden;
     display: flex;
@@ -74,8 +79,8 @@ a:hover {
 .console-container {
     width: calc(100% - 40px);
     margin: 0 auto;
-    background: #0a0a0a;
-    box-shadow: 0px 0px 15px rgba(0, 255, 0, 0.3);
+    background: #09120d;
+    box-shadow: 0px 0px 15px rgba(51, 255, 136, 0.3);
     border-radius: 10px;
     margin-top: 20px;
     height: calc(100vh - 75px);
@@ -109,9 +114,9 @@ a:hover {
 .console-prompt {
     font-size: 30px;
     display: inline-block;
-    color: #00ff00;
+    color: #33ff88;
     font-family: "Courier New", Courier, monospace;
-    text-shadow: 0 0 5px rgba(0, 255, 0, 0.6), 0 0 15px rgba(0, 255, 0, 0.2);
+    text-shadow: 0 0 5px rgba(51, 255, 136, 0.6), 0 0 15px rgba(51, 255, 136, 0.2);
 }
 
 .console-input {
@@ -127,10 +132,10 @@ a:hover {
     box-sizing: border-box;
     font-size: 20px;
     background: transparent;
-    color: #00ff00;
+    color: #33ff88;
     width: 100%;
     font-family: "Courier New", Courier, monospace;
-    text-shadow: 0 0 5px rgba(0, 255, 0, 0.6), 0 0 15px rgba(0, 255, 0, 0.2);
+    text-shadow: 0 0 5px rgba(51, 255, 136, 0.6), 0 0 15px rgba(51, 255, 136, 0.2);
     caret-color: transparent;
 }
 
@@ -139,9 +144,9 @@ a:hover {
     display: inline-block;
     width: 12px;
     height: 22px;
-    background: #00ff00;
+    background: #33ff88;
     animation: blink 1s step-end infinite;
-    box-shadow: 0 0 5px rgba(0, 255, 0, 0.6);
+    box-shadow: 0 0 5px rgba(51, 255, 136, 0.6);
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
@@ -155,12 +160,12 @@ a:hover {
 }
 
 .timer-status {
-    color: #00ff00;
+    color: #33ff88;
     text-align: center;
     margin-top: 20px;
     font-size: 20px;
     font-family: "Courier New", Courier, monospace;
-    text-shadow: 0 0 5px rgba(0, 255, 0, 0.6), 0 0 15px rgba(0, 255, 0, 0.2);
+    text-shadow: 0 0 5px rgba(51, 255, 136, 0.6), 0 0 15px rgba(51, 255, 136, 0.2);
 }
 
 .lost-timer {
