@@ -30,6 +30,14 @@ function start(port = 8765, opts = {}) {
         if (p === '/') p = '/index.html';
         if (p === '/__ping') { res.writeHead(200); return res.end('ok'); }
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
+        // «Фокус: Сон» с iPhone (Команды → «Получить содержимое URL»): /__sleep?on=1 — пауза, /__sleep?on=0 — продолжить
+        if (p === '/__sleep') {
+            sleepOn = url.searchParams.get('on') === '1';
+            console.log(sleepOn ? '[сон] включён — пауза таймера' : '[сон] выключен — таймер продолжает');
+            for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
+            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+            return res.end(sleepOn ? 'LOST: сон, пауза' : 'LOST: работает');
+        }
         if (p === '/__jquery.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'vendor', 'jquery-3.5.1.min.js'))); }
         if (p === '/__bridge.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'bridge.js'))); }
         const file = path.join(ROOT, p);
@@ -64,6 +72,8 @@ function start(port = 8765, opts = {}) {
     applyAudioDevice(audioMode);
     const audioMsg = () => JSON.stringify({ type: '__audio', mode: audioMode });
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
+    let sleepOn = false; // состояние «Сна» — заново отправляется таймеру после перезагрузки его страницы
+    const sleepMsg = () => JSON.stringify({ type: '__cmd', cmd: 'sleep', on: sleepOn });
 
     server.on('upgrade', (req, sock, head) => {
         const role = new URL(req.url, 'http://x').searchParams.get('role');
@@ -73,6 +83,7 @@ function start(port = 8765, opts = {}) {
             console.log(`[bridge] ${role} connected (tv=${peers.tv.size}, console=${peers.console.size})`);
             ws.send(audioMsg());
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
+            if (role === 'tv' && sleepOn) ws.send(sleepMsg());
             ws.on('message', m => {
                 const s = m.toString();
                 if (s.indexOf('"cmd":"quit"') !== -1) { events.emit('quit'); return; }

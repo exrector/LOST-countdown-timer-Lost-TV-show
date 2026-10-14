@@ -109,6 +109,8 @@ function openTimerOnDisplay(url, display) {
         try { session && session.close(); } catch (_) {}
         children.forEach(c => { try { process.kill(c.pid, 'SIGTERM'); } catch (_) {} });      // окна таймера и терминала
         try { execFileSync('pkill', ['-f', 'lost-(timer|terminal)-profile']); } catch (_) {}  // на случай оставшихся процессов Chrome
+        // закрыть и значок LOST в Dock (сам он больше не опрашивает сервер каждые 4 с); не ждём — у значка свой обработчик выхода
+        try { spawn('osascript', ['-e', 'if application "LOST" is running then tell application "LOST" to quit'], { stdio: 'ignore', detached: true }).unref(); } catch (_) {}
         process.exit(0);
     };
     process.on('SIGINT', bye);
