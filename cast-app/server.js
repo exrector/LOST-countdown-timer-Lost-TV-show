@@ -28,6 +28,8 @@ function start(port = 8765, opts = {}) {
         const url = new URL(req.url, 'http://x');
         let p = decodeURIComponent(url.pathname);
         if (p === '/') p = '/index.html';
+        if (p === '/__ping') { res.writeHead(200); return res.end('ok'); }
+        if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
         if (p === '/__jquery.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'vendor', 'jquery-3.5.1.min.js'))); }
         if (p === '/__bridge.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'bridge.js'))); }
         const file = path.join(ROOT, p);
@@ -73,6 +75,7 @@ function start(port = 8765, opts = {}) {
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
             ws.on('message', m => {
                 const s = m.toString();
+                if (s.indexOf('"cmd":"quit"') !== -1) { events.emit('quit'); return; }
                 if (s.indexOf('"__audio"') !== -1) {
                     audioMode = JSON.parse(s).mode;
                     applyAudioDevice(audioMode);
