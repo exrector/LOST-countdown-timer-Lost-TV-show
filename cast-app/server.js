@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const { EventEmitter } = require('events');
+const { execFile } = require('child_process');
 const events = new EventEmitter();
 
 const _log = console.log;
@@ -22,6 +23,7 @@ function lanIp() {
 }
 
 function start(port = 8765, opts = {}) {
+    const stage = opts.stage || { width: 1560, height: 720 };
     const server = http.createServer((req, res) => {
         const url = new URL(req.url, 'http://x');
         let p = decodeURIComponent(url.pathname);
@@ -36,7 +38,7 @@ function start(port = 8765, opts = {}) {
         if (p === '/index.html' || p === '/console.html')
             body = Buffer.from(body.toString()
                 .replace(/https:\/\/ajax\.googleapis\.com\/ajax\/libs\/jquery\/[\d.]+\/jquery\.min\.js/, '/__jquery.js')
-                .replace('</head>', '<script src="/__bridge.js"></script></head>'));
+                .replace('</head>', `<script>window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height })}</script><script src="/__bridge.js"></script></head>`));
         res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
         res.end(body);
     });
@@ -46,6 +48,18 @@ function start(port = 8765, opts = {}) {
     const stateFile = path.join(__dirname, '.state.json');
     let audioMode = opts.audioDefault || 'mac';
     try { audioMode = JSON.parse(fs.readFileSync(stateFile, 'utf8')).audio || audioMode; } catch (_) {}
+    // Физический выход звука (динамики Мака / монитор по HDMI) переключает macOS-помощник bin/lost-audio
+    const AUDIO_BIN = path.join(__dirname, 'bin', 'lost-audio');
+    function applyAudioDevice(mode) {
+        const args = mode === 'monitor' ? ['set', 'display', opts.display || ''] : mode === 'speakers' ? ['set', 'builtin'] : null;
+        if (!args || !fs.existsSync(AUDIO_BIN)) return;
+        execFile(AUDIO_BIN, args.filter(Boolean), (e, out, err) => {
+            if (e) console.log('[audio] не удалось переключить (' + mode + '):', (err || e.message).trim());
+            else { try { console.log('[audio] выход звука:', JSON.parse(out).name); } catch (_) {} }
+        });
+    }
+    if (audioMode !== 'monitor' && audioMode !== 'off') audioMode = 'speakers'; // прежние значения (on/tv/mac) = динамики Мака
+    applyAudioDevice(audioMode);
     const audioMsg = () => JSON.stringify({ type: '__audio', mode: audioMode });
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
 
@@ -61,6 +75,7 @@ function start(port = 8765, opts = {}) {
                 const s = m.toString();
                 if (s.indexOf('"__audio"') !== -1) {
                     audioMode = JSON.parse(s).mode;
+                    applyAudioDevice(audioMode);
                     try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode })); } catch (_) {}
                     for (const set of Object.values(peers)) for (const o of set) if (o.readyState === 1) o.send(audioMsg());
                     return;

@@ -2,5 +2,9 @@
   "output": "local",
   "display": "Waveshare-625",
   "chromecast": "7b11b58e-17a6-f9d0-f5d9-212e52e356ee.local",
-  "port": 8765
+  "port": 8765,
+  "stage": {
+    "width": 1560,
+    "height": 720
+  }
 }

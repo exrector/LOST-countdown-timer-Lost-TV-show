@@ -3,7 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const { start, events } = require('./server');
-const { castSite } = require('./cast');
 
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -43,13 +42,14 @@ function openTimerOnDisplay(url, display) {
         '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required',
         // таймер идёт в окне на втором экране: без этих флагов Chrome притормаживает скрытые/перекрытые окна
         '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
-        '--disable-features=CalculateNativeWinOcclusion'],
+        '--disable-features=CalculateNativeWinOcclusion',
+        '--force-device-scale-factor=1'], // 1 CSS-пиксель = 1 физический: размер таймера не зависит от масштаба экрана macOS
         { stdio: 'ignore', detached: true }).unref();
     return true;
 }
 
 (async () => {
-    const { ip, port } = await start(cfg.port, { audioDefault: (cfg.output === 'local' ? 'tv' : 'mac') });
+    const { ip, port } = await start(cfg.port, { audioDefault: 'speakers', stage: cfg.stage, display: cfg.display });
     // не даём Маку и экрану заснуть, пока идёт таймер
     const caf = spawn('caffeinate', ['-d', '-i', '-w', String(process.pid)], { stdio: 'ignore' }); caf.unref();
     const timerUrl = `http://${ip}:${port}/index.html`;
@@ -72,6 +72,7 @@ function openTimerOnDisplay(url, display) {
 
     if (out === 'chromecast' || out === 'both') try {
         console.log(`Открываю таймер на Chromecast (${cfg.chromecast})…`);
+        const { castSite } = require('./cast'); // castv2 нужен только для Chromecast
         session = await castSite(cfg.chromecast, timerUrl, { onClose: () => console.log('⚠ Chromecast разорвал соединение отправителя — страница на ТВ может остановиться.') });
         console.log('Таймер запущен на ТВ.');
     } catch (e) {
