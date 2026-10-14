@@ -43,3 +43,4 @@
 - Первый запуск `open ~/LOST/LOST.app`: сервер, оба окна Chrome и мост поднялись (лог `/tmp/lost-start.log`). Память после запуска: node ~32 МБ, каждый Chrome ~130 МБ.
 - Грабли: сеть Mac mini по Wi-Fi медленная до nodejs.org (~20 КБ/с), GitHub — быстро. `python3` на машине без CLT — заглушка, вызывала окно установки.
 - Ещё не сделано: визуальная проверка центровки/плавности на панели (снимок по SSH без права записи экрана окон не показывает), автозапуск при входе.
+- 2026-10-15: плашка Chrome «macOS больше не поддерживается» отключена политикой: `defaults write com.google.Chrome SuppressUnsupportedOSWarning -bool true` (на Mac mini, юзер exrectormini). Если вернётся — та же политика, но в `/Library/Managed Preferences` (нужен sudo).
