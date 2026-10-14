@@ -117,6 +117,7 @@
         var ST = window.__LOST_STAGE || { w: 1560, h: 720 };
         var stCss = document.createElement('style');
         stCss.textContent = 'body.timer-page{display:block!important;overflow:hidden!important;height:100vh!important}' +
+            'body.timer-page,body.timer-page *{cursor:none!important}' + // на панели курсор мыши не нужен: всё управление — с терминала
             '.my-timer-container{position:fixed!important;left:50%;top:50%;width:' + ST.w + 'px;height:' + ST.h + 'px;margin:-' + (ST.h / 2) + 'px 0 0 -' + (ST.w / 2) + 'px!important;display:flex;align-items:center;justify-content:center}';
         document.head.appendChild(stCss);
         window.addEventListener('resize', function (e) { e.stopImmediatePropagation(); }, true); // не пересчитывать масштаб при изменении окна
