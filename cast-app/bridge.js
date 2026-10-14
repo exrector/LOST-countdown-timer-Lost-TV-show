@@ -158,7 +158,7 @@
     function buildPanel() {
         var st = document.createElement('style');
         st.textContent = '.ctl{position:relative;z-index:2;margin-top:18px;font-family:"Courier New",Courier,monospace}' +
-            '.ctl a{color:#00ff00;text-shadow:0 0 5px rgba(0,255,0,.6);font-size:14px;cursor:pointer;white-space:nowrap;text-decoration:none;opacity:.6}' +
+            '.ctl a{color:#33ff88;text-shadow:0 0 5px rgba(51,255,136,.6);font-size:14px;cursor:pointer;white-space:nowrap;text-decoration:none;opacity:.6}' +
             '.ctl a:hover{opacity:1;text-decoration:none}' +
             '.ctl .body{display:none}.ctl.open .body{display:block}' +
             '.ctl .row{display:flex;flex-wrap:wrap;gap:6px 24px;padding:4px 0}' +
