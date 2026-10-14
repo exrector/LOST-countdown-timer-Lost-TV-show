@@ -1,2 +1,3 @@
 .idea
 cast-app/node_modules/
+.state.json

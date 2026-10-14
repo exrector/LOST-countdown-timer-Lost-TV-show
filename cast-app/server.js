@@ -3,6 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
+const { EventEmitter } = require('events');
+const events = new EventEmitter();
+
+const _log = console.log;
+console.log = (...a) => _log(new Date().toTimeString().slice(0, 8), ...a);
 
 const ROOT = path.resolve(__dirname, '..');          // исходные index.html / console.html / css / js / assets
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
@@ -38,6 +43,10 @@ function start(port = 8765) {
 
     const wss = new WebSocketServer({ noServer: true });
     const peers = { tv: new Set(), console: new Set() };
+    const stateFile = path.join(__dirname, '.state.json');
+    let audioMode = 'mac';
+    try { audioMode = JSON.parse(fs.readFileSync(stateFile, 'utf8')).audio || 'mac'; } catch (_) {}
+    const audioMsg = () => JSON.stringify({ type: '__audio', mode: audioMode });
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
 
     server.on('upgrade', (req, sock, head) => {
@@ -46,9 +55,17 @@ function start(port = 8765) {
         wss.handleUpgrade(req, sock, head, ws => {
             peers[role].add(ws);
             console.log(`[bridge] ${role} connected (tv=${peers.tv.size}, console=${peers.console.size})`);
+            ws.send(audioMsg());
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
             ws.on('message', m => {
                 const s = m.toString();
+                if (s.indexOf('"__audio"') !== -1) {
+                    audioMode = JSON.parse(s).mode;
+                    try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode })); } catch (_) {}
+                    for (const set of Object.values(peers)) for (const o of set) if (o.readyState === 1) o.send(audioMsg());
+                    return;
+                }
+                if (s.indexOf('"__alive"') !== -1) { events.emit('tv-alive', JSON.parse(s)); return; }
                 if (s.indexOf('"__log"') !== -1) { console.log('[' + role + ' log]', JSON.parse(s).msg); return; }
                 const to = role === 'tv' ? 'console' : 'tv';
                 if (role === 'tv') { if (s.indexOf('enableConsole') !== -1) last.enable = s; else if (s.indexOf('"__state"') !== -1) last.state = s; }
@@ -65,5 +82,5 @@ function start(port = 8765) {
     }));
 }
 
-module.exports = { start, lanIp };
+module.exports = { start, lanIp, events };
 if (require.main === module) start(parseInt(process.env.PORT) || 8765);

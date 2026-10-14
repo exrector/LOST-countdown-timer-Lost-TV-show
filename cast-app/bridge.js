@@ -26,11 +26,58 @@
             var d = JSON.parse(e.data);
             if (d.type === '__cmd') return runCommand(d);
             if (d.type === '__state') return applyState(d);
+            if (d.type === '__audio') return setAudioMode(d.mode);
+            if (d.type === '__sound') return playOnConsole(d);
             window.dispatchEvent(new MessageEvent('message', { data: d }));
         };
         ws.onclose = function () { setTimeout(connect, 1000); };
     }
     connect();
+
+    // ================= Звук: где играть (mac | tv | off) =================
+    var audioMode = 'mac';
+    var audioLabels = { mac: 'Звук: Мак', tv: 'Звук: ТВ', off: 'Звук: выкл' };
+    function setAudioMode(m) {
+        audioMode = m;
+        if (role === 'console' && ui.audio) ui.audio.textContent = audioLabels[m] || m;
+        if (role === 'console' && m !== 'mac') stopConsoleSounds();
+    }
+
+    // Консоль: свои звуки из тех же файлов, что и на ТВ
+    var consoleSounds = {};
+    function consoleSound(key) {
+        if (!consoleSounds[key]) { consoleSounds[key] = new Audio('assets/sounds/' + key + '.mp3'); consoleSounds[key].preload = 'auto'; }
+        return consoleSounds[key];
+    }
+    function playOnConsole(d) {
+        if (role !== 'console' || audioMode !== 'mac') return;
+        var a = consoleSound(d.key);
+        if (d.op === 'pause') { a.pause(); a.currentTime = 0; }
+        else { var p = a.play(); if (p && p.catch) p.catch(function (e) { log('звук ' + d.key + ' заблокирован: ' + e.message); }); }
+    }
+    var unlocked = false;
+    function unlockSounds() {
+        if (unlocked || role !== 'console') return; unlocked = true;
+        SOUNDS.forEach(function (k) { var a = consoleSound(k); a.muted = true; var p = a.play(); (p && p.then ? p : Promise.resolve()).then(function () { a.pause(); a.currentTime = 0; a.muted = false; }, function () { a.muted = false; unlocked = false; }); });
+    }
+    ['mousedown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, unlockSounds, true); });
+    function stopConsoleSounds() { Object.keys(consoleSounds).forEach(function (k) { consoleSounds[k].pause(); consoleSounds[k].currentTime = 0; }); }
+
+    // ТВ: play()/pause() звуковых элементов таймера уходят на компьютер, если играть не на ТВ
+    if (role === 'tv') {
+        var origPlay = HTMLMediaElement.prototype.play, origPause = HTMLMediaElement.prototype.pause;
+        var keyOf = function (el) { var m = /\/([\w-]+)\.mp3/.exec(el.getAttribute('src') || ''); return m ? m[1] : null; };
+        HTMLMediaElement.prototype.play = function () {
+            var key = keyOf(this);
+            if (key && audioMode !== 'tv') { if (audioMode === 'mac') send({ type: '__sound', op: 'play', key: key }); return Promise.resolve(); }
+            return origPlay.apply(this, arguments);
+        };
+        HTMLMediaElement.prototype.pause = function () {
+            var key = keyOf(this);
+            if (key && audioMode !== 'tv') { if (audioMode === 'mac') send({ type: '__sound', op: 'pause', key: key }); return; }
+            return origPause.apply(this, arguments);
+        };
+    }
 
     // ================= ТВ =================
     function tvMode() { return new URLSearchParams(location.search).get('mode') || 'live'; }
@@ -49,8 +96,20 @@
     }
 
     if (role === 'tv') {
+        // пульс ТВ раз в 10 с: по нему сервер понимает, что страница не зависла
+        var born = Date.now();
+        setInterval(function () {
+            var m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : '?';
+            send({ type: '__alive', up: Math.round((Date.now() - born) / 1000), heap: m });
+        }, 10000);
+    }
+    if (role === 'tv') {
         var css = document.createElement('style');
-        css.textContent = '.timer-modes,.lost-timer-dev{display:none!important}html,body{cursor:none!important}';
+        css.textContent = '.timer-modes,.lost-timer-dev{display:none!important}html,body{cursor:none!important}' +
+            // Chromecast 1: mask на 3D-слоях давал заминки до ~1 с при сбросе; clip-path даёт тот же вид, но заметно дешевле
+            '.lost-flipper-number-before,.lost-flipper-number-after{-webkit-mask:none!important;mask:none!important}' +
+            '.lost-flipper-number-before{-webkit-clip-path:inset(0 0 50% 0);clip-path:inset(0 0 50% 0)}' +
+            '.lost-flipper-number-after{-webkit-clip-path:inset(50% 0 0 0);clip-path:inset(50% 0 0 0)}';
         document.head.appendChild(css);
 
         var opened = false, tries = 0;
@@ -109,13 +168,17 @@
         [['108 минут', 6480], ['4 минуты', 240], ['1 минута', 60], ['10 секунд', 10]].forEach(function (p) {
             item(ui.dev, 'Таймер: ' + p[0], click('.lost-timer-dev-action-set[data-seconds="' + p[1] + '"]'));
         });
-        item(ui.dev, 'Звук вкл/выкл', click('.lost-timer-dev-action-sound'));
         item(ui.dev, 'Сброс таймера', click('.lost-timer-dev-action-reset'));
         item(ui.dev, 'Прокрутить иероглифы', click('.lost-timer-dev-action-glyphs'));
         SOUNDS.forEach(function (s) { item(ui.dev, '▶ ' + s, click('.lost-timer-play-' + s)); });
 
         var main = row(body);
         ui.pause = item(main, '⏸ Пауза', click('#pauseResume'));
+        ui.audio = item(main, audioLabels[audioMode], null);
+        ui.audio.addEventListener('click', function () {
+            var next = { mac: 'tv', tv: 'off', off: 'mac' }[audioMode] || 'mac';
+            send({ type: '__audio', mode: next });
+        });
         ui.live = item(main, 'Live Mode', { type: '__cmd', cmd: 'mode', value: 'live' });
         ui.devBtn = item(main, 'Dev Mode', { type: '__cmd', cmd: 'mode', value: 'dev' });
 
