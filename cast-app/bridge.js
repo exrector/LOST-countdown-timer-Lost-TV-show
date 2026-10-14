@@ -201,6 +201,7 @@
             var next = { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers';
             send({ type: '__audio', mode: next });
         });
+        item(main, 'Выход', { type: '__cmd', cmd: 'quit' });
         ui.live = item(main, 'Live Mode', { type: '__cmd', cmd: 'mode', value: 'live' });
         ui.devBtn = item(main, 'Dev Mode', { type: '__cmd', cmd: 'mode', value: 'dev' });
 
