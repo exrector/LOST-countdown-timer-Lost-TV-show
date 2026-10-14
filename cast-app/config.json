@@ -1,5 +1,5 @@
 {
-  "output": "chromecast",
+  "output": "local",
   "display": "Waveshare-625",
   "chromecast": "7b11b58e-17a6-f9d0-f5d9-212e52e356ee.local",
   "port": 8765

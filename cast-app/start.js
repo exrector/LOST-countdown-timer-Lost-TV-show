@@ -40,16 +40,23 @@ function openTimerOnDisplay(url, display) {
     if (!fs.existsSync(CHROME)) { console.log('⚠ Нужен Google Chrome для окна таймера на втором экране.'); return false; }
     const profile = path.join(require('os').tmpdir(), 'lost-timer-profile');
     spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
-        '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'],
+        '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required',
+        // таймер идёт в окне на втором экране: без этих флагов Chrome притормаживает скрытые/перекрытые окна
+        '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+        '--disable-features=CalculateNativeWinOcclusion'],
         { stdio: 'ignore', detached: true }).unref();
     return true;
 }
 
 (async () => {
-    const { ip, port } = await start(cfg.port);
+    const { ip, port } = await start(cfg.port, { audioDefault: (cfg.output === 'local' ? 'tv' : 'mac') });
+    // не даём Маку и экрану заснуть, пока идёт таймер
+    const caf = spawn('caffeinate', ['-d', '-i', '-w', String(process.pid)], { stdio: 'ignore' }); caf.unref();
     const timerUrl = `http://${ip}:${port}/index.html`;
     let session;
     const out = cfg.output || 'chromecast';
+
+    if (out === 'external') console.log(`Таймер показывает внешнее устройство (Raspberry Pi): страница http://${ip}:${port}/index.html`);
 
     if (out === 'local' || out === 'both') {
         const d = findDisplay(cfg.display);
@@ -81,6 +88,11 @@ function openTimerOnDisplay(url, display) {
             console.log('⚠ ТВ не присылает пульс больше 40 с — страница таймера зависла или Chromecast пропал из сети.');
         }
     }, 5000);
+
+    // Закрыли оба окна (таймер и терминал) — программа завершается сама
+    let emptySince = 0, hadPeers = false;
+    events.on('peers', p => { const n = p.tv + p.console; if (n > 0) { hadPeers = true; emptySince = 0; } else if (hadPeers && !emptySince) emptySince = Date.now(); });
+    setInterval(() => { if (emptySince && Date.now() - emptySince > 60000) { console.log('Оба окна закрыты — завершаю работу.'); bye(); } }, 5000);
 
     openTerminalWindow(`http://localhost:${port}/console.html`);
     console.log('Терминал открыт. Остановить: Ctrl+C или закрыть это окно.');

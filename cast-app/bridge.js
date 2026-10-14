@@ -36,7 +36,7 @@
 
     // ================= Звук: где играть (mac | tv | off) =================
     var audioMode = 'mac';
-    var audioLabels = { mac: 'Звук: Мак', tv: 'Звук: ТВ', off: 'Звук: выкл' };
+    var audioLabels = { mac: 'Звук: терминал', tv: 'Звук: таймер', off: 'Звук: выкл' };
     function setAudioMode(m) {
         audioMode = m;
         if (role === 'console' && ui.audio) ui.audio.textContent = audioLabels[m] || m;
