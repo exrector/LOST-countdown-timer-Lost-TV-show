@@ -14,6 +14,7 @@ function openTerminalWindow(url) {
     // чистое окно без адресной строки, если есть Chrome; иначе обычный браузер по умолчанию
     if (fs.existsSync(CHROME)) {
         const profile = path.join(require('os').tmpdir(), 'lost-terminal-profile');
+        fs.rmSync(profile, { recursive: true, force: true }); // чистый профиль каждый запуск — без старого кэша страниц
         track(spawn(CHROME, [`--app=${url}`, '--window-size=800,600', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
     } else {
         execFileSync('open', [url]);
@@ -41,6 +42,7 @@ function findDisplay(name) {
 function openTimerOnDisplay(url, display) {
     if (!fs.existsSync(CHROME)) { console.log('⚠ Нужен Google Chrome для окна таймера на втором экране.'); return false; }
     const profile = path.join(require('os').tmpdir(), 'lost-timer-profile');
+    fs.rmSync(profile, { recursive: true, force: true });
     track(spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
         '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required',
         // таймер идёт в окне на втором экране: без этих флагов Chrome притормаживает скрытые/перекрытые окна
