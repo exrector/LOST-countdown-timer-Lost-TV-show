@@ -215,4 +215,19 @@
         (document.querySelector('.console-container') || document.body).appendChild(box);
     }
     if (role === 'console') document.addEventListener('DOMContentLoaded', buildPanel);
+
+    // Терминал: курсор мыши прячется через 2 с без движения и возвращается при движении (меню >: — мышью)
+    if (role === 'console') {
+        var idleCss = document.createElement('style');
+        idleCss.textContent = 'body.mouse-idle,body.mouse-idle *{cursor:none!important}';
+        document.head.appendChild(idleCss);
+        var idleTimer;
+        function wake() {
+            document.body.classList.remove('mouse-idle');
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(function () { document.body.classList.add('mouse-idle'); }, 2000);
+        }
+        ['mousemove', 'mousedown', 'wheel'].forEach(function (ev) { document.addEventListener(ev, wake, true); });
+        document.addEventListener('DOMContentLoaded', wake);
+    }
 })();
