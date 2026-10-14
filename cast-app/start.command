@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 # найти Node: PATH, nvm, Homebrew, /usr/local
 find_node() {
   command -v node && return
-  for n in "$HOME"/.nvm/versions/node/*/bin/node /opt/homebrew/bin/node /usr/local/bin/node; do [ -x "$n" ] && { echo "$n"; return; }; done
+  for n in "$HOME"/.local/node/bin/node "$HOME"/.nvm/versions/node/*/bin/node /opt/homebrew/bin/node /usr/local/bin/node; do [ -x "$n" ] && { echo "$n"; return; }; done
 }
 NODE=$(find_node | head -1)
 if [ -z "$NODE" ]; then
