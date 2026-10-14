@@ -167,7 +167,11 @@
             '.console-container{display:flex;flex-wrap:wrap;align-items:center;align-content:flex-start}' +
             '.console-input{flex:1;width:auto;margin-left:8px;display:block}' +
             '.my-console{padding:0;margin:0;display:block;line-height:1.2}' +
-            '.ctl{flex-basis:100%}';
+            '.ctl{flex-basis:100%}' +
+            // верхняя подпись остаётся над рамкой, но получает ту же «развёртку», что и экран терминала
+            '.timer-status{position:relative;filter:brightness(.83)}' +
+            '.timer-status::before{content:"";position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none;' +
+            'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}';
         document.head.appendChild(st);
 
         var box = document.createElement('div');
