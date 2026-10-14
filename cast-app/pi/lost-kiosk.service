@@ -1,0 +1,24 @@
+[Unit]
+Description=LOST kiosk (cage + chromium)
+After=network-online.target systemd-user-sessions.service getty@tty1.service
+Wants=network-online.target
+Conflicts=getty@tty1.service
+
+[Service]
+User=pi
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-force
+StandardOutput=journal
+StandardError=journal
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Restart=always
+RestartSec=5
+ExecStart=/usr/local/bin/lost-kiosk.sh
+
+[Install]
+WantedBy=multi-user.target
