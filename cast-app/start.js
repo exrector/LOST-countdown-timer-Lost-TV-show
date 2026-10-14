@@ -18,12 +18,52 @@ function openTerminalWindow(url) {
     }
 }
 
+// Координаты экранов macOS (через JXA). Chrome ждёт левый верхний угол, Cocoa даёт левый нижний.
+function listScreens() {
+    try {
+        const out = execFileSync('osascript', ['-l', 'JavaScript', '-e', `
+            ObjC.import("AppKit"); const s = $.NSScreen.screens, r = [];
+            for (let i = 0; i < s.count; i++) { const sc = s.objectAtIndex(i), f = sc.frame;
+              r.push({ name: ObjC.unwrap(sc.localizedName), x: f.origin.x, y: f.origin.y, w: f.size.width, h: f.size.height }); }
+            JSON.stringify(r)`], { encoding: 'utf8' });
+        const list = JSON.parse(out), H0 = list[0].h;
+        return list.map(d => ({ name: d.name, x: Math.round(d.x), y: Math.round(H0 - (d.y + d.h)), w: Math.round(d.w), h: Math.round(d.h) }));
+    } catch (e) { return []; }
+}
+
+function findDisplay(name) {
+    const list = listScreens();
+    return list.find(d => d.name === name) || (list.length > 1 ? list[list.length - 1] : null);
+}
+
+function openTimerOnDisplay(url, display) {
+    if (!fs.existsSync(CHROME)) { console.log('⚠ Нужен Google Chrome для окна таймера на втором экране.'); return false; }
+    const profile = path.join(require('os').tmpdir(), 'lost-timer-profile');
+    spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
+        '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'],
+        { stdio: 'ignore', detached: true }).unref();
+    return true;
+}
+
 (async () => {
     const { ip, port } = await start(cfg.port);
     const timerUrl = `http://${ip}:${port}/index.html`;
     let session;
+    const out = cfg.output || 'chromecast';
 
-    try {
+    if (out === 'local' || out === 'both') {
+        const d = findDisplay(cfg.display);
+        if (d) {
+            console.log(`Таймер — на экране «${d.name}» (${d.w}×${d.h}).`);
+            openTimerOnDisplay(`http://localhost:${port}/index.html`, d);
+        } else {
+            console.log(`⚠ Второй экран «${cfg.display}» не найден. Подключите его и отключите зеркалирование`);
+            console.log('  (Системные настройки → Мониторы → выберите панель → «Использовать как» → «Расширенный дисплей»).');
+            console.log('  Таймер не открыт; когда экран появится, перезапустите программу.');
+        }
+    }
+
+    if (out === 'chromecast' || out === 'both') try {
         console.log(`Открываю таймер на Chromecast (${cfg.chromecast})…`);
         session = await castSite(cfg.chromecast, timerUrl, { onClose: () => console.log('⚠ Chromecast разорвал соединение отправителя — страница на ТВ может остановиться.') });
         console.log('Таймер запущен на ТВ.');
