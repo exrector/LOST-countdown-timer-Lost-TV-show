@@ -63,3 +63,4 @@
 - С sudo: `mac-mini/optimize-sudo.sh` — Spotlight выкл, автообновления macOS/App Store выкл, Power Nap выкл.
 - Оставлены: Tailscale, AdGuard VPN, LOST.
 - 2026-10-15: «залипающие» клавиши на Mac mini. Физической клавиатуры нет (по Bluetooth — только мышь), ввод идёт через «Экран Mac mini»; при потере события отпускания клавиши macOS повторяет её до следующего нажатия. Автоповтор выключен: `defaults write -g InitialKeyRepeat -int 300000` и `KeyRepeat -int 300000` (действует после повторного входа; откат — `defaults delete -g InitialKeyRepeat` / `KeyRepeat`). LOST сам игнорирует повтор (e.repeat).
+- ~~2026-10-15: автоповтор клавиш выключен из-за «Экрана Mac mini»~~ — отменено в тот же день: владелец на Mac mini ничего не печатает, только наблюдает; гипотеза неверна, настройки возвращены (`defaults delete -g InitialKeyRepeat/KeyRepeat`).
