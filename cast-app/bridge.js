@@ -35,11 +35,12 @@
     connect();
 
     // ================= Звук: где играть (mac | tv | off) =================
-    var audioMode = 'mac';
-    var audioLabels = { mac: 'Звук: терминал', tv: 'Звук: таймер', off: 'Звук: выкл' };
+    var audioMode = 'speakers';
+    var audioLabels = { speakers: 'Звук: динамики Мака', monitor: 'Звук: монитор (HDMI)', off: 'Звук: выкл' };
+    function nativeSound() { return audioMode === 'speakers' || audioMode === 'monitor'; }
     function setAudioMode(m) {
         audioMode = m;
-        if (role === 'console' && ui.audio) ui.audio.textContent = audioLabels[m] || m;
+        if (role === 'console' && ui.audio) ui.audio.textContent = audioLabels[m] || audioLabels.speakers;
         if (role === 'console' && m !== 'mac') stopConsoleSounds();
     }
 
@@ -69,12 +70,12 @@
         var keyOf = function (el) { var m = /\/([\w-]+)\.mp3/.exec(el.getAttribute('src') || ''); return m ? m[1] : null; };
         HTMLMediaElement.prototype.play = function () {
             var key = keyOf(this);
-            if (key && audioMode !== 'tv') { if (audioMode === 'mac') send({ type: '__sound', op: 'play', key: key }); return Promise.resolve(); }
+            if (key && !nativeSound()) { if (audioMode === 'mac') send({ type: '__sound', op: 'play', key: key }); return Promise.resolve(); }
             return origPlay.apply(this, arguments);
         };
         HTMLMediaElement.prototype.pause = function () {
             var key = keyOf(this);
-            if (key && audioMode !== 'tv') { if (audioMode === 'mac') send({ type: '__sound', op: 'pause', key: key }); return; }
+            if (key && !nativeSound()) { if (audioMode === 'mac') send({ type: '__sound', op: 'pause', key: key }); return; }
             return origPause.apply(this, arguments);
         };
     }
@@ -111,6 +112,27 @@
             '.lost-flipper-number-before{-webkit-clip-path:inset(0 0 50% 0);clip-path:inset(0 0 50% 0)}' +
             '.lost-flipper-number-after{-webkit-clip-path:inset(50% 0 0 0);clip-path:inset(50% 0 0 0)}';
         document.head.appendChild(css);
+
+        // ЖЁСТКАЯ СЦЕНА: таймер всегда того же размера и на том же месте, что бы ни было с окном/экраном.
+        var ST = window.__LOST_STAGE || { w: 1560, h: 720 };
+        var stCss = document.createElement('style');
+        stCss.textContent = 'body.timer-page{display:block!important;overflow:hidden!important;height:100vh!important}' +
+            '.my-timer-container{position:fixed!important;left:50%;top:50%;width:' + ST.w + 'px;height:' + ST.h + 'px;margin:-' + (ST.h / 2) + 'px 0 0 -' + (ST.w / 2) + 'px!important;display:flex;align-items:center;justify-content:center}';
+        document.head.appendChild(stCss);
+        window.addEventListener('resize', function (e) { e.stopImmediatePropagation(); }, true); // не пересчитывать масштаб при изменении окна
+        function fixScale() {
+            var el = document.querySelector('.lost-timer'); if (!el || !el.offsetWidth) return;
+            var s = (ST.w / el.offsetWidth) * 0.98;
+            el.style.transformOrigin = 'center center';
+            el.style.transform = 'scale(' + s + ')';
+            // исходная вёрстка смещает цифры (зазор между минутами и секундами, поля): центрируем по реальным границам блоков
+            var f = el.querySelectorAll('.lost-flipper'); if (!f.length) return;
+            var L = 1e9, R = -1e9, T = 1e9, B = -1e9;
+            Array.prototype.forEach.call(f, function (x) { var r = x.getBoundingClientRect(); L = Math.min(L, r.left); R = Math.max(R, r.right); T = Math.min(T, r.top); B = Math.max(B, r.bottom); });
+            var dx = innerWidth / 2 - (L + R) / 2, dy = innerHeight / 2 - (T + B) / 2;
+            el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + s + ')';
+        }
+        [300, 800, 2000].forEach(function (ms) { setTimeout(fixScale, ms); }); // после того, как исходный код выставит свой масштаб
 
         var opened = false, tries = 0;
         var t = setInterval(function () {
@@ -176,7 +198,7 @@
         ui.pause = item(main, '⏸ Пауза', click('#pauseResume'));
         ui.audio = item(main, audioLabels[audioMode], null);
         ui.audio.addEventListener('click', function () {
-            var next = { mac: 'tv', tv: 'off', off: 'mac' }[audioMode] || 'mac';
+            var next = { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers';
             send({ type: '__audio', mode: next });
         });
         ui.live = item(main, 'Live Mode', { type: '__cmd', cmd: 'mode', value: 'live' });
