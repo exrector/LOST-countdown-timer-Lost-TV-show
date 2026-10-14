@@ -1,0 +1,14 @@
+{
+  "name": "lost-cast",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "server": "node server.js",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "castv2": "^0.1.10",
+    "ws": "^8.18.0"
+  }
+}
