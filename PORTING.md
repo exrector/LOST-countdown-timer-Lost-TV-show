@@ -44,3 +44,21 @@
 - Грабли: сеть Mac mini по Wi-Fi медленная до nodejs.org (~20 КБ/с), GitHub — быстро. `python3` на машине без CLT — заглушка, вызывала окно установки.
 - Ещё не сделано: визуальная проверка центровки/плавности на панели (снимок по SSH без права записи экрана окон не показывает), автозапуск при входе.
 - 2026-10-15: плашка Chrome «macOS больше не поддерживается» отключена политикой: `defaults write com.google.Chrome SuppressUnsupportedOSWarning -bool true` (на Mac mini, юзер exrectormini). Если вернётся — та же политика, но в `/Library/Managed Preferences` (нужен sudo).
+
+## 2026-10-15 — клавиатура, «Сон», экономный Mac mini
+**Клавиши в терминале** (мыши у Mac mini нет; работают и в русской раскладке): `P` пауза, `S` звук (динамики → HDMI → выкл), `D`/`L` Dev/Live Mode, `M` меню, `Q` дважды за 3 с — выход, `Esc` закрыть меню, стрелки — ходить по меню, `Enter` — выбрать пункт. Код по-прежнему цифрами и пробелами + Enter.
+
+**«Фокус: Сон» → пауза.** Mac mini на другом Apple ID, поэтому «Сон» приходит с iPhone через «Команды» по домашней сети (без Tailscale):
+- Автоматизация «Когда включается фокус Сон» → действие «Получить содержимое URL» `http://Mac-mini-AK.local:8765/__sleep?on=1`.
+- Автоматизация «Когда выключается фокус Сон» → `http://Mac-mini-AK.local:8765/__sleep?on=0`.
+- В обеих выключить «Спрашивать перед запуском». Ответ сервера: «LOST: сон, пауза» / «LOST: работает».
+- Снимается только пауза, поставленная сном; ручная пауза остаётся. После перезагрузки страницы таймера сон применяется снова.
+
+**Значок LOST.app**: опрос сервера каждые 4 с держал ~15 % CPU — теперь программа сама закрывает значок при выходе, опрос раз в минуту (страховка). Исходник: `cast-app/LOST.applescript` → `osacompile -o LOST.app/Contents/Resources/Scripts/main.scpt cast-app/LOST.applescript`.
+
+**Автозапуск**: `cast-app/com.exrector.lost.plist` (LOST_APP_PATH → путь к LOST.app) в `~/Library/LaunchAgents/`. Для работы без участия человека нужен автовход пользователя (FileVault выключен — возможно): Системные настройки → Пользователи и группы → Автоматический вход.
+
+**Экономия:**
+- Без sudo (сделано): службы GoogleUpdater/Keystone сняты (в Корзине `GoogleUpdater-agents-20261015`); папка `~/Library/Application Support/Google/GoogleUpdater` заменена пустым файлом с `chflags uchg` — Chrome не может переставить обновлятор (откат: `chflags nouchg` + удалить файл).
+- С sudo: `mac-mini/optimize-sudo.sh` — Spotlight выкл, автообновления macOS/App Store выкл, Power Nap выкл.
+- Оставлены: Tailscale, AdGuard VPN, LOST.
