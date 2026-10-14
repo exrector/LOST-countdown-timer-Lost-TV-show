@@ -21,7 +21,7 @@ function lanIp() {
     return '127.0.0.1';
 }
 
-function start(port = 8765) {
+function start(port = 8765, opts = {}) {
     const server = http.createServer((req, res) => {
         const url = new URL(req.url, 'http://x');
         let p = decodeURIComponent(url.pathname);
@@ -44,8 +44,8 @@ function start(port = 8765) {
     const wss = new WebSocketServer({ noServer: true });
     const peers = { tv: new Set(), console: new Set() };
     const stateFile = path.join(__dirname, '.state.json');
-    let audioMode = 'mac';
-    try { audioMode = JSON.parse(fs.readFileSync(stateFile, 'utf8')).audio || 'mac'; } catch (_) {}
+    let audioMode = opts.audioDefault || 'mac';
+    try { audioMode = JSON.parse(fs.readFileSync(stateFile, 'utf8')).audio || audioMode; } catch (_) {}
     const audioMsg = () => JSON.stringify({ type: '__audio', mode: audioMode });
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
 
@@ -71,7 +71,8 @@ function start(port = 8765) {
                 if (role === 'tv') { if (s.indexOf('enableConsole') !== -1) last.enable = s; else if (s.indexOf('"__state"') !== -1) last.state = s; }
                 for (const o of peers[to]) if (o.readyState === 1) o.send(s);
             });
-            ws.on('close', () => { peers[role].delete(ws); console.log(`[bridge] ${role} left`); });
+            events.emit('peers', { tv: peers.tv.size, console: peers.console.size });
+            ws.on('close', () => { peers[role].delete(ws); events.emit('peers', { tv: peers.tv.size, console: peers.console.size }); console.log(`[bridge] ${role} left`); });
         });
     });
 
