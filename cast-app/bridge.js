@@ -86,8 +86,19 @@
         var b = document.getElementById('pauseResume');
         send({ type: '__state', mode: tvMode(), label: b ? b.textContent : '' });
     }
+    // «Сон»: пауза, а по окончании — продолжить, только если паузу ставил сон (ручную паузу не трогаем)
+    var sleepPaused = false;
+    function applySleep(on) {
+        var b = document.getElementById('pauseResume');
+        if (!b || document.readyState !== 'complete') return setTimeout(function () { applySleep(on); }, 500); // страница таймера ещё собирается
+        var paused = b.textContent.indexOf('Старт') !== -1;
+        if (on && !paused) { b.click(); sleepPaused = true; log('сон: таймер на паузе'); }
+        else if (!on && sleepPaused) { if (paused) b.click(); sleepPaused = false; log('сон закончился: таймер идёт'); }
+        setTimeout(reportState, 50);
+    }
     function runCommand(d) {
         if (role !== 'tv') return;
+        if (d.cmd === 'sleep') return applySleep(!!d.on);
         if (d.cmd === 'mode') { location.href = '?mode=' + encodeURIComponent(d.value); return; }
         if (d.cmd === 'click' && /^(#pauseResume|\.lost-timer-[\w-]+(\[data-seconds="\d+"\])?)$/.test(d.sel)) {
             var el = document.querySelector(d.sel);
@@ -202,17 +213,78 @@
             var next = { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers';
             send({ type: '__audio', mode: next });
         });
-        item(main, 'Выход', { type: '__cmd', cmd: 'quit' });
+        ui.quit = item(main, 'Выход', { type: '__cmd', cmd: 'quit' });
         ui.live = item(main, 'Live Mode', { type: '__cmd', cmd: 'mode', value: 'live' });
         ui.devBtn = item(main, 'Dev Mode', { type: '__cmd', cmd: 'mode', value: 'dev' });
 
         var prompt = document.querySelector('.console-prompt');
         if (prompt) {
-            prompt.title = 'Техническое меню';
+            prompt.title = 'Техническое меню (M)';
             prompt.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
             prompt.addEventListener('click', function () { box.classList.toggle('open'); });
         }
         (document.querySelector('.console-container') || document.body).appendChild(box);
+        setupKeyboard(box);
+    }
+
+    // ================= Консоль: клавиатура (у компьютера нет мыши) =================
+    // Код набирается цифрами и пробелами, поэтому буквы свободны под команды. Клавиши ловятся по физическому
+    // положению (e.code), так что работают и в русской раскладке. Стрелки ходят по меню, Enter выбирает, Esc закрывает.
+    function setupKeyboard(box) {
+        var st = document.createElement('style');
+        st.textContent = '.ctl a[data-key]::after{content:" [" attr(data-key) "]";opacity:.55}' +
+            '.ctl a.sel{opacity:1;outline:1px solid #33ff88;outline-offset:3px}';
+        document.head.appendChild(st);
+        ui.pause.dataset.key = 'P'; ui.audio.dataset.key = 'S'; ui.quit.dataset.key = 'Q';
+        ui.live.dataset.key = 'L'; ui.devBtn.dataset.key = 'D';
+
+        var selEl = null, swallowEnter = false, quitArmed = 0, quitTimer;
+        function isOpen() { return box.classList.contains('open'); }
+        function select(el) { if (selEl) selEl.classList.remove('sel'); selEl = el; if (el) el.classList.add('sel'); }
+        function open(on) { box.classList.toggle('open', on); if (!on) select(null); }
+        function rows() {
+            return Array.prototype.filter.call(box.querySelectorAll('.row'), function (r) { return r.style.display !== 'none'; })
+                .map(function (r) { return Array.prototype.slice.call(r.querySelectorAll('a')); });
+        }
+        function move(dr, dc) {
+            if (!isOpen()) open(true);
+            var R = rows(), r = -1, c = 0;
+            R.forEach(function (row, i) { var j = row.indexOf(selEl); if (j !== -1) { r = i; c = j; } });
+            if (r === -1) return select(R[R.length - 1][0]); // первым выбирается «Пауза» в основной строке
+            if (dr) { r = Math.max(0, Math.min(R.length - 1, r + dr)); c = Math.min(c, R[r].length - 1); }
+            else c = (c + dc + R[r].length) % R[r].length;
+            select(R[r][c]);
+        }
+        function quitPress() {
+            if (Date.now() - quitArmed < 3000) return ui.quit.click();
+            quitArmed = Date.now(); open(true); select(ui.quit);
+            ui.quit.textContent = 'Выход — ещё раз Q';
+            clearTimeout(quitTimer);
+            quitTimer = setTimeout(function () { ui.quit.textContent = 'Выход'; quitArmed = 0; }, 3000);
+        }
+        var KEYS = {
+            KeyP: function () { ui.pause.click(); },
+            KeyS: function () { ui.audio.click(); },
+            KeyD: function () { ui.devBtn.click(); },
+            KeyL: function () { ui.live.click(); },
+            KeyM: function () { open(!isOpen()); },
+            KeyQ: quitPress,
+            Escape: function () { open(false); },
+            ArrowUp: function () { move(-1, 0); }, ArrowDown: function () { move(1, 0); },
+            ArrowLeft: function () { move(0, -1); }, ArrowRight: function () { move(0, 1); }
+        };
+        document.addEventListener('keydown', function (e) {
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key === 'Enter' && isOpen() && selEl) { e.preventDefault(); swallowEnter = true; selEl.click(); return; }
+            var f = KEYS[e.code];
+            if (!f) return;
+            e.preventDefault(); // буква-команда не попадает в строку ввода кода
+            if (!e.repeat) f();
+        }, true);
+        // console.html отправляет код по keyup Enter — если Enter выбрал пункт меню, код не отправляем
+        document.addEventListener('keyup', function (e) {
+            if (e.key === 'Enter' && swallowEnter) { swallowEnter = false; e.stopPropagation(); e.preventDefault(); }
+        }, true);
     }
     if (role === 'console') document.addEventListener('DOMContentLoaded', buildPanel);
 
