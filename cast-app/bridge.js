@@ -109,8 +109,15 @@
     // Продолжить с того же места: сервер подставляет, где остановился таймер. Явный ?seconds= (кнопки Dev-панели) важнее.
     if (role === 'tv' && window.__LOST_RESUME) {
         var R = window.__LOST_RESUME, q = new URLSearchParams(location.search);
-        if (R.left > 0 && !q.get('seconds')) { q.set('seconds', R.left); history.replaceState(null, '', '?' + q.toString()); }
+        var resumed = R.left > 0 && !q.get('seconds');
+        if (resumed) { q.set('seconds', R.left); history.replaceState(null, '', '?' + q.toString()); }
         if (R.paused) document.addEventListener('DOMContentLoaded', function () { applySleep(true); });
+        // исходный таймер при старте рисует и секунды, а выше 4 минут их больше не обновляет (там всегда 00):
+        // при продолжении с 107:27 на панели оставалось бы 108:27 — обнуляем секундные цифры, время не меняется
+        if (resumed && R.left > 240) window.addEventListener('load', function () {
+            document.querySelectorAll('.lost-timer-number-4 .lost-flipper-number-table-cell, .lost-timer-number-5 .lost-flipper-number-table-cell')
+                .forEach(function (c) { c.textContent = '0'; });
+        });
     }
     if (role === 'tv') {
         // пульс ТВ раз в 10 с: по нему сервер понимает, что страница не зависла
