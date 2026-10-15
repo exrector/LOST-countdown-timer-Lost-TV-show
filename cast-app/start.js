@@ -7,6 +7,12 @@ const { start, events } = require('./server');
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
+// Chrome без единого всплывающего элемента: режим киоска (нет баннера «нажмите Esc для выхода из полноэкранного режима»,
+// Esc не выходит из полного экрана — у нас это клавиша меню), без уведомлений, окна восстановления после сбоя,
+// перевода, вопроса о браузере по умолчанию и окон ошибок.
+const QUIET = ['--kiosk', '--no-first-run', '--no-default-browser-check', '--disable-notifications', '--noerrdialogs',
+    '--disable-session-crashed-bubble', '--hide-crash-restore-bubble', '--disable-features=Translate,TranslateUI'];
+
 const children = [];
 function track(child) { children.push(child); return child; }
 
@@ -18,7 +24,7 @@ function openTerminalWindow(url) {
         // на весь главный экран, как таймер на втором (главный — первый в списке macOS)
         const main = listScreens()[0];
         const place = main ? [`--window-position=${main.x},${main.y}`, `--window-size=${main.w},${main.h}`] : ['--window-size=800,600'];
-        track(spawn(CHROME, [`--app=${url}`, ...place, '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
+        track(spawn(CHROME, [`--app=${url}`, ...place, ...QUIET, `--user-data-dir=${profile}`, '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
     } else {
         execFileSync('open', [url]);
     }
@@ -47,7 +53,7 @@ function openTimerOnDisplay(url, display) {
     const profile = path.join(require('os').tmpdir(), 'lost-timer-profile');
     fs.rmSync(profile, { recursive: true, force: true });
     track(spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
-        '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required',
+        ...QUIET, `--user-data-dir=${profile}`, '--autoplay-policy=no-user-gesture-required',
         // таймер идёт в окне на втором экране: без этих флагов Chrome притормаживает скрытые/перекрытые окна
         '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
         '--disable-features=CalculateNativeWinOcclusion',
