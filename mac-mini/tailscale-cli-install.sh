@@ -16,8 +16,10 @@ sudo -u "$U" osascript -e 'quit app "Tailscale"' 2>/dev/null; sleep 3; pkill -x 
 
 echo "2. Ставлю tailscale и tailscaled в /usr/local/bin и запускаю службу"
 mkdir -p /usr/local/bin
-install -m 755 -o root -g wheel "$SRC/tailscale" "$SRC/tailscaled" /usr/local/bin/
-/usr/local/bin/tailscaled install-system-daemon
+install -m 755 -o root -g wheel "$SRC/tailscale" /usr/local/bin/
+# tailscaled сам копирует себя в /usr/local/bin — запускать ТОЛЬКО из папки сборки:
+# запуск из /usr/local/bin стирает собственный файл (копирование «на себя») и служба крутится вхолостую
+"$SRC/tailscaled" install-system-daemon
 sleep 4
 
 echo "3. Вход в tailnet: откройте ссылку, которая появится ниже, на iPhone или MacBook и подтвердите"
