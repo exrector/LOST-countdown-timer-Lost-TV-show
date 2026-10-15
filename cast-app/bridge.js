@@ -172,7 +172,7 @@
         window.addEventListener('resize', function (e) { e.stopImmediatePropagation(); }, true); // не пересчитывать масштаб при изменении окна
         function fixScale() {
             var el = document.querySelector('.lost-timer'); if (!el || !el.offsetWidth) return;
-            var s = (ST.w / el.offsetWidth) * 0.98;
+            var s = (ST.w / el.offsetWidth) * 0.98 * (ST.scale || 1); // scale — config.json → stage.scale (1 = по ширине панели)
             el.style.transformOrigin = 'center center';
             el.style.transform = 'scale(' + s + ')';
             // исходная вёрстка смещает цифры (зазор между минутами и секундами, поля): центрируем по реальным границам блоков
@@ -181,7 +181,9 @@
             Array.prototype.forEach.call(f, function (x) { var r = x.getBoundingClientRect(); L = Math.min(L, r.left); R = Math.max(R, r.right); T = Math.min(T, r.top); B = Math.max(B, r.bottom); });
             var dx = innerWidth / 2 - (L + R) / 2, dy = innerHeight / 2 - (T + B) / 2;
             el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + s + ')';
+            fixScale.size = Math.round(R - L) + '×' + Math.round(B - T);
         }
+        setTimeout(function () { log('таймер: блок цифр ' + fixScale.size + ' из ' + ST.w + '×' + ST.h + ' (масштаб ' + (ST.scale || 1) + ')'); }, 2600);
         [300, 800, 2000].forEach(function (ms) { setTimeout(fixScale, ms); }); // после того, как исходный код выставит свой масштаб
 
         var opened = false, tries = 0;
