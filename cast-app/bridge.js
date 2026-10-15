@@ -86,14 +86,13 @@
         var b = document.getElementById('pauseResume');
         send({ type: '__state', mode: tvMode(), label: b ? b.textContent : '' });
     }
-    // «Сон»: пауза, а по окончании — продолжить, только если паузу ставил сон (ручную паузу не трогаем)
-    var sleepPaused = false;
+    // «Сон» — всегда пауза, «Утро» — всегда старт (какой бы ни была пауза до этого)
     function applySleep(on) {
         var b = document.getElementById('pauseResume');
         if (!b || document.readyState !== 'complete') return setTimeout(function () { applySleep(on); }, 500); // страница таймера ещё собирается
         var paused = b.textContent.indexOf('Старт') !== -1;
-        if (on && !paused) { b.click(); sleepPaused = true; log('сон: таймер на паузе'); }
-        else if (!on && sleepPaused) { if (paused) b.click(); sleepPaused = false; log('сон закончился: таймер идёт'); }
+        if (on && !paused) { b.click(); log('сон: таймер на паузе'); }
+        else if (!on && paused) { b.click(); log('утро: таймер идёт'); }
         setTimeout(reportState, 50);
     }
     function runCommand(d) {
