@@ -89,7 +89,9 @@
     // «Сон» — всегда пауза, «Утро» — всегда старт (какой бы ни была пауза до этого)
     function applySleep(on) {
         var b = document.getElementById('pauseResume');
-        if (!b || document.readyState !== 'complete') return setTimeout(function () { applySleep(on); }, 500); // страница таймера ещё собирается
+        var drawn = document.querySelector('.lost-timer-number-1 .lost-flipper-prev .lost-flipper-number-table-cell');
+        // страница ещё собирается или таймер ещё не создан (jQuery 3 запускает его асинхронно) — кнопка пока ничего не делает
+        if (!b || document.readyState !== 'complete' || !drawn || drawn.textContent.trim() === '') return setTimeout(function () { applySleep(on); }, 300);
         var paused = b.textContent.indexOf('Старт') !== -1;
         if (on && !paused) { b.click(); log('сон: таймер на паузе'); }
         else if (!on && paused) { b.click(); log('утро: таймер идёт'); }
@@ -114,10 +116,17 @@
         if (R.paused) document.addEventListener('DOMContentLoaded', function () { applySleep(true); });
         // исходный таймер при старте рисует и секунды, а выше 4 минут их больше не обновляет (там всегда 00):
         // при продолжении с 107:27 на панели оставалось бы 108:27 — обнуляем секундные цифры, время не меняется
-        if (resumed && R.left > 240) window.addEventListener('load', function () {
-            document.querySelectorAll('.lost-timer-number-4 .lost-flipper-number-table-cell, .lost-timer-number-5 .lost-flipper-number-table-cell')
-                .forEach(function (c) { c.textContent = '0'; });
-        });
+        // jQuery 3 запускает код таймера асинхронно, уже после 'load' — ждём, пока цифры нарисуются, и тогда обнуляем
+        if (resumed && R.left > 240) {
+            var zt = setInterval(function () {
+                var sec = document.querySelector('.lost-timer-number-5 .lost-flipper-prev .lost-flipper-number-table-cell');
+                if (!sec || sec.textContent.trim() === '') return;
+                clearInterval(zt);
+                document.querySelectorAll('.lost-timer-number-4 .lost-flipper-number-table-cell, .lost-timer-number-5 .lost-flipper-number-table-cell')
+                    .forEach(function (c) { c.textContent = '0'; });
+            }, 50);
+            setTimeout(function () { clearInterval(zt); }, 10000);
+        }
         // в журнал запуска: что реально показано на панели после продолжения
         window.addEventListener('load', function () {
             setTimeout(function () {
