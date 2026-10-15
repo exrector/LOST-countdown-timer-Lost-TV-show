@@ -42,6 +42,7 @@ function start(port = 8765, opts = {}) {
             setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(answer ? answer + ' ' + statusText() : statusText()); }, 1500);
             return;
         }
+        if (p === '/__journal') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(journalTail(Math.min(200, parseInt(url.searchParams.get('lines')) || 16))); }
         if (p === '/__jquery.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'vendor', 'jquery-3.5.1.min.js'))); }
         if (p === '/__bridge.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'bridge.js'))); }
         const file = path.join(ROOT, p);
@@ -81,6 +82,7 @@ function start(port = 8765, opts = {}) {
     function switchMode(mode) {
         if (mode === curMode) return;
         slots[curMode] = { left: curLeft, paused: curPaused };
+        if (typeof journalFailure === 'function') journalFailure(false);
         curMode = mode; curLeft = slots[mode].left; curPaused = !!slots[mode].paused;
         saveState();
         console.log(`[режим] ${mode}: продолжаю с ${curLeft > 0 ? curLeft + ' с' : 'начала'}${curPaused ? ', на паузе' : ''}`);
@@ -128,6 +130,39 @@ function start(port = 8765, opts = {}) {
         return `LOST: ${t.paused ? 'пауза' : 'идёт'}, осталось ${left}${t.open ? ' — можно вводить код' : ''}. Звук: ${snd}.`;
     }
 
+    // ===== Журнал станции «Лебедь» — как распечатка в сериале =====
+    // Сплошной поток слов через пробел с переносом по 80 колонкам (готово для матричного принтера):
+    //   верный код → «<время> accepted», где время = месяц (без нуля) день(2) час(2) минута (без нуля) :секунды(2) — 922041:52;
+    //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Только Live, паузы не пишутся.
+    const journalFile = path.join(__dirname, 'journal.txt');
+    const COLS = 80;
+    let jLine = '';
+    try { const t = fs.readFileSync(journalFile, 'utf8'); jLine = t.endsWith('\n') ? '' : t.slice(t.lastIndexOf('\n') + 1); } catch (_) {}
+    function jWrite(word) {
+        let out = '';
+        if (jLine && jLine.length + 1 + word.length > COLS) { out = '\n'; jLine = ''; }
+        else if (jLine) { out = ' '; jLine += ' '; }
+        out += word; jLine += word;
+        try { fs.appendFileSync(journalFile, out); } catch (_) {}
+    }
+    function stamp(d = new Date()) {
+        const p2 = n => String(n).padStart(2, '0');
+        return `${d.getMonth() + 1}${p2(d.getDate())}${p2(d.getHours())}${d.getMinutes()}:${p2(d.getSeconds())}`;
+    }
+    function journalAccepted() { if (curMode !== 'live') return; jWrite(stamp()); jWrite('accepted'); console.log('[журнал]', stamp(), 'accepted'); }
+    let failTimer = null, failCount = 0;
+    function journalFailure(on) {
+        if (on && !failTimer && curMode === 'live') {
+            failCount = 0;
+            const tick = () => { if (++failCount > 108) { clearInterval(failTimer); return; } jWrite('SYSTEM'); jWrite('FAILURE'); };
+            console.log('[журнал] SYSTEM FAILURE');
+            tick(); failTimer = setInterval(tick, 1000);
+        } else if (!on && failTimer) { clearInterval(failTimer); failTimer = null; }
+    }
+    function journalTail(n) {
+        try { const ls = fs.readFileSync(journalFile, 'utf8').split('\n'); return ls.slice(-n).join('\n'); } catch (_) { return ''; }
+    }
+
     // ===== Удалённый пульт через iMessage =====
     // Сообщения на Apple ID этого Мака от разрешённых номеров (config.json → sleepFrom) читаются из базы «Сообщений»
     // раз в 10 с и выполняются как команды; на каждую LOST отвечает сообщением со своим состоянием.
@@ -141,6 +176,7 @@ function start(port = 8765, opts = {}) {
             const msg = JSON.stringify({ type: 'numberSubmitted', value: code });
             for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
             console.log('[пульт] код:', code);
+            if (code === '4 8 15 16 23 42') journalAccepted();
             return 'Код отправлен.';
         }
         // Своя команда из «Команд» этого Мака: текст сообщения точно совпадает с её названием (без учёта регистра).
@@ -157,6 +193,7 @@ function start(port = 8765, opts = {}) {
             child.stdin.end();
             return 'Запускаю команду «' + sc + '».';
         }
+        if (/^журнал|^journal/.test(t)) return 'Журнал станции:\n' + (journalTail(6) || '(пусто)') + '\n';
         if (/^(статус|status|\?)/.test(t)) return '';
         if (/звук выкл|без звука|тихо|mute/.test(t)) { setAudio('off'); return ''; }
         if (/динамик/.test(t)) { setAudio('speakers'); return ''; }
@@ -219,12 +256,16 @@ function start(port = 8765, opts = {}) {
                 if (s.indexOf('"__audio"') !== -1) { setAudio(JSON.parse(s).mode); return; }
                 if (s.indexOf('"__alive"') !== -1) { events.emit('tv-alive', JSON.parse(s)); return; }
                 if (s.indexOf('"__log"') !== -1) { console.log('[' + role + ' log]', JSON.parse(s).msg); return; }
+                if (role === 'console' && s.indexOf('numberSubmitted') !== -1) {
+                    try { if (JSON.parse(s).value === '4 8 15 16 23 42' && timerInfo().open) journalAccepted(); } catch (_) {}
+                }
                 const to = role === 'tv' ? 'console' : 'tv';
                 if (role === 'tv') {
                     if (s.indexOf('enableConsole') !== -1) {
                         // секунды от страницы другого режима (ещё не успела закрыться при переключении) — не наши
                         try { const e = JSON.parse(s); if ((e.mode || 'live') !== curMode) return; curLeft = e.remainingTime; } catch (_) {}
                         last.enable = s;
+                        journalFailure(curLeft <= 0);
                         if (Date.now() - savedAt > 10000 || curLeft <= 0) saveState();
                     } else if (s.indexOf('"__state"') !== -1) {
                         last.state = s;
