@@ -102,6 +102,7 @@ function start(port = 8765, opts = {}) {
     function timerInfo() {
         let left = null, open = false, paused = false;
         try { const e = JSON.parse(last.enable); left = e.remainingTime; open = !!e.enabled; } catch (_) {}
+        if (left == null) left = curLeft; // на паузе таймер время не присылает — берём сохранённое
         try { paused = /Старт/.test(JSON.parse(last.state).label); } catch (_) {}
         return { left, open, paused };
     }
