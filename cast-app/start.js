@@ -57,7 +57,7 @@ function openTimerOnDisplay(url, display) {
 }
 
 (async () => {
-    const { ip, port } = await start(cfg.port, { audioDefault: 'speakers', stage: cfg.stage, display: cfg.display });
+    const { ip, port } = await start(cfg.port, { audioDefault: 'speakers', stage: cfg.stage, display: cfg.display, sleepFile: cfg.sleepFile });
     // не даём Маку и экрану заснуть, пока идёт таймер
     const caf = spawn('caffeinate', ['-d', '-i', '-w', String(process.pid)], { stdio: 'ignore' }); caf.unref();
     const timerUrl = `http://${ip}:${port}/index.html`;

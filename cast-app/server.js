@@ -32,9 +32,7 @@ function start(port = 8765, opts = {}) {
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
         // «Фокус: Сон» с iPhone (Команды → «Получить содержимое URL»): /__sleep?on=1 — пауза, /__sleep?on=0 — продолжить
         if (p === '/__sleep') {
-            sleepOn = url.searchParams.get('on') === '1';
-            console.log(sleepOn ? '[сон] включён — пауза таймера' : '[сон] выключен — таймер продолжает');
-            for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
+            setSleep(url.searchParams.get('on') === '1', 'запрос с iPhone');
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
             return res.end(sleepOn ? 'LOST: сон, пауза' : 'LOST: работает');
         }
@@ -74,6 +72,26 @@ function start(port = 8765, opts = {}) {
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
     let sleepOn = false; // состояние «Сна» — заново отправляется таймеру после перезагрузки его страницы
     const sleepMsg = () => JSON.stringify({ type: '__cmd', cmd: 'sleep', on: sleepOn });
+    function setSleep(on, source) {
+        sleepOn = on;
+        console.log(`[сон] ${on ? 'включён — пауза таймера' : 'выключен — таймер продолжает'} (${source})`);
+        for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
+    }
+    // «Сон» через общую папку iCloud Drive: автоматизация iPhone пишет в файл 1/0, iCloud доставляет его сюда.
+    // Работает, даже когда iPhone не дома. Срабатывает только при смене значения в файле — запрос /__sleep может его перебить.
+    if (opts.sleepFile) {
+        const file = opts.sleepFile.replace(/^~(?=\/)/, os.homedir());
+        const stub = path.join(path.dirname(file), '.' + path.basename(file) + '.icloud'); // файл ещё не скачан из iCloud
+        let seen = null;
+        const check = () => {
+            if (fs.existsSync(stub)) execFile('brctl', ['download', file], () => {});
+            let v; try { v = fs.readFileSync(file, 'utf8').trim().toLowerCase(); } catch (_) { return; }
+            const on = /^(1|on|да|вкл|сон|true)/.test(v);
+            if (on !== seen) { if (seen !== null || on) setSleep(on, 'файл iCloud'); seen = on; }
+        };
+        console.log('[сон] слежу за файлом iCloud:', file);
+        check(); setInterval(check, 10000);
+    }
 
     server.on('upgrade', (req, sock, head) => {
         const role = new URL(req.url, 'http://x').searchParams.get('role');
