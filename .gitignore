@@ -1,3 +1,4 @@
 .idea
 cast-app/node_modules/
 .state.json
+cast-app/journal.txt
