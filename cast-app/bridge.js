@@ -118,6 +118,13 @@
             document.querySelectorAll('.lost-timer-number-4 .lost-flipper-number-table-cell, .lost-timer-number-5 .lost-flipper-number-table-cell')
                 .forEach(function (c) { c.textContent = '0'; });
         });
+        // в журнал запуска: что реально показано на панели после продолжения
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                var d = [1, 2, 3, 4, 5].map(function (n) { var c = document.querySelector('.lost-timer-number-' + n + ' .lost-flipper-prev .lost-flipper-number-table-cell') || document.querySelector('.lost-timer-number-' + n + ' .lost-flipper-number-table-cell'); return c ? c.textContent.trim() : '?'; });
+                log('на панели: ' + d.slice(0, 3).join('') + ':' + d.slice(3).join('') + ' (осталось ' + R.left + ' с)');
+            }, 1500);
+        });
     }
     if (role === 'tv') {
         // пульс ТВ раз в 10 с: по нему сервер понимает, что страница не зависла
