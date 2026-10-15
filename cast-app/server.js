@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const { EventEmitter } = require('events');
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const events = new EventEmitter();
 
 const _log = console.log;
@@ -107,8 +107,8 @@ function start(port = 8765, opts = {}) {
     // Сообщения на Apple ID этого Мака от разрешённых номеров (config.json → sleepFrom) читаются из базы «Сообщений»
     // раз в 10 с и выполняются как команды; на каждую LOST отвечает сообщением со своим состоянием.
     // Выход и Dev Mode по сообщению намеренно недоступны (удалённо их не отменить, Dev Mode перезапускает таймер).
-    const HELP = 'Команды: Пауза/Сон, Старт/Утро, Звук, Звук выкл, Динамики, Монитор, Статус, код 4 8 15 16 23 42.';
-    function runRemote(text, via) {
+    const HELP = 'Команды: Пауза/Сон, Старт/Утро, Звук, Звук выкл, Динамики, Монитор, Статус, код 4 8 15 16 23 42 — или точное название команды из «Команд» Mac mini.';
+    function runRemote(text, via, sender) {
         const t = String(text || '').trim().toLowerCase().replace(/ё/g, 'е');
         if (/^[\d\s]+$/.test(t) && /\d/.test(t)) {
             const code = t.split(/\s+/).filter(Boolean).join(' ');
@@ -118,6 +118,18 @@ function start(port = 8765, opts = {}) {
             console.log('[пульт] код:', code);
             return 'Код отправлен.';
         }
+        // Своя команда из «Команд» этого Мака: текст сообщения точно совпадает с её названием (без учёта регистра).
+        // Так любое слово с iPhone может запустить что угодно в системе — достаточно создать команду с таким именем.
+        const sc = findShortcut(text);
+        if (sc) {
+            console.log('[пульт] запускаю команду «' + sc + '» (' + via + ')');
+            execFile('shortcuts', ['run', sc], { timeout: 120000 }, (e, out) => {
+                const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
+                console.log('[пульт] команда «' + sc + '»: ' + res);
+                if (sender) reply(sender, 'Команда «' + sc + '»: ' + res.slice(0, 500));
+            });
+            return 'Запускаю команду «' + sc + '».';
+        }
         if (/^(статус|status|\?)/.test(t)) return '';
         if (/звук выкл|без звука|тихо|mute/.test(t)) { setAudio('off'); return ''; }
         if (/динамик/.test(t)) { setAudio('speakers'); return ''; }
@@ -126,6 +138,16 @@ function start(port = 8765, opts = {}) {
         if (/(выкл|проснул|подъем|утро|встал|старт|пуск|продолж|play)/.test(t)) { setSleep(false, via + ' «' + text.trim() + '»'); return ''; }
         if (/(пауза|сон|спать|сплю|стоп|pause)/.test(t)) { setSleep(true, via + ' «' + text.trim() + '»'); return ''; }
         return 'Не понял «' + text.trim() + '». ' + HELP;
+    }
+    // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
+    let shortcutNames = [], shortcutsAt = 0;
+    function findShortcut(text) {
+        if (Date.now() - shortcutsAt > 60000) {
+            try { shortcutNames = execFileSync('shortcuts', ['list'], { encoding: 'utf8', timeout: 10000 }).split('\n').map(x => x.trim()).filter(Boolean); } catch (_) {}
+            shortcutsAt = Date.now();
+        }
+        const want = String(text || '').trim().toLowerCase();
+        return shortcutNames.find(n => n.toLowerCase() === want) || null;
     }
     // Ответ через «Сообщения» на этом Маке (при первой отправке macOS спросит разрешение на управление «Сообщениями»)
     function reply(to, text) {
@@ -146,7 +168,7 @@ function start(port = 8765, opts = {}) {
                 if (lastId === null) { lastId = parseInt(out) || 0; return; } // старые сообщения не трогаем
                 for (const line of out.split('\n').filter(Boolean)) {
                     const [id, sender, ...rest] = line.split('\t'); lastId = Math.max(lastId, parseInt(id));
-                    const answer = runRemote(rest.join(' '), 'iMessage');
+                    const answer = runRemote(rest.join(' '), 'iMessage', sender);
                     // ответ — после того, как таймер успеет отработать команду и прислать новое состояние
                     setTimeout(() => reply(sender, answer ? answer + ' ' + statusText() : statusText()), 1500);
                 }
