@@ -133,11 +133,13 @@ function start(port = 8765, opts = {}) {
         const sc = findShortcut(text);
         if (sc) {
             console.log('[пульт] запускаю команду «' + sc + '» (' + via + ')');
-            execFile('shortcuts', ['run', sc], { timeout: 120000 }, (e, out) => {
+            // ввод закрываем сразу: при открытом stdin `shortcuts run` ждёт входные данные для команды и висит
+            const child = execFile('shortcuts', ['run', sc], { timeout: 120000 }, (e, out) => {
                 const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
                 console.log('[пульт] команда «' + sc + '»: ' + res);
                 if (sender) reply(sender, 'Команда «' + sc + '»: ' + res.slice(0, 500));
             });
+            child.stdin.end();
             return 'Запускаю команду «' + sc + '».';
         }
         if (/^(статус|status|\?)/.test(t)) return '';
