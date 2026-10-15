@@ -13,7 +13,11 @@
     function log(msg) { send({ type: '__log', role: role, msg: String(msg) }); }
     window.addEventListener('error', function (e) { log('JS error: ' + e.message + ' @' + e.filename + ':' + e.lineno); });
 
-    fake.postMessage = function (data) { send(data); };
+    fake.postMessage = function (data) {
+        // таймер шлёт остаток каждую секунду — помечаем режимом, чтобы сервер не путал таймеры Live и Dev
+        if (role === 'tv' && data && data.type === 'enableConsole') data.mode = new URLSearchParams(location.search).get('mode') === 'dev' ? 'dev' : 'live';
+        send(data);
+    };
     fake.focus = function () {};
 
     function connect() {
