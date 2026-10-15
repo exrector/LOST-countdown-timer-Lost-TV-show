@@ -273,13 +273,22 @@
             ArrowUp: function () { move(-1, 0); }, ArrowDown: function () { move(1, 0); },
             ArrowLeft: function () { move(0, -1); }, ArrowRight: function () { move(0, 1); }
         };
+        // в журнал запуска (/tmp/lost-start.log): есть ли у окна терминала фокус клавиатуры
+        log('клавиатура готова, фокус у страницы: ' + document.hasFocus());
+        window.addEventListener('focus', function () { log('окно терминала получило фокус'); });
+        window.addEventListener('blur', function () { log('окно терминала потеряло фокус'); });
+        var lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды подряд
         document.addEventListener('keydown', function (e) {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             if (e.key === 'Enter' && isOpen() && selEl) { e.preventDefault(); swallowEnter = true; selEl.click(); return; }
             var f = KEYS[e.code];
             if (!f) return;
             e.preventDefault(); // буква-команда не попадает в строку ввода кода
-            if (!e.repeat) f();
+            if (e.repeat) return;
+            var now = Date.now();
+            if (e.code === lastCode && now - lastAt < 250) return;
+            lastCode = e.code; lastAt = now;
+            f();
         }, true);
         // console.html отправляет код по keyup Enter — если Enter выбрал пункт меню, код не отправляем
         document.addEventListener('keyup', function (e) {
