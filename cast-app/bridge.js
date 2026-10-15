@@ -183,6 +183,7 @@
             fixScale.size = Math.round(R - L) + '×' + Math.round(B - T);
         }
         setTimeout(function () { log('таймер: блок цифр ' + fixScale.size + ' из ' + ST.w + '×' + ST.h + ' (масштаб ' + (ST.scale || 1) + ')'); }, 2600);
+        setTimeout(function () { log('окно таймера: x=' + screenX + ' y=' + screenY + ' ' + innerWidth + '×' + innerHeight); }, 2700);
         [300, 800, 2000].forEach(function (ms) { setTimeout(fixScale, ms); }); // после того, как исходный код выставит свой масштаб
 
         var opened = false, tries = 0;
@@ -334,6 +335,7 @@
         };
         // в журнал запуска (/tmp/lost-start.log): есть ли у окна терминала фокус клавиатуры
         log('клавиатура готова, фокус у страницы: ' + document.hasFocus());
+        log('окно терминала: x=' + screenX + ' y=' + screenY + ' ' + innerWidth + '×' + innerHeight);
         window.addEventListener('focus', function () { log('окно терминала получило фокус'); });
         window.addEventListener('blur', function () { log('окно терминала потеряло фокус'); });
         var swallowEnter = false, lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды
