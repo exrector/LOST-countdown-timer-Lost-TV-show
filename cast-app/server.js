@@ -32,9 +32,15 @@ function start(port = 8765, opts = {}) {
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
         // «Фокус: Сон» с iPhone (Команды → «Получить содержимое URL»): /__sleep?on=1 — пауза, /__sleep?on=0 — продолжить
         if (p === '/__sleep') {
-            setSleep(url.searchParams.get('on') === '1', 'запрос с iPhone');
+            setSleep(url.searchParams.get('on') === '1', 'запрос по сети');
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
             return res.end(sleepOn ? 'LOST: сон, пауза' : 'LOST: работает');
+        }
+        // тот же пульт, что и по iMessage, но по локальной сети: /__cmd?text=Пауза — ответ тем же текстом, что пришёл бы сообщением
+        if (p === '/__cmd') {
+            const answer = runRemote(url.searchParams.get('text') || '', 'сеть');
+            setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(answer ? answer + ' ' + statusText() : statusText()); }, 1500);
+            return;
         }
         if (p === '/__jquery.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'vendor', 'jquery-3.5.1.min.js'))); }
         if (p === '/__bridge.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end(fs.readFileSync(path.join(__dirname, 'bridge.js'))); }
@@ -70,42 +76,83 @@ function start(port = 8765, opts = {}) {
     applyAudioDevice(audioMode);
     const audioMsg = () => JSON.stringify({ type: '__audio', mode: audioMode });
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
-    let sleepOn = false; // состояние «Сна» — заново отправляется таймеру после перезагрузки его страницы
+    let sleepOn = false; // последняя удалённая команда паузы — заново отправляется таймеру после перезагрузки его страницы
     const sleepMsg = () => JSON.stringify({ type: '__cmd', cmd: 'sleep', on: sleepOn });
     function setSleep(on, source) {
         sleepOn = on;
-        console.log(`[сон] ${on ? 'включён — пауза таймера' : 'выключен — таймер продолжает'} (${source})`);
+        console.log(`[пульт] ${on ? 'пауза' : 'старт'} (${source})`);
         for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
     }
-    // «Сон» через iMessage: автоматизация iPhone по фокусу «Сон» шлёт сообщение на Apple ID этого Мака.
-    // LOST читает новые входящие из базы «Сообщений» (нужен «Полный доступ к диску» для LOST.app) раз в 10 с,
-    // только от разрешённых отправителей (config.json → sleepFrom). Работает, где бы ни был iPhone.
-    // «Сон» — пауза; «Подъём» / «Проснулся» / «Утро» / «Сон выкл» — продолжить. Запрос /__sleep тоже работает.
+    function setAudio(mode) {
+        audioMode = mode;
+        applyAudioDevice(audioMode);
+        try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode })); } catch (_) {}
+        for (const set of Object.values(peers)) for (const o of set) if (o.readyState === 1) o.send(audioMsg());
+    }
+    // Что сейчас с таймером: оставшееся время приходит от таймера каждую секунду (enableConsole), пауза — по подписи кнопки
+    function timerInfo() {
+        let left = null, open = false, paused = false;
+        try { const e = JSON.parse(last.enable); left = e.remainingTime; open = !!e.enabled; } catch (_) {}
+        try { paused = /Старт/.test(JSON.parse(last.state).label); } catch (_) {}
+        return { left, open, paused };
+    }
+    function statusText() {
+        const t = timerInfo(), L = t.left;
+        const left = L == null ? '?' : L > 240 ? Math.ceil(L / 60) + ' мин' : Math.floor(L / 60) + ':' + String(L % 60).padStart(2, '0');
+        const snd = { speakers: 'динамики', monitor: 'монитор', off: 'выкл' }[audioMode] || audioMode;
+        return `LOST: ${t.paused ? 'пауза' : 'идёт'}, осталось ${left}${t.open ? ' — можно вводить код' : ''}. Звук: ${snd}.`;
+    }
+
+    // ===== Удалённый пульт через iMessage =====
+    // Сообщения на Apple ID этого Мака от разрешённых номеров (config.json → sleepFrom) читаются из базы «Сообщений»
+    // раз в 10 с и выполняются как команды; на каждую LOST отвечает сообщением со своим состоянием.
+    // Выход и Dev Mode по сообщению намеренно недоступны (удалённо их не отменить, Dev Mode перезапускает таймер).
+    const HELP = 'Команды: Пауза/Сон, Старт/Утро, Звук, Звук выкл, Динамики, Монитор, Статус, код 4 8 15 16 23 42.';
+    function runRemote(text, via) {
+        const t = String(text || '').trim().toLowerCase().replace(/ё/g, 'е');
+        if (/^[\d\s]+$/.test(t) && /\d/.test(t)) {
+            const code = t.split(/\s+/).filter(Boolean).join(' ');
+            if (!timerInfo().open) return 'Код не принят: терминал открывается только в последние 4 минуты.';
+            const msg = JSON.stringify({ type: 'numberSubmitted', value: code });
+            for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
+            console.log('[пульт] код:', code);
+            return 'Код отправлен.';
+        }
+        if (/^(статус|status|\?)/.test(t)) return '';
+        if (/звук выкл|без звука|тихо|mute/.test(t)) { setAudio('off'); return ''; }
+        if (/динамик/.test(t)) { setAudio('speakers'); return ''; }
+        if (/монитор|hdmi/.test(t)) { setAudio('monitor'); return ''; }
+        if (/^звук/.test(t)) { setAudio({ speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers'); return ''; }
+        if (/(выкл|проснул|подъем|утро|встал|старт|пуск|продолж|play)/.test(t)) { setSleep(false, via + ' «' + text.trim() + '»'); return ''; }
+        if (/(пауза|сон|спать|сплю|стоп|pause)/.test(t)) { setSleep(true, via + ' «' + text.trim() + '»'); return ''; }
+        return 'Не понял «' + text.trim() + '». ' + HELP;
+    }
+    // Ответ через «Сообщения» на этом Маке (при первой отправке macOS спросит разрешение на управление «Сообщениями»)
+    function reply(to, text) {
+        const script = 'on run argv\n tell application "Messages"\n set s to 1st account whose service type = iMessage\n' +
+            ' send (item 2 of argv) to participant (item 1 of argv) of s\n end tell\nend run';
+        execFile('osascript', ['-e', script, to, text], e => { if (e) console.log('[пульт] ответ не отправлен:', (e.message || '').split('\n')[0]); });
+    }
     if (opts.sleepFrom && opts.sleepFrom.length) {
         const db = path.join(os.homedir(), 'Library/Messages/chat.db');
         const from = opts.sleepFrom.map(x => "'" + String(x).replace(/'/g, '') + "'").join(',');
-        const parse = t => {
-            t = String(t || '').toLowerCase();
-            if (/(выкл|проснул|подъ[её]м|утро|встал)/.test(t)) return false;
-            if (/сон|спать|сплю/.test(t)) return true;
-            return null;
-        };
         let lastId = null, warned = false;
         const check = () => {
             const q = lastId === null ? 'select max(ROWID) from message;'
-                : `select m.ROWID, m.text from message m join handle h on h.ROWID = m.handle_id where m.ROWID > ${lastId} and m.is_from_me = 0 and h.id in (${from}) order by m.ROWID;`;
+                : `select m.ROWID, h.id, m.text from message m join handle h on h.ROWID = m.handle_id where m.ROWID > ${lastId} and m.is_from_me = 0 and h.id in (${from}) order by m.ROWID;`;
             execFile('/usr/bin/sqlite3', ['-readonly', '-separator', '\t', db, q], (e, out) => {
-                if (e) { if (!warned) console.log('[сон] не читается база «Сообщений» — дайте LOST.app «Полный доступ к диску»:', (e.message || '').split('\n')[0]); warned = true; return; }
-                if (warned) { console.log('[сон] доступ к «Сообщениям» есть'); warned = false; }
+                if (e) { if (!warned) console.log('[пульт] не читается база «Сообщений» — дайте LOST.app «Полный доступ к диску»:', (e.message || '').split('\n')[0]); warned = true; return; }
+                if (warned) { console.log('[пульт] доступ к «Сообщениям» есть'); warned = false; }
                 if (lastId === null) { lastId = parseInt(out) || 0; return; } // старые сообщения не трогаем
                 for (const line of out.split('\n').filter(Boolean)) {
-                    const [id, ...rest] = line.split('\t'); lastId = Math.max(lastId, parseInt(id));
-                    const on = parse(rest.join('\t'));
-                    if (on !== null) setSleep(on, 'iMessage: «' + rest.join(' ').trim() + '»');
+                    const [id, sender, ...rest] = line.split('\t'); lastId = Math.max(lastId, parseInt(id));
+                    const answer = runRemote(rest.join(' '), 'iMessage');
+                    // ответ — после того, как таймер успеет отработать команду и прислать новое состояние
+                    setTimeout(() => reply(sender, answer ? answer + ' ' + statusText() : statusText()), 1500);
                 }
             });
         };
-        console.log('[сон] жду iMessage от:', opts.sleepFrom.join(', '));
+        console.log('[пульт] жду iMessage от:', opts.sleepFrom.join(', '));
         check(); setInterval(check, 10000);
     }
 
@@ -121,13 +168,7 @@ function start(port = 8765, opts = {}) {
             ws.on('message', m => {
                 const s = m.toString();
                 if (s.indexOf('"cmd":"quit"') !== -1) { events.emit('quit'); return; }
-                if (s.indexOf('"__audio"') !== -1) {
-                    audioMode = JSON.parse(s).mode;
-                    applyAudioDevice(audioMode);
-                    try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode })); } catch (_) {}
-                    for (const set of Object.values(peers)) for (const o of set) if (o.readyState === 1) o.send(audioMsg());
-                    return;
-                }
+                if (s.indexOf('"__audio"') !== -1) { setAudio(JSON.parse(s).mode); return; }
                 if (s.indexOf('"__alive"') !== -1) { events.emit('tv-alive', JSON.parse(s)); return; }
                 if (s.indexOf('"__log"') !== -1) { console.log('[' + role + ' log]', JSON.parse(s).msg); return; }
                 const to = role === 'tv' ? 'console' : 'tv';
