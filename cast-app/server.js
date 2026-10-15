@@ -49,6 +49,7 @@ function start(port = 8765, opts = {}) {
             res.writeHead(404); return res.end('not found');
         }
         let body = fs.readFileSync(file);
+        if (p === '/index.html') switchMode(url.searchParams.get('mode') === 'dev' ? 'dev' : 'live');
         if (p === '/index.html' || p === '/console.html')
             body = Buffer.from(body.toString()
                 .replace(/https:\/\/ajax\.googleapis\.com\/ajax\/libs\/jquery\/[\d.]+\/jquery\.min\.js/, '/__jquery.js')
@@ -65,10 +66,24 @@ function start(port = 8765, opts = {}) {
     audioMode = saved.audio || audioMode;
     // Где остановился таймер: продолжаем с того же места после перезапуска LOST и при переключении Dev/Live.
     // Время, пока LOST выключен, не идёт. Если таймер дошёл до нуля — следующий запуск с начала (108 мин).
-    let curLeft = saved.left > 0 ? saved.left : null, curPaused = !!saved.paused, savedAt = 0;
+    // У Live и Dev — свои таймеры: уходя в Dev, Live замораживается на своём месте и при возврате продолжает с него.
+    const slots = {
+        live: saved.live || { left: saved.left > 0 ? saved.left : null, paused: !!saved.paused }, // старый формат = Live
+        dev: saved.dev || { left: null, paused: false },
+    };
+    let curMode = 'live', curLeft = slots.live.left, curPaused = !!slots.live.paused, savedAt = 0;
     function saveState() {
         savedAt = Date.now();
-        try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode, left: curLeft, paused: curPaused })); } catch (_) {}
+        slots[curMode] = { left: curLeft, paused: curPaused };
+        try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode, live: slots.live, dev: slots.dev })); } catch (_) {}
+    }
+    // страница таймера запрошена в режиме mode: текущий таймер — в свой слот, текущим становится таймер этого режима
+    function switchMode(mode) {
+        if (mode === curMode) return;
+        slots[curMode] = { left: curLeft, paused: curPaused };
+        curMode = mode; curLeft = slots[mode].left; curPaused = !!slots[mode].paused;
+        saveState();
+        console.log(`[режим] ${mode}: продолжаю с ${curLeft > 0 ? curLeft + ' с' : 'начала'}${curPaused ? ', на паузе' : ''}`);
     }
     process.on('exit', saveState); // при выходе — точное место, а не 10-секундной давности
     // Физический выход звука (динамики Мака / монитор по HDMI) переключает macOS-помощник bin/lost-audio
@@ -207,12 +222,13 @@ function start(port = 8765, opts = {}) {
                 const to = role === 'tv' ? 'console' : 'tv';
                 if (role === 'tv') {
                     if (s.indexOf('enableConsole') !== -1) {
+                        // секунды от страницы другого режима (ещё не успела закрыться при переключении) — не наши
+                        try { const e = JSON.parse(s); if ((e.mode || 'live') !== curMode) return; curLeft = e.remainingTime; } catch (_) {}
                         last.enable = s;
-                        try { curLeft = JSON.parse(s).remainingTime; } catch (_) {}
                         if (Date.now() - savedAt > 10000 || curLeft <= 0) saveState();
                     } else if (s.indexOf('"__state"') !== -1) {
                         last.state = s;
-                        try { const p = /Старт/.test(JSON.parse(s).label); if (p !== curPaused) { curPaused = p; saveState(); } } catch (_) {}
+                        try { const d = JSON.parse(s); const p = /Старт/.test(d.label); if ((d.mode || 'live') === curMode && p !== curPaused) { curPaused = p; saveState(); } } catch (_) {}
                     }
                 }
                 for (const o of peers[to]) if (o.readyState === 1) o.send(s);
