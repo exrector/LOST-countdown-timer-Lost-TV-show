@@ -77,19 +77,33 @@ function start(port = 8765, opts = {}) {
         console.log(`[сон] ${on ? 'включён — пауза таймера' : 'выключен — таймер продолжает'} (${source})`);
         for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
     }
-    // «Сон» через общую папку iCloud Drive: автоматизация iPhone пишет в файл 1/0, iCloud доставляет его сюда.
-    // Работает, даже когда iPhone не дома. Срабатывает только при смене значения в файле — запрос /__sleep может его перебить.
-    if (opts.sleepFile) {
-        const file = opts.sleepFile.replace(/^~(?=\/)/, os.homedir());
-        const stub = path.join(path.dirname(file), '.' + path.basename(file) + '.icloud'); // файл ещё не скачан из iCloud
+    // «Сон» через общую папку iCloud Drive: автоматизация iPhone «Сохранить файл» с текстом 1 / 0 кладёт туда файл
+    // 1.txt / 0.txt (имя берётся из текста). Решает самый свежий файл в папке: имя или содержимое 1 — сон, 0 — нет.
+    // Работает, даже когда iPhone не дома. Срабатывает на каждую новую запись; запрос /__sleep может перебить.
+    if (opts.sleepDir) {
+        const dir = opts.sleepDir.replace(/^~(?=\/)/, os.homedir());
+        const isOn = v => /^(1|on|да|вкл|сон|true)/.test(String(v).trim().toLowerCase());
         let seen = null;
         const check = () => {
-            if (fs.existsSync(stub)) execFile('brctl', ['download', file], () => {});
-            let v; try { v = fs.readFileSync(file, 'utf8').trim().toLowerCase(); } catch (_) { return; }
-            const on = /^(1|on|да|вкл|сон|true)/.test(v);
-            if (on !== seen) { if (seen !== null || on) setSleep(on, 'файл iCloud'); seen = on; }
+            let names; try { names = fs.readdirSync(dir); } catch (_) { return; }
+            // файлы, которые iCloud ещё держит в облаке (.имя.icloud), — скачать
+            names.filter(n => /^\..+\.icloud$/.test(n)).forEach(n => execFile('brctl', ['download', path.join(dir, n.slice(1, -7))], () => {}));
+            let newest = null;
+            for (const n of names) {
+                if (n.startsWith('.')) continue;
+                try { const st = fs.statSync(path.join(dir, n)); if (st.isFile() && (!newest || st.mtimeMs > newest.t)) newest = { n, t: st.mtimeMs }; } catch (_) {}
+            }
+            if (!newest) return;
+            const sig = newest.n + '@' + newest.t;
+            if (sig === seen) return;
+            const base = newest.n.replace(/\.[^.]*$/, '');
+            let val = base;
+            if (!/^[01]$/.test(base)) { try { val = fs.readFileSync(path.join(dir, newest.n), 'utf8'); } catch (_) { return; } }
+            const first = seen === null; seen = sig;
+            const on = isOn(val);
+            if (!first || on) setSleep(on, 'iCloud: ' + newest.n);
         };
-        console.log('[сон] слежу за файлом iCloud:', file);
+        console.log('[сон] слежу за общей папкой iCloud:', dir);
         check(); setInterval(check, 10000);
     }
 
