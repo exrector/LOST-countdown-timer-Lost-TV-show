@@ -114,6 +114,12 @@
         var resumed = R.left > 0 && !q.get('seconds');
         if (resumed) { q.set('seconds', R.left); history.replaceState(null, '', '?' + q.toString()); }
         if (R.paused) document.addEventListener('DOMContentLoaded', function () { applySleep(true); });
+        // сброс по коду возвращает таймер к стартовому времени (initialSeconds), а при продолжении стартовым стал остаток —
+        // поэтому после продолжения сброс снова ведёт к 108:00, как в исходной логике
+        if (resumed && window.lostTimer && lostTimer.prototype.reset) {
+            var origReset = lostTimer.prototype.reset;
+            lostTimer.prototype.reset = function () { this.initialSeconds = 60 * 108; return origReset.apply(this, arguments); };
+        }
         // исходный таймер при старте рисует и секунды, а выше 4 минут их больше не обновляет (там всегда 00):
         // при продолжении с 107:27 на панели оставалось бы 108:27 — обнуляем секундные цифры, время не меняется
         // jQuery 3 запускает код таймера асинхронно, уже после 'load' — ждём, пока цифры нарисуются, и тогда обнуляем
