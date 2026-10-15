@@ -15,7 +15,10 @@ function openTerminalWindow(url) {
     if (fs.existsSync(CHROME)) {
         const profile = path.join(require('os').tmpdir(), 'lost-terminal-profile');
         fs.rmSync(profile, { recursive: true, force: true }); // чистый профиль каждый запуск — без старого кэша страниц
-        track(spawn(CHROME, [`--app=${url}`, '--window-size=800,600', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
+        // на весь главный экран, как таймер на втором (главный — первый в списке macOS)
+        const main = listScreens()[0];
+        const place = main ? [`--window-position=${main.x},${main.y}`, `--window-size=${main.w},${main.h}`] : ['--window-size=800,600'];
+        track(spawn(CHROME, [`--app=${url}`, ...place, '--start-fullscreen', `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
     } else {
         execFileSync('open', [url]);
     }
