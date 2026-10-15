@@ -226,7 +226,8 @@
             '.ctl .row .k{opacity:.6}' +
             '.ctl .row.sel{background:#33ff88;color:#09120d;text-shadow:none}' +
             '.ctl .row.sel .k{opacity:.8}' +
-            '.ctl .ft{padding:3px 10px;border-top:1px solid #33ff88;font-size:13px;opacity:.6}';
+            '.ctl .ft{padding:3px 10px;border-top:1px solid #33ff88;font-size:13px;opacity:.6}' +
+            '.ctl .view{margin:0;padding:6px 10px;font:15px/1.35 "Courier New",Courier,monospace;white-space:pre;min-height:120px}';
         document.head.appendChild(st);
 
         function click(sel) { return function () { send({ type: '__cmd', cmd: 'click', sel: sel }); }; }
@@ -252,6 +253,7 @@
             { label: function () { return 'ЗВУК: ' + (AUDIO[audioMode] || 'ДИНАМИКИ'); }, key: 'S', act: function () {
                 send({ type: '__audio', mode: { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers' }); } },
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, key: 'D/L', act: function () { mode(ui.mode === 'dev' ? 'live' : 'dev')(); } },
+            { label: 'ЖУРНАЛ', view: true },
             { label: 'РАЗРАБОТКА', dir: DEV.dir, devOnly: true },
             { label: function () { return quitArmed ? 'ВЫХОД? ЕЩЁ РАЗ' : 'ВЫХОД'; }, key: 'Q Q', act: quit }
         ] };
@@ -259,7 +261,7 @@
         var box = document.createElement('div'); box.className = 'ctl';
         var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
         var path = [ROOT], sel = 0;
-        function items() { return path[path.length - 1].dir.filter(function (it) { return !it.devOnly || ui.mode === 'dev'; }); }
+        function items() { var n = path[path.length - 1]; return n.view ? [] : n.dir.filter(function (it) { return !it.devOnly || ui.mode === 'dev'; }); }
         function text(v) { return typeof v === 'function' ? v() : v; }
         function render() {
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
@@ -267,10 +269,17 @@
             var ttl = document.createElement('div'); ttl.className = 'ttl';
             ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.label); }).join('\\');
             win.appendChild(ttl);
+            var node = path[path.length - 1];
+            if (node.view) {
+                var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
+                win.appendChild(pre);
+                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '← НАЗАД  ESC ЗАКРЫТЬ'; win.appendChild(f);
+                return;
+            }
             list.forEach(function (it, i) {
                 var r = document.createElement('div'); r.className = 'row' + (i === sel ? ' sel' : '');
                 var l = document.createElement('span'); l.textContent = text(it.label);
-                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir ? '<DIR>' : (it.key ? '[' + it.key + ']' : '');
+                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir ? '<DIR>' : it.view ? '<ФАЙЛ>' : (it.key ? '[' + it.key + ']' : '');
                 r.appendChild(l); r.appendChild(k);
                 r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
                 r.addEventListener('click', function () { sel = i; enter(); });
@@ -285,11 +294,18 @@
         function enter() {
             var it = items()[sel]; if (!it) return;
             if (it.dir) { path.push(it); sel = 0; render(); return; }
+            if (it.view) {
+                it.text = ''; path.push(it); render();
+                fetch('/__journal?lines=14').then(function (r) { return r.text(); }).then(function (t) {
+                    it.text = t || '(ЖУРНАЛ ПУСТ)'; render();
+                });
+                return;
+            }
             if (it.act) it.act();
             setTimeout(render, 150);
         }
         function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
-        function move(d) { if (!isOpen()) return open(true); var n = items().length; sel = (sel + d + n) % n; render(); }
+        function move(d) { if (!isOpen()) return open(true); var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         ui.render = render;
 
         var prompt = document.querySelector('.console-prompt');
