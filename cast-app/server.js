@@ -52,7 +52,7 @@ function start(port = 8765, opts = {}) {
         if (p === '/index.html' || p === '/console.html')
             body = Buffer.from(body.toString()
                 .replace(/https:\/\/ajax\.googleapis\.com\/ajax\/libs\/jquery\/[\d.]+\/jquery\.min\.js/, '/__jquery.js')
-                .replace('</head>', `<script>window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height })}</script><script src="/__bridge.js"></script></head>`));
+                .replace('</head>', `<script>window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height })};window.__LOST_RESUME=${JSON.stringify({ left: curLeft > 0 ? curLeft : null, paused: curPaused })}</script><script src="/__bridge.js"></script></head>`));
         res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
         res.end(body);
     });
@@ -61,7 +61,16 @@ function start(port = 8765, opts = {}) {
     const peers = { tv: new Set(), console: new Set() };
     const stateFile = path.join(__dirname, '.state.json');
     let audioMode = opts.audioDefault || 'mac';
-    try { audioMode = JSON.parse(fs.readFileSync(stateFile, 'utf8')).audio || audioMode; } catch (_) {}
+    let saved = {}; try { saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch (_) {}
+    audioMode = saved.audio || audioMode;
+    // Где остановился таймер: продолжаем с того же места после перезапуска LOST и при переключении Dev/Live.
+    // Время, пока LOST выключен, не идёт. Если таймер дошёл до нуля — следующий запуск с начала (108 мин).
+    let curLeft = saved.left > 0 ? saved.left : null, curPaused = !!saved.paused, savedAt = 0;
+    function saveState() {
+        savedAt = Date.now();
+        try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode, left: curLeft, paused: curPaused })); } catch (_) {}
+    }
+    process.on('exit', saveState); // при выходе — точное место, а не 10-секундной давности
     // Физический выход звука (динамики Мака / монитор по HDMI) переключает macOS-помощник bin/lost-audio
     const AUDIO_BIN = path.join(__dirname, 'bin', 'lost-audio');
     function applyAudioDevice(mode) {
@@ -86,7 +95,7 @@ function start(port = 8765, opts = {}) {
     function setAudio(mode) {
         audioMode = mode;
         applyAudioDevice(audioMode);
-        try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode })); } catch (_) {}
+        saveState();
         for (const set of Object.values(peers)) for (const o of set) if (o.readyState === 1) o.send(audioMsg());
     }
     // Что сейчас с таймером: оставшееся время приходит от таймера каждую секунду (enableConsole), пауза — по подписи кнопки
@@ -186,7 +195,6 @@ function start(port = 8765, opts = {}) {
             console.log(`[bridge] ${role} connected (tv=${peers.tv.size}, console=${peers.console.size})`);
             ws.send(audioMsg());
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
-            if (role === 'tv' && sleepOn) ws.send(sleepMsg());
             ws.on('message', m => {
                 const s = m.toString();
                 if (s.indexOf('"cmd":"quit"') !== -1) { events.emit('quit'); return; }
@@ -194,7 +202,16 @@ function start(port = 8765, opts = {}) {
                 if (s.indexOf('"__alive"') !== -1) { events.emit('tv-alive', JSON.parse(s)); return; }
                 if (s.indexOf('"__log"') !== -1) { console.log('[' + role + ' log]', JSON.parse(s).msg); return; }
                 const to = role === 'tv' ? 'console' : 'tv';
-                if (role === 'tv') { if (s.indexOf('enableConsole') !== -1) last.enable = s; else if (s.indexOf('"__state"') !== -1) last.state = s; }
+                if (role === 'tv') {
+                    if (s.indexOf('enableConsole') !== -1) {
+                        last.enable = s;
+                        try { curLeft = JSON.parse(s).remainingTime; } catch (_) {}
+                        if (Date.now() - savedAt > 10000 || curLeft <= 0) saveState();
+                    } else if (s.indexOf('"__state"') !== -1) {
+                        last.state = s;
+                        try { const p = /Старт/.test(JSON.parse(s).label); if (p !== curPaused) { curPaused = p; saveState(); } } catch (_) {}
+                    }
+                }
                 for (const o of peers[to]) if (o.readyState === 1) o.send(s);
             });
             events.emit('peers', { tv: peers.tv.size, console: peers.console.size });
