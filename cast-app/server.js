@@ -77,33 +77,35 @@ function start(port = 8765, opts = {}) {
         console.log(`[сон] ${on ? 'включён — пауза таймера' : 'выключен — таймер продолжает'} (${source})`);
         for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
     }
-    // «Сон» через общую папку iCloud Drive: автоматизация iPhone «Сохранить файл» с текстом 1 / 0 кладёт туда файл
-    // 1.txt / 0.txt (имя берётся из текста). Решает самый свежий файл в папке: имя или содержимое 1 — сон, 0 — нет.
-    // Работает, даже когда iPhone не дома. Срабатывает на каждую новую запись; запрос /__sleep может перебить.
-    if (opts.sleepDir) {
-        const dir = opts.sleepDir.replace(/^~(?=\/)/, os.homedir());
-        const isOn = v => /^(1|on|да|вкл|сон|true)/.test(String(v).trim().toLowerCase());
-        let seen = null;
-        const check = () => {
-            let names; try { names = fs.readdirSync(dir); } catch (_) { return; }
-            // файлы, которые iCloud ещё держит в облаке (.имя.icloud), — скачать
-            names.filter(n => /^\..+\.icloud$/.test(n)).forEach(n => execFile('brctl', ['download', path.join(dir, n.slice(1, -7))], () => {}));
-            let newest = null;
-            for (const n of names) {
-                if (n.startsWith('.')) continue;
-                try { const st = fs.statSync(path.join(dir, n)); if (st.isFile() && (!newest || st.mtimeMs > newest.t)) newest = { n, t: st.mtimeMs }; } catch (_) {}
-            }
-            if (!newest) return;
-            const sig = newest.n + '@' + newest.t;
-            if (sig === seen) return;
-            const base = newest.n.replace(/\.[^.]*$/, '');
-            let val = base;
-            if (!/^[01]$/.test(base)) { try { val = fs.readFileSync(path.join(dir, newest.n), 'utf8'); } catch (_) { return; } }
-            const first = seen === null; seen = sig;
-            const on = isOn(val);
-            if (!first || on) setSleep(on, 'iCloud: ' + newest.n);
+    // «Сон» через iMessage: автоматизация iPhone по фокусу «Сон» шлёт сообщение на Apple ID этого Мака.
+    // LOST читает новые входящие из базы «Сообщений» (нужен «Полный доступ к диску» для LOST.app) раз в 10 с,
+    // только от разрешённых отправителей (config.json → sleepFrom). Работает, где бы ни был iPhone.
+    // «Сон» — пауза; «Подъём» / «Проснулся» / «Утро» / «Сон выкл» — продолжить. Запрос /__sleep тоже работает.
+    if (opts.sleepFrom && opts.sleepFrom.length) {
+        const db = path.join(os.homedir(), 'Library/Messages/chat.db');
+        const from = opts.sleepFrom.map(x => "'" + String(x).replace(/'/g, '') + "'").join(',');
+        const parse = t => {
+            t = String(t || '').toLowerCase();
+            if (/(выкл|проснул|подъ[её]м|утро|встал)/.test(t)) return false;
+            if (/сон|спать|сплю/.test(t)) return true;
+            return null;
         };
-        console.log('[сон] слежу за общей папкой iCloud:', dir);
+        let lastId = null, warned = false;
+        const check = () => {
+            const q = lastId === null ? 'select max(ROWID) from message;'
+                : `select m.ROWID, m.text from message m join handle h on h.ROWID = m.handle_id where m.ROWID > ${lastId} and m.is_from_me = 0 and h.id in (${from}) order by m.ROWID;`;
+            execFile('/usr/bin/sqlite3', ['-readonly', '-separator', '\t', db, q], (e, out) => {
+                if (e) { if (!warned) console.log('[сон] не читается база «Сообщений» — дайте LOST.app «Полный доступ к диску»:', (e.message || '').split('\n')[0]); warned = true; return; }
+                if (warned) { console.log('[сон] доступ к «Сообщениям» есть'); warned = false; }
+                if (lastId === null) { lastId = parseInt(out) || 0; return; } // старые сообщения не трогаем
+                for (const line of out.split('\n').filter(Boolean)) {
+                    const [id, ...rest] = line.split('\t'); lastId = Math.max(lastId, parseInt(id));
+                    const on = parse(rest.join('\t'));
+                    if (on !== null) setSleep(on, 'iMessage: «' + rest.join(' ').trim() + '»');
+                }
+            });
+        };
+        console.log('[сон] жду iMessage от:', opts.sleepFrom.join(', '));
         check(); setInterval(check, 10000);
     }
 
