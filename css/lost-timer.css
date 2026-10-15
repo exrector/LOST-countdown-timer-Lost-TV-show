@@ -100,11 +100,12 @@ a:hover {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: min(60vh, 70%);
+    width: min(75vh, 85%);
     aspect-ratio: 1;
     transform: translate(-50%, -50%);
     background: url(../assets/dharma-neon.png) center / contain no-repeat;
     /* тот же цвет и свечение, что у текста терминала (text-shadow: 0 0 5px …0.6, 0 0 15px …0.2) */
+    opacity: 0.5; /* потускнее текста, чтобы не спорил со строкой ввода */
     filter: drop-shadow(0 0 5px rgba(51, 255, 136, 0.6)) drop-shadow(0 0 15px rgba(51, 255, 136, 0.2));
     pointer-events: none;
     z-index: -1;
