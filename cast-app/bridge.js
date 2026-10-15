@@ -40,11 +40,10 @@
 
     // ================= Звук: где играть (mac | tv | off) =================
     var audioMode = 'speakers';
-    var audioLabels = { speakers: 'Звук: динамики Мака', monitor: 'Звук: монитор (HDMI)', off: 'Звук: выкл' };
     function nativeSound() { return audioMode === 'speakers' || audioMode === 'monitor'; }
     function setAudioMode(m) {
         audioMode = m;
-        if (role === 'console' && ui.audio) ui.audio.textContent = audioLabels[m] || audioLabels.speakers;
+        if (role === 'console' && ui.render) ui.render();
         if (role === 'console' && m !== 'mac') stopConsoleSounds();
     }
 
@@ -197,130 +196,134 @@
         Object.defineProperty(window, 'opener', { value: fake, configurable: true }); // console.html шлёт в opener
     }
 
-    // ================= Консоль: панель управления =================
-    var ui = {};
+    // ================= Консоль: меню в стиле старого файлового менеджера =================
+    // Вертикальный список в рамке, папки <DIR>, путь в заголовке (LOST:\МЕНЮ\…), выбранная строка — инверсия.
+    // ↑↓ — по строкам, Enter/→ — войти/выполнить, ←/Esc — назад, M — открыть/закрыть; буквы-команды работают всегда.
+    var ui = { paused: false, mode: 'live' };
     function applyState(d) {
-        if (d.label && ui.pause) ui.pause.textContent = d.label;
-        if (d.mode && ui.dev) {
-            ui.live.style.opacity = d.mode === 'live' ? 1 : .55;
-            ui.devBtn.style.opacity = d.mode === 'dev' ? 1 : .55;
-            ui.dev.style.display = d.mode === 'dev' ? 'flex' : 'none';
-        }
+        if (d.label) ui.paused = d.label.indexOf('Старт') !== -1;
+        if (d.mode) ui.mode = d.mode;
+        if (ui.render) ui.render();
     }
     function buildPanel() {
         var st = document.createElement('style');
-        st.textContent = '.ctl{position:relative;z-index:2;margin-top:18px;font-family:"Courier New",Courier,monospace}' +
-            '.ctl a{color:#33ff88;text-shadow:0 0 5px rgba(51,255,136,.6);font-size:14px;cursor:pointer;white-space:nowrap;text-decoration:none;opacity:.6}' +
-            '.ctl a:hover{opacity:1;text-decoration:none}' +
-            '.ctl .body{display:none}.ctl.open .body{display:block}' +
-            '.ctl .row{display:flex;flex-wrap:wrap;gap:6px 24px;padding:4px 0}' +
-            '.console-prompt{cursor:pointer;-webkit-user-select:none;user-select:none;line-height:1;display:block}' +
+        st.textContent = '.console-prompt{cursor:pointer;-webkit-user-select:none;user-select:none;line-height:1;display:block}' +
             // строка ввода: >: и поле на одной вертикальной оси
             '.console-container{display:flex;flex-wrap:wrap;align-items:center;align-content:flex-start}' +
             '.console-input{flex:1;width:auto;margin-left:8px;display:block}' +
             '.my-console{padding:0;margin:0;display:block;line-height:1.2}' +
-            '.ctl{flex-basis:100%}' +
             // верхняя подпись остаётся над рамкой, но получает ту же «развёртку», что и экран терминала
             '.timer-status{position:relative;filter:brightness(.83)}' +
             '.timer-status::before{content:"";position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none;' +
-            'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}';
+            'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}' +
+            // меню
+            '.ctl{flex-basis:100%;position:relative;z-index:2;margin-top:18px;display:none;font-family:"Courier New",Courier,monospace}' +
+            '.ctl.open{display:block}' +
+            '.ctl .win{display:inline-block;min-width:440px;border:2px double #33ff88;background:#09120d;' +
+            'box-shadow:0 0 8px rgba(51,255,136,.35);color:#33ff88;text-shadow:0 0 5px rgba(51,255,136,.6)}' +
+            '.ctl .ttl{padding:3px 10px;border-bottom:1px solid #33ff88;font-size:15px;letter-spacing:1px;opacity:.85}' +
+            '.ctl .row{display:flex;justify-content:space-between;gap:24px;padding:3px 10px;font-size:17px;cursor:pointer;white-space:nowrap}' +
+            '.ctl .row .k{opacity:.6}' +
+            '.ctl .row.sel{background:#33ff88;color:#09120d;text-shadow:none}' +
+            '.ctl .row.sel .k{opacity:.8}' +
+            '.ctl .ft{padding:3px 10px;border-top:1px solid #33ff88;font-size:13px;opacity:.6}';
         document.head.appendChild(st);
 
-        var box = document.createElement('div');
-        box.className = 'ctl';
-        var body = document.createElement('div'); body.className = 'body'; box.appendChild(body);
-        function row(parent) { var r = document.createElement('div'); r.className = 'row'; parent.appendChild(r); return r; }
-        function item(parent, text, msg) {
-            var a = document.createElement('a'); a.textContent = text;
-            a.addEventListener('mousedown', function (e) { e.preventDefault(); }); // не уводить фокус из поля ввода
-            if (msg) a.addEventListener('click', function () { send(msg); });
-            parent.appendChild(a); return a;
+        function click(sel) { return function () { send({ type: '__cmd', cmd: 'click', sel: sel }); }; }
+        function mode(v) { return function () { send({ type: '__cmd', cmd: 'mode', value: v }); }; }
+        var AUDIO = { speakers: 'ДИНАМИКИ', monitor: 'МОНИТОР', off: 'ВЫКЛ' };
+        var quitArmed = 0, quitTimer;
+        function quit() {
+            if (Date.now() - quitArmed < 3000) return send({ type: '__cmd', cmd: 'quit' });
+            quitArmed = Date.now(); clearTimeout(quitTimer);
+            quitTimer = setTimeout(function () { quitArmed = 0; render(); }, 3000);
+            render();
         }
-        function click(sel) { return { type: '__cmd', cmd: 'click', sel: sel }; }
+        // дерево меню: label — строка или функция; dir — вложенная папка; key — подсказка клавиши
+        var TIMERS = { label: 'ТАЙМЕР', dir: [['108 МИН', 6480], ['4 МИН', 240], ['1 МИН', 60], ['10 СЕК', 10]].map(function (p) {
+            return { label: p[0], act: click('.lost-timer-dev-action-set[data-seconds="' + p[1] + '"]') }; }) };
+        var SOUNDS_DIR = { label: 'ЗВУКИ', dir: SOUNDS.map(function (s) { return { label: s.toUpperCase(), act: click('.lost-timer-play-' + s) }; }) };
+        var DEV = { label: 'РАЗРАБОТКА', dir: [TIMERS,
+            { label: 'СБРОС ТАЙМЕРА', act: click('.lost-timer-dev-action-reset') },
+            { label: 'ИЕРОГЛИФЫ', act: click('.lost-timer-dev-action-glyphs') },
+            SOUNDS_DIR] };
+        var ROOT = { label: 'МЕНЮ', dir: [
+            { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
+            { label: function () { return 'ЗВУК: ' + (AUDIO[audioMode] || 'ДИНАМИКИ'); }, key: 'S', act: function () {
+                send({ type: '__audio', mode: { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers' }); } },
+            { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, key: 'D/L', act: function () { mode(ui.mode === 'dev' ? 'live' : 'dev')(); } },
+            { label: 'РАЗРАБОТКА', dir: DEV.dir, devOnly: true },
+            { label: function () { return quitArmed ? 'ВЫХОД? ЕЩЁ РАЗ' : 'ВЫХОД'; }, key: 'Q Q', act: quit }
+        ] };
 
-        ui.dev = row(body); ui.dev.style.display = 'none'; // Dev-панель: только в Dev Mode
-        [['108 минут', 6480], ['4 минуты', 240], ['1 минута', 60], ['10 секунд', 10]].forEach(function (p) {
-            item(ui.dev, 'Таймер: ' + p[0], click('.lost-timer-dev-action-set[data-seconds="' + p[1] + '"]'));
-        });
-        item(ui.dev, 'Сброс таймера', click('.lost-timer-dev-action-reset'));
-        item(ui.dev, 'Прокрутить иероглифы', click('.lost-timer-dev-action-glyphs'));
-        SOUNDS.forEach(function (s) { item(ui.dev, '▶ ' + s, click('.lost-timer-play-' + s)); });
-
-        var main = row(body);
-        ui.pause = item(main, '⏸ Пауза', click('#pauseResume'));
-        ui.audio = item(main, audioLabels[audioMode], null);
-        ui.audio.addEventListener('click', function () {
-            var next = { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers';
-            send({ type: '__audio', mode: next });
-        });
-        ui.quit = item(main, 'Выход', { type: '__cmd', cmd: 'quit' });
-        ui.live = item(main, 'Live Mode', { type: '__cmd', cmd: 'mode', value: 'live' });
-        ui.devBtn = item(main, 'Dev Mode', { type: '__cmd', cmd: 'mode', value: 'dev' });
+        var box = document.createElement('div'); box.className = 'ctl';
+        var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
+        var path = [ROOT], sel = 0;
+        function items() { return path[path.length - 1].dir.filter(function (it) { return !it.devOnly || ui.mode === 'dev'; }); }
+        function text(v) { return typeof v === 'function' ? v() : v; }
+        function render() {
+            var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
+            win.innerHTML = '';
+            var ttl = document.createElement('div'); ttl.className = 'ttl';
+            ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.label); }).join('\\');
+            win.appendChild(ttl);
+            list.forEach(function (it, i) {
+                var r = document.createElement('div'); r.className = 'row' + (i === sel ? ' sel' : '');
+                var l = document.createElement('span'); l.textContent = text(it.label);
+                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir ? '<DIR>' : (it.key ? '[' + it.key + ']' : '');
+                r.appendChild(l); r.appendChild(k);
+                r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
+                r.addEventListener('click', function () { sel = i; enter(); });
+                win.appendChild(r);
+            });
+            var ft = document.createElement('div'); ft.className = 'ft';
+            ft.textContent = path.length > 1 ? '↑↓ ВЫБОР  ENTER ОК  ← НАЗАД  ESC ВЫХОД' : '↑↓ ВЫБОР  ENTER ОК  ESC ЗАКРЫТЬ';
+            win.appendChild(ft);
+        }
+        function isOpen() { return box.classList.contains('open'); }
+        function open(on) { box.classList.toggle('open', on); if (on) { path = [ROOT]; sel = 0; render(); } }
+        function enter() {
+            var it = items()[sel]; if (!it) return;
+            if (it.dir) { path.push(it); sel = 0; render(); return; }
+            if (it.act) it.act();
+            setTimeout(render, 150);
+        }
+        function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
+        function move(d) { if (!isOpen()) return open(true); var n = items().length; sel = (sel + d + n) % n; render(); }
+        ui.render = render;
 
         var prompt = document.querySelector('.console-prompt');
         if (prompt) {
-            prompt.title = 'Техническое меню (M)';
+            prompt.title = 'Меню (M)';
             prompt.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
-            prompt.addEventListener('click', function () { box.classList.toggle('open'); });
+            prompt.addEventListener('click', function () { open(!isOpen()); });
         }
         (document.querySelector('.console-container') || document.body).appendChild(box);
-        setupKeyboard(box);
-    }
+        render();
 
-    // ================= Консоль: клавиатура (у компьютера нет мыши) =================
-    // Код набирается цифрами и пробелами, поэтому буквы свободны под команды. Клавиши ловятся по физическому
-    // положению (e.code), так что работают и в русской раскладке. Стрелки ходят по меню, Enter выбирает, Esc закрывает.
-    function setupKeyboard(box) {
-        var st = document.createElement('style');
-        st.textContent = '.ctl a[data-key]::after{content:" [" attr(data-key) "]";opacity:.55}' +
-            '.ctl a.sel{opacity:1;outline:1px solid #33ff88;outline-offset:3px}';
-        document.head.appendChild(st);
-        ui.pause.dataset.key = 'P'; ui.audio.dataset.key = 'S'; ui.quit.dataset.key = 'Q';
-        ui.live.dataset.key = 'L'; ui.devBtn.dataset.key = 'D';
-
-        var selEl = null, swallowEnter = false, quitArmed = 0, quitTimer;
-        function isOpen() { return box.classList.contains('open'); }
-        function select(el) { if (selEl) selEl.classList.remove('sel'); selEl = el; if (el) el.classList.add('sel'); }
-        function open(on) { box.classList.toggle('open', on); if (!on) select(null); }
-        function rows() {
-            return Array.prototype.filter.call(box.querySelectorAll('.row'), function (r) { return r.style.display !== 'none'; })
-                .map(function (r) { return Array.prototype.slice.call(r.querySelectorAll('a')); });
-        }
-        function move(dr, dc) {
-            if (!isOpen()) open(true);
-            var R = rows(), r = -1, c = 0;
-            R.forEach(function (row, i) { var j = row.indexOf(selEl); if (j !== -1) { r = i; c = j; } });
-            if (r === -1) return select(R[R.length - 1][0]); // первым выбирается «Пауза» в основной строке
-            if (dr) { r = Math.max(0, Math.min(R.length - 1, r + dr)); c = Math.min(c, R[r].length - 1); }
-            else c = (c + dc + R[r].length) % R[r].length;
-            select(R[r][c]);
-        }
-        function quitPress() {
-            if (Date.now() - quitArmed < 3000) return ui.quit.click();
-            quitArmed = Date.now(); open(true); select(ui.quit);
-            ui.quit.textContent = 'Выход — ещё раз Q';
-            clearTimeout(quitTimer);
-            quitTimer = setTimeout(function () { ui.quit.textContent = 'Выход'; quitArmed = 0; }, 3000);
-        }
+        // ===== Клавиатура (у компьютера нет мыши) =====
+        // Код набирается цифрами и пробелами, поэтому буквы свободны под команды. Клавиши ловятся по физическому
+        // положению (e.code), так что работают и в русской раскладке.
         var KEYS = {
-            KeyP: function () { ui.pause.click(); },
-            KeyS: function () { ui.audio.click(); },
-            KeyD: function () { ui.devBtn.click(); },
-            KeyL: function () { ui.live.click(); },
+            KeyP: click('#pauseResume'),
+            KeyS: ROOT.dir[1].act,
+            KeyD: mode('dev'),
+            KeyL: mode('live'),
             KeyM: function () { open(!isOpen()); },
-            KeyQ: quitPress,
-            Escape: function () { open(false); },
-            ArrowUp: function () { move(-1, 0); }, ArrowDown: function () { move(1, 0); },
-            ArrowLeft: function () { move(0, -1); }, ArrowRight: function () { move(0, 1); }
+            KeyQ: function () { if (!isOpen()) open(true); sel = items().length - 1; quit(); },
+            Escape: function () { if (isOpen()) { path = [ROOT]; open(false); } },
+            ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
+            ArrowRight: function () { if (isOpen()) enter(); else open(true); },
+            ArrowLeft: function () { if (isOpen()) back(); }
         };
         // в журнал запуска (/tmp/lost-start.log): есть ли у окна терминала фокус клавиатуры
         log('клавиатура готова, фокус у страницы: ' + document.hasFocus());
         window.addEventListener('focus', function () { log('окно терминала получило фокус'); });
         window.addEventListener('blur', function () { log('окно терминала потеряло фокус'); });
-        var lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды подряд
+        var swallowEnter = false, lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды
         document.addEventListener('keydown', function (e) {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
-            if (e.key === 'Enter' && isOpen() && selEl) { e.preventDefault(); swallowEnter = true; selEl.click(); return; }
+            if (e.key === 'Enter' && isOpen()) { e.preventDefault(); swallowEnter = true; if (!e.repeat) enter(); return; }
             var f = KEYS[e.code];
             if (!f) return;
             e.preventDefault(); // буква-команда не попадает в строку ввода кода
@@ -330,7 +333,7 @@
             lastCode = e.code; lastAt = now;
             f();
         }, true);
-        // console.html отправляет код по keyup Enter — если Enter выбрал пункт меню, код не отправляем
+        // console.html отправляет код по keyup Enter — если Enter сработал в меню, код не отправляем
         document.addEventListener('keyup', function (e) {
             if (e.key === 'Enter' && swallowEnter) { swallowEnter = false; e.stopPropagation(); e.preventDefault(); }
         }, true);
