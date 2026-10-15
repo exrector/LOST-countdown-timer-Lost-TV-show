@@ -340,6 +340,57 @@
     }
     if (role === 'console') document.addEventListener('DOMContentLoaded', buildPanel);
 
+    // ================= Консоль: загрузка станции при запуске =================
+    // Один раз при открытии терминала строки печатаются как у старого компьютера, потом экран уходит и остаётся >:
+    // Любая клавиша — пропустить.
+    if (role === 'console') document.addEventListener('DOMContentLoaded', function () {
+        var BOOT = [
+            ['DHARMA INITIATIVE', ''],
+            ['СТАНЦИЯ 3: «ЛЕБЕДЬ»', ''],
+            ['', ''],
+            ['ПРОВЕРКА ПАМЯТИ', '64K ОК'],
+            ['ЭЛЕКТРОМАГНИТНЫЙ ЭКРАН', 'В НОРМЕ'],
+            ['СВЯЗЬ С «ЖЕМЧУЖИНОЙ»', 'ОК'],
+            ['ПРОТОКОЛ 108', 'АКТИВЕН'],
+            ['', ''],
+            ['ГОТОВ.', '']
+        ];
+        var st = document.createElement('style');
+        st.textContent = '.boot{position:fixed;inset:0;z-index:50;background:#030906;color:#33ff88;' +
+            'font:20px/1.5 "Courier New",Courier,monospace;text-shadow:0 0 5px rgba(51,255,136,.6),0 0 15px rgba(51,255,136,.2);' +
+            'padding:60px 70px;white-space:pre;transition:opacity .6s}' +
+            '.boot::before{content:"";position:absolute;inset:0;pointer-events:none;' +
+            'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}' +
+            '.boot .cur{display:inline-block;width:12px;height:22px;background:#33ff88;vertical-align:-4px;animation:blink 1s step-end infinite}';
+        document.head.appendChild(st);
+        var boot = document.createElement('div'); boot.className = 'boot';
+        var out = document.createElement('span'), cur = document.createElement('span'); cur.className = 'cur';
+        boot.appendChild(out); boot.appendChild(cur); document.body.appendChild(boot);
+        var W = 32, i = 0, timers = [], done = false;
+        function finish() {
+            if (done) return; done = true;
+            timers.forEach(clearTimeout);
+            boot.style.opacity = '0';
+            setTimeout(function () { boot.remove(); }, 650);
+        }
+        function line() {
+            if (done) return;
+            if (i >= BOOT.length) return timers.push(setTimeout(finish, 900));
+            var name = BOOT[i][0], res = BOOT[i][1]; i++;
+            if (!res) { out.textContent += name + '\n'; return timers.push(setTimeout(line, name ? 260 : 120)); }
+            // точки «бегут» до результата, как при проверке оборудования
+            var dots = Math.max(3, W - name.length), d = 0;
+            out.textContent += name + ' ';
+            (function step() {
+                if (done) return;
+                if (d++ < dots) { out.textContent += '.'; timers.push(setTimeout(step, 18)); }
+                else { out.textContent += ' ' + res + '\n'; timers.push(setTimeout(line, 220)); }
+            })();
+        }
+        timers.push(setTimeout(line, 400));
+        document.addEventListener('keydown', function skip() { finish(); document.removeEventListener('keydown', skip, true); }, true);
+    });
+
     // Терминал: курсор мыши прячется через 2 с без движения и возвращается при движении (меню >: — мышью)
     if (role === 'console') {
         var idleCss = document.createElement('style');
