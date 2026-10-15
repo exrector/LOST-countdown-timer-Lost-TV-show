@@ -263,7 +263,8 @@ a:hover {
     left: 0;
     right: 0;
     bottom: 0;
-    transition: 0.4s all linear;
+    /* переворот: 0.7 с с ускорением (ease-in), как у настоящей откидной таблички; было 0.4 с равномерно */
+    transition: 0.7s all ease-in;
     transform-style: preserve-3d;
     -webkit-mask: linear-gradient(#fff, #fff) top/100% 50% no-repeat;
     mask: linear-gradient(#fff, #fff) top/100% 50% no-repeat;
@@ -296,7 +297,8 @@ a:hover {
 
 .lost-flipper-next {
     z-index: 2;
-    transition: 0s 0.25s all linear;
+    /* новая цифра выходит вперёд, когда половинка проходит ребро (90°): для ease-in это 65.7 % от 0.7 с */
+    transition: 0s 0.46s all linear;
 }
 
 .lost-flipper-number-table {
