@@ -131,19 +131,16 @@ function start(port = 8765, opts = {}) {
     }
 
     // ===== Журнал станции «Лебедь» — как распечатка в сериале =====
-    // Сплошной поток слов через пробел с переносом по 80 колонкам (готово для матричного принтера):
+    // ОДНА бесконечная строка: слова через пробел, без переносов — переносит по ширине тот, кто показывает
+    // (матричный принтер — по краю листа, терминал — по ширине окна).
     //   верный код → «<время> accepted», где время = месяц (без нуля) день(2) час(2) минута (без нуля) :секунды(2) — 922041:52;
     //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Только Live, паузы не пишутся.
     const journalFile = path.join(__dirname, 'journal.txt');
-    const COLS = 80;
-    let jLine = '';
-    try { const t = fs.readFileSync(journalFile, 'utf8'); jLine = t.endsWith('\n') ? '' : t.slice(t.lastIndexOf('\n') + 1); } catch (_) {}
+    // журнал прежнего формата (с переносами по 80) — склеить в одну строку
+    try { const t = fs.readFileSync(journalFile, 'utf8'); if (t.indexOf('\n') !== -1) fs.writeFileSync(journalFile, t.split('\n').filter(Boolean).join(' ')); } catch (_) {}
     function jWrite(word) {
-        let out = '';
-        if (jLine && jLine.length + 1 + word.length > COLS) { out = '\n'; jLine = ''; }
-        else if (jLine) { out = ' '; jLine += ' '; }
-        out += word; jLine += word;
-        try { fs.appendFileSync(journalFile, out); } catch (_) {}
+        let empty = true; try { empty = fs.statSync(journalFile).size === 0; } catch (_) {}
+        try { fs.appendFileSync(journalFile, (empty ? '' : ' ') + word); } catch (_) {}
     }
     function stamp(d = new Date()) {
         const p2 = n => String(n).padStart(2, '0');
@@ -159,8 +156,13 @@ function start(port = 8765, opts = {}) {
             tick(); failTimer = setInterval(tick, 1000);
         } else if (!on && failTimer) { clearInterval(failTimer); failTimer = null; }
     }
+    // хвост журнала примерно на n строк по 80 знаков, начиная с целого слова
     function journalTail(n) {
-        try { const ls = fs.readFileSync(journalFile, 'utf8').split('\n'); return ls.slice(-n).join('\n'); } catch (_) { return ''; }
+        try {
+            const t = fs.readFileSync(journalFile, 'utf8'), max = n * 80;
+            if (t.length <= max) return t;
+            const cut = t.slice(-max); return cut.slice(cut.indexOf(' ') + 1);
+        } catch (_) { return ''; }
     }
 
     // ===== Удалённый пульт через iMessage =====
