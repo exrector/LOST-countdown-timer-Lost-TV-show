@@ -91,6 +91,23 @@ a:hover {
     box-sizing: border-box;
     position: relative;
     overflow: hidden;
+    z-index: 0; /* свой слой: логотип (::after, z-index -1) ложится над фоном, но под текстом */
+}
+
+/* Неоновый знак DHARMA в центре терминала: люминофор #33ff88, свечение, под строками развёртки и текстом */
+.console-container::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: min(70vh, 80%);
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    background: url(../assets/dharma-neon.png) center / contain no-repeat;
+    opacity: 0.18;
+    filter: drop-shadow(0 0 4px rgba(51, 255, 136, 0.8)) drop-shadow(0 0 14px rgba(51, 255, 136, 0.35));
+    pointer-events: none;
+    z-index: -1;
 }
 
 .console-container::before {
