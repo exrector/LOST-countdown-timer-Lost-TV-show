@@ -227,7 +227,7 @@
             '.ctl .row.sel{background:#33ff88;color:#09120d;text-shadow:none}' +
             '.ctl .row.sel .k{opacity:.8}' +
             '.ctl .ft{padding:3px 10px;border-top:1px solid #33ff88;font-size:13px;opacity:.6}' +
-            '.ctl .view{margin:0;padding:6px 10px;font:15px/1.35 "Courier New",Courier,monospace;white-space:pre;min-height:120px}';
+            '.ctl .view{margin:0;padding:6px 10px;font:15px/1.35 "Courier New",Courier,monospace;white-space:pre-wrap;width:80ch;max-width:80vw;min-height:120px}';
         document.head.appendChild(st);
 
         function click(sel) { return function () { send({ type: '__cmd', cmd: 'click', sel: sel }); }; }
