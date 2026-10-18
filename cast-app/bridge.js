@@ -427,16 +427,21 @@
             '.pz.on{opacity:1}' +
             // рамка нарисована знаками (╔═╗), как на машинах той эпохи. Чёрное поле — ровно по рамке
             // (у <pre> нет полей, коробка равна блоку знаков), поэтому цифры таймера за ней не мешаются.
-            // Menlo — в нём знаки рамки смыкаются встык; разрядки нет совсем, иначе ═ распадаются на штрихи.
+            // Courier New и разрядка .06em — как во всей программе. Разрядка раздвигает знаки ═ и ║,
+            // отчего двойная рамка получается прерывистой: так и задумано, это вид старых экранов.
             // Размер шрифта ставится из fit(), от ширины экрана.
-            '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1;letter-spacing:0;' +
-            'font-family:Menlo,"Courier New",Courier,monospace;color:#ff3b30;' +
+            '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1.45;letter-spacing:.06em;' +
+            'font-family:"Courier New",Courier,monospace;color:#ff3b30;' +
             'text-shadow:0 0 8px rgba(255,59,48,.55)}' +
             // чёрное поле — ровно по нарисованной рамке. Поля внутри знака зависят от шрифта и кегля,
             // поэтому срез не константа: fit() замеряет краску знаков на холсте и кладёт её в переменные.
             '.pz .win::before{content:"";position:absolute;z-index:-1;background:#000;' +
-            'top:var(--pz-top,0);bottom:var(--pz-bottom,0);left:var(--pz-side,0);right:var(--pz-side,0);' +
+            'top:var(--pz-top,0);bottom:var(--pz-bottom,0);left:var(--pz-left,0);right:var(--pz-right,0);' +
             'box-shadow:0 0 22px rgba(255,59,48,.3)}' +
+            // та же «развёртка» строк, что у терминала и экрана загрузки, — поверх текста, по полю рамки
+            '.pz .win::after{content:"";position:absolute;pointer-events:none;' +
+            'top:var(--pz-top,0);bottom:var(--pz-bottom,0);left:var(--pz-left,0);right:var(--pz-right,0);' +
+            'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}' +
             '.pz .cur{animation:lostPzBlink 1s step-end infinite}';
         document.head.appendChild(st);
 
@@ -459,18 +464,21 @@
             if (!box) return;
             var win = box.firstChild;
             var chars = PAUSE_NOTE.length + 6; // ║ + пробел + текст + пробел + курсор + пробел + ║
-            var fs = PAUSE_WIDTH * window.innerWidth / (chars * 0.6);
+            var ADV = 0.66, LH = 1.45; // знак Courier = 0.6em + 0.06em разрядки; межстрочное — как в CSS выше
+            var fs = PAUSE_WIDTH * window.innerWidth / (chars * ADV);
             win.style.fontSize = fs + 'px';
             // Замер краски: сколько пустого места у знака рамки сверху, снизу и сбоку внутри его ячейки.
             // Ровно на столько и срезается чёрное поле, иначе оно торчит из-под красной окантовки.
             try {
                 var g = (fit.cv || (fit.cv = document.createElement('canvas'))).getContext('2d');
-                g.font = fs + 'px Menlo, "Courier New", Courier, monospace';
+                g.font = fs + 'px "Courier New", Courier, monospace';
                 var h = g.measureText('\u2550'), v = g.measureText('\u2551');
-                var base = (fs - (h.fontBoundingBoxAscent + h.fontBoundingBoxDescent)) / 2 + h.fontBoundingBoxAscent;
+                var base = (LH * fs - (h.fontBoundingBoxAscent + h.fontBoundingBoxDescent)) / 2 + h.fontBoundingBoxAscent;
                 win.style.setProperty('--pz-top', (base - h.actualBoundingBoxAscent) + 'px');
-                win.style.setProperty('--pz-bottom', (fs - base - h.actualBoundingBoxDescent) + 'px');
-                win.style.setProperty('--pz-side', (-v.actualBoundingBoxLeft) + 'px');
+                win.style.setProperty('--pz-bottom', (LH * fs - base - h.actualBoundingBoxDescent) + 'px');
+                win.style.setProperty('--pz-left', (-v.actualBoundingBoxLeft) + 'px');
+                // справа к знаку добавляется ещё и разрядка — её тоже срезаем
+                win.style.setProperty('--pz-right', (ADV * fs - v.actualBoundingBoxRight) + 'px');
             } catch (e) { /* старый браузер — поле просто будет по строке */ }
         }
         var want = false;
