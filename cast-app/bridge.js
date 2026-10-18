@@ -154,7 +154,7 @@
     }
     if (role === 'tv') {
         var css = document.createElement('style');
-        css.textContent = '.timer-modes,.lost-timer-dev{display:none!important}html,body{cursor:none!important}' +
+        css.textContent = '.timer-modes,.lost-timer-dev{display:none!important}' +
             // Chromecast 1: mask на 3D-слоях давал заминки до ~1 с при сбросе; clip-path даёт тот же вид, но заметно дешевле
             '.lost-flipper-number-before,.lost-flipper-number-after{-webkit-mask:none!important;mask:none!important}' +
             '.lost-flipper-number-before{-webkit-clip-path:inset(0 0 50% 0);clip-path:inset(0 0 50% 0)}' +
@@ -165,7 +165,6 @@
         var ST = window.__LOST_STAGE || { w: 1560, h: 720 };
         var stCss = document.createElement('style');
         stCss.textContent = 'body.timer-page{display:block!important;overflow:hidden!important;height:100vh!important}' +
-            'body.timer-page,body.timer-page *{cursor:none!important}' + // на панели курсор мыши не нужен: всё управление — с терминала
             '.my-timer-container{position:fixed!important;left:50%;top:50%;width:' + ST.w + 'px;height:' + ST.h + 'px;margin:-' + (ST.h / 2) + 'px 0 0 -' + (ST.w / 2) + 'px!important;display:flex;align-items:center;justify-content:center}';
         document.head.appendChild(stCss);
         window.addEventListener('resize', function (e) { e.stopImmediatePropagation(); }, true); // не пересчитывать масштаб при изменении окна
@@ -409,18 +408,24 @@
         document.addEventListener('keydown', function skip() { finish(); document.removeEventListener('keydown', skip, true); }, true);
     });
 
-    // Терминал: курсор мыши прячется через 2 с без движения и возвращается при движении (меню >: — мышью)
-    if (role === 'console') {
+    // Курсор мыши — на обеих страницах (терминал и таймер): спрятан, пока мышь не трогают,
+    // появляется от любого движения и снова прячется через 2,5 с покоя.
+    // На панели без мыши он так и остаётся невидимым; на Mac mini, где таймер — обычное окно
+    // на втором экране, мышь больше не теряется при переходе на него.
+    (function hideIdleCursor() {
         var idleCss = document.createElement('style');
         idleCss.textContent = 'body.mouse-idle,body.mouse-idle *{cursor:none!important}';
         document.head.appendChild(idleCss);
         var idleTimer;
+        function sleep() { if (document.body) document.body.classList.add('mouse-idle'); }
         function wake() {
+            if (!document.body) return;
             document.body.classList.remove('mouse-idle');
             clearTimeout(idleTimer);
-            idleTimer = setTimeout(function () { document.body.classList.add('mouse-idle'); }, 2000);
+            idleTimer = setTimeout(sleep, 2500);
         }
         ['mousemove', 'mousedown', 'wheel'].forEach(function (ev) { document.addEventListener(ev, wake, true); });
-        document.addEventListener('DOMContentLoaded', wake);
-    }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sleep);
+        else sleep();
+    })();
 })();
