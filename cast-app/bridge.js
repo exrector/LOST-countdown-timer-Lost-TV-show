@@ -432,9 +432,11 @@
             '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1;letter-spacing:0;' +
             'font-family:Menlo,"Courier New",Courier,monospace;color:#ff3b30;' +
             'text-shadow:0 0 8px rgba(255,59,48,.55)}' +
-            // чёрное поле — ровно по рамке: у строки есть запас сверху и снизу, его и срезаем
-            '.pz .win::before{content:"";position:absolute;left:0;right:0;top:.18em;bottom:.18em;' +
-            'background:#000;box-shadow:0 0 22px rgba(255,59,48,.3);z-index:-1}' +
+            // чёрное поле — ровно по нарисованной рамке. Поля внутри знака зависят от шрифта и кегля,
+            // поэтому срез не константа: fit() замеряет краску знаков на холсте и кладёт её в переменные.
+            '.pz .win::before{content:"";position:absolute;z-index:-1;background:#000;' +
+            'top:var(--pz-top,0);bottom:var(--pz-bottom,0);left:var(--pz-side,0);right:var(--pz-side,0);' +
+            'box-shadow:0 0 22px rgba(255,59,48,.3)}' +
             '.pz .cur{animation:lostPzBlink 1s step-end infinite}';
         document.head.appendChild(st);
 
@@ -455,8 +457,21 @@
         // значит размер шрифта считается прямо из ширины экрана, без потолка в пикселях
         function fit() {
             if (!box) return;
+            var win = box.firstChild;
             var chars = PAUSE_NOTE.length + 6; // ║ + пробел + текст + пробел + курсор + пробел + ║
-            box.firstChild.style.fontSize = (PAUSE_WIDTH * window.innerWidth / (chars * 0.6)) + 'px';
+            var fs = PAUSE_WIDTH * window.innerWidth / (chars * 0.6);
+            win.style.fontSize = fs + 'px';
+            // Замер краски: сколько пустого места у знака рамки сверху, снизу и сбоку внутри его ячейки.
+            // Ровно на столько и срезается чёрное поле, иначе оно торчит из-под красной окантовки.
+            try {
+                var g = (fit.cv || (fit.cv = document.createElement('canvas'))).getContext('2d');
+                g.font = fs + 'px Menlo, "Courier New", Courier, monospace';
+                var h = g.measureText('\u2550'), v = g.measureText('\u2551');
+                var base = (fs - (h.fontBoundingBoxAscent + h.fontBoundingBoxDescent)) / 2 + h.fontBoundingBoxAscent;
+                win.style.setProperty('--pz-top', (base - h.actualBoundingBoxAscent) + 'px');
+                win.style.setProperty('--pz-bottom', (fs - base - h.actualBoundingBoxDescent) + 'px');
+                win.style.setProperty('--pz-side', (-v.actualBoundingBoxLeft) + 'px');
+            } catch (e) { /* старый браузер — поле просто будет по строке */ }
         }
         var want = false;
         function show(on) {
