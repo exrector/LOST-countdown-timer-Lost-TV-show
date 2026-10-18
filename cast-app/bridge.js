@@ -427,9 +427,14 @@
             '.pz.on{opacity:1}' +
             // рамка нарисована знаками (╔═╗), как на машинах той эпохи. Чёрное поле — ровно по рамке
             // (у <pre> нет полей, коробка равна блоку знаков), поэтому цифры таймера за ней не мешаются.
-            '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1.45;letter-spacing:.06em;' +
-            'color:#ff3b30;background:#000;' + // размер шрифта ставится из fit(), от ширины экрана
-            'box-shadow:0 0 22px rgba(255,59,48,.35);text-shadow:0 0 8px rgba(255,59,48,.55)}' +
+            // Menlo — в нём знаки рамки смыкаются встык; разрядки нет совсем, иначе ═ распадаются на штрихи.
+            // Размер шрифта ставится из fit(), от ширины экрана.
+            '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1;letter-spacing:0;' +
+            'font-family:Menlo,"Courier New",Courier,monospace;color:#ff3b30;' +
+            'text-shadow:0 0 8px rgba(255,59,48,.55)}' +
+            // чёрное поле — ровно по рамке: у строки есть запас сверху и снизу, его и срезаем
+            '.pz .win::before{content:"";position:absolute;left:0;right:0;top:.18em;bottom:.18em;' +
+            'background:#000;box-shadow:0 0 22px rgba(255,59,48,.3);z-index:-1}' +
             '.pz .cur{animation:lostPzBlink 1s step-end infinite}';
         document.head.appendChild(st);
 
@@ -451,7 +456,7 @@
         function fit() {
             if (!box) return;
             var chars = PAUSE_NOTE.length + 6; // ║ + пробел + текст + пробел + курсор + пробел + ║
-            box.firstChild.style.fontSize = (PAUSE_WIDTH * window.innerWidth / (chars * 0.66)) + 'px';
+            box.firstChild.style.fontSize = (PAUSE_WIDTH * window.innerWidth / (chars * 0.6)) + 'px';
         }
         var want = false;
         function show(on) {
