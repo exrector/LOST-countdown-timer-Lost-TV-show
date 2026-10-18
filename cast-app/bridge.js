@@ -417,7 +417,8 @@
     // Форма — как у консоли IBM OS/360: код сообщения (3 буквы компонента + номер + буква важности,
     // W = система ждёт) и короткая строка оператору. SELF-TEST и STAND BY — живой язык тех машин;
     // про паузу прямо не сказано. ТЕКСТ МЕНЯТЬ ЗДЕСЬ.
-    var PAUSE_NOTE = 'DHI271W  SELF-TEST IN PROGRESS \u2014 STAND BY';
+    var PAUSE_NOTE = 'STAND BY MAINFRAME';
+    var PAUSE_WIDTH = 0.72; // какую долю ширины экрана занимает плашка — размер шрифта считается от неё
     (function pauseNotice() {
         var st = document.createElement('style');
         st.textContent = '@keyframes lostPzBlink{50%{opacity:0}}' +
@@ -427,7 +428,7 @@
             // рамка нарисована знаками (╔═╗), как на машинах той эпохи. Чёрное поле — ровно по рамке
             // (у <pre> нет полей, коробка равна блоку знаков), поэтому цифры таймера за ней не мешаются.
             '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1.45;letter-spacing:.06em;' +
-            'font-size:min(3.4vh,28px);color:#ff3b30;background:#000;' +
+            'color:#ff3b30;background:#000;' + // размер шрифта ставится из fit(), от ширины экрана
             'box-shadow:0 0 22px rgba(255,59,48,.35);text-shadow:0 0 8px rgba(255,59,48,.55)}' +
             '.pz .cur{animation:lostPzBlink 1s step-end infinite}';
         document.head.appendChild(st);
@@ -443,12 +444,21 @@
             win.appendChild(cur);
             win.appendChild(document.createTextNode(' \u2551\n' + bar('\u255a', '\u255d')));
             box.appendChild(win); document.body.appendChild(box);
+            fit();
+        }
+        // ширина строки известна в знаках, у Courier знак равен 0.6em (+0.06em разрядки) —
+        // значит размер шрифта считается прямо из ширины экрана, без потолка в пикселях
+        function fit() {
+            if (!box) return;
+            var chars = PAUSE_NOTE.length + 6; // ║ + пробел + текст + пробел + курсор + пробел + ║
+            box.firstChild.style.fontSize = (PAUSE_WIDTH * window.innerWidth / (chars * 0.66)) + 'px';
         }
         var want = false;
         function show(on) {
             want = !!on;
             if (!document.body) return; // состояние могло прийти раньше, чем появилась страница — покажем на DOMContentLoaded
             if (!box) build();
+            fit(); // экран мог смениться, пока плашка была скрыта
             box.classList.toggle('on', want);
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { show(want); });
