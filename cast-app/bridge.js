@@ -204,6 +204,7 @@
         if (d.label) ui.paused = d.label.indexOf('Старт') !== -1;
         if (d.mode) ui.mode = d.mode;
         if (ui.render) ui.render();
+        if (ui.onPause) ui.onPause(ui.paused);
     }
     function buildPanel() {
         var st = document.createElement('style');
@@ -407,6 +408,63 @@
         timers.push(setTimeout(line, 400));
         document.addEventListener('keydown', function skip() { finish(); document.removeEventListener('keydown', skip, true); }, true);
     });
+
+    // ПАУЗА — служебное уведомление по центру обоих экранов.
+    // Источник истины один: кнопка #pauseResume на странице таймера («Старт» в подписи = стоим).
+    // Поэтому неважно, чем поставлена пауза — меню, клавишей P, «Сном» по iMessage или мышью:
+    // всё в итоге нажимает эту кнопку. Терминал узнаёт то же самое из __state.
+    // ТЕКСТ УВЕДОМЛЕНИЯ — здесь. Строка вида [что, результат] печатается с точками, как при загрузке станции.
+    // Форма — как у консоли IBM OS/360: код сообщения (3 буквы компонента + номер + буква важности,
+    // W = система ждёт) и короткая строка оператору. SELF-TEST и STAND BY — живой язык тех машин;
+    // про паузу прямо не сказано. ТЕКСТ МЕНЯТЬ ЗДЕСЬ.
+    var PAUSE_NOTE = 'DHI271W  SELF-TEST IN PROGRESS \u2014 STAND BY';
+    (function pauseNotice() {
+        var st = document.createElement('style');
+        st.textContent = '@keyframes lostPzBlink{50%{opacity:0}}' +
+            '.pz{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;' +
+            'pointer-events:none;opacity:0;transition:opacity .25s;font-family:"Courier New",Courier,monospace}' +
+            '.pz.on{opacity:1}' +
+            // рамка нарисована знаками (╔═╗), как на машинах той эпохи. Чёрное поле — ровно по рамке
+            // (у <pre> нет полей, коробка равна блоку знаков), поэтому цифры таймера за ней не мешаются.
+            '.pz .win{position:relative;margin:0;padding:0;white-space:pre;line-height:1.45;letter-spacing:.06em;' +
+            'font-size:min(3.4vh,28px);color:#ff3b30;background:#000;' +
+            'box-shadow:0 0 22px rgba(255,59,48,.35);text-shadow:0 0 8px rgba(255,59,48,.55)}' +
+            '.pz .cur{animation:lostPzBlink 1s step-end infinite}';
+        document.head.appendChild(st);
+
+        var box;
+        function build() {
+            box = document.createElement('div'); box.className = 'pz';
+            var win = document.createElement('pre'); win.className = 'win';
+            // курсор — такой же знак внутри рамки, иначе он торчал бы за чёрным полем
+            var inner = PAUSE_NOTE.length + 4, bar = function (l, r) { return l + new Array(inner + 1).join('\u2550') + r; };
+            var cur = document.createElement('span'); cur.className = 'cur'; cur.textContent = '\u2588';
+            win.appendChild(document.createTextNode(bar('\u2554', '\u2557') + '\n\u2551 ' + PAUSE_NOTE + ' '));
+            win.appendChild(cur);
+            win.appendChild(document.createTextNode(' \u2551\n' + bar('\u255a', '\u255d')));
+            box.appendChild(win); document.body.appendChild(box);
+        }
+        var want = false;
+        function show(on) {
+            want = !!on;
+            if (!document.body) return; // состояние могло прийти раньше, чем появилась страница — покажем на DOMContentLoaded
+            if (!box) build();
+            box.classList.toggle('on', want);
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { show(want); });
+
+        if (role === 'console') { ui.onPause = show; return; } // терминал: состояние приходит в __state
+
+        // Страница таймера: следим за самой кнопкой — она меняется при любом способе паузы
+        function watch() {
+            var b = document.getElementById('pauseResume'); if (!b) return setTimeout(watch, 300);
+            function check() { show(b.textContent.indexOf('Старт') !== -1); reportState(); }
+            new MutationObserver(check).observe(b, { childList: true, characterData: true, subtree: true });
+            check();
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch);
+        else watch();
+    })();
 
     // Курсор мыши — на обеих страницах (терминал и таймер): спрятан, пока мышь не трогают,
     // появляется от любого движения и снова прячется через 2,5 с покоя.
