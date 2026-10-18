@@ -417,7 +417,7 @@
     // Форма — как у консоли IBM OS/360: код сообщения (3 буквы компонента + номер + буква важности,
     // W = система ждёт) и короткая строка оператору. SELF-TEST и STAND BY — живой язык тех машин;
     // про паузу прямо не сказано. ТЕКСТ МЕНЯТЬ ЗДЕСЬ.
-    var PAUSE_NOTE = 'STAND BY MAINFRAME';
+    var PAUSE_NOTE = 'MAINFRAME STANDBY';
     var PAUSE_WIDTH = 0.72; // какую долю ширины экрана занимает плашка — размер шрифта считается от неё
     (function pauseNotice() {
         var st = document.createElement('style');
