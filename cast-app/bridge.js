@@ -450,9 +450,10 @@
             box = document.createElement('div'); box.className = 'pz';
             var win = document.createElement('pre'); win.className = 'win';
             // курсор — такой же знак внутри рамки, иначе он торчал бы за чёрным полем
-            var inner = PAUSE_NOTE.length + 4, bar = function (l, r) { return l + new Array(inner + 1).join('\u2550') + r; };
+            // поля по краям одинаковые: слева три клетки, справа пробел + курсор + пробел — фраза ровно по центру
+            var inner = PAUSE_NOTE.length + 6, bar = function (l, r) { return l + new Array(inner + 1).join('\u2550') + r; };
             var cur = document.createElement('span'); cur.className = 'cur'; cur.textContent = '\u2588';
-            win.appendChild(document.createTextNode(bar('\u2554', '\u2557') + '\n\u2551 ' + PAUSE_NOTE + ' '));
+            win.appendChild(document.createTextNode(bar('\u2554', '\u2557') + '\n\u2551   ' + PAUSE_NOTE + ' '));
             win.appendChild(cur);
             win.appendChild(document.createTextNode(' \u2551\n' + bar('\u255a', '\u255d')));
             box.appendChild(win); document.body.appendChild(box);
@@ -463,7 +464,7 @@
         function fit() {
             if (!box) return;
             var win = box.firstChild;
-            var chars = PAUSE_NOTE.length + 6; // ║ + пробел + текст + пробел + курсор + пробел + ║
+            var chars = PAUSE_NOTE.length + 8; // ║ + три клетки + текст + пробел + курсор + пробел + ║
             var ADV = 0.66, LH = 1.45; // знак Courier = 0.6em + 0.06em разрядки; межстрочное — как в CSS выше
             var fs = PAUSE_WIDTH * window.innerWidth / (chars * ADV);
             win.style.fontSize = fs + 'px';
