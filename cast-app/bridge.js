@@ -255,6 +255,7 @@
                 send({ type: '__audio', mode: { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers' }); } },
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, key: 'D/L', act: function () { mode(ui.mode === 'dev' ? 'live' : 'dev')(); } },
             { label: 'ЖУРНАЛ', view: true },
+            { label: 'ЭНЕРГОКОНТУР', key: 'U', act: function () { open(false); if (window.LostUPS) window.LostUPS.openMenu(); } },
             { label: 'РАЗРАБОТКА', dir: DEV.dir, devOnly: true },
             { label: function () { return quitArmed ? 'ВЫХОД? ЕЩЁ РАЗ' : 'ВЫХОД'; }, key: 'Q Q', act: quit }
         ] };

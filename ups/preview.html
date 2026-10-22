@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>LOST — макет строки энергоконтура (условные значения)</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+        
+        <link href="/css/lost-timer.css" rel="stylesheet" type="text/css">
+        
+
+    <style>
+body.console-page{overflow:hidden}
+.console-container{height:calc(100vh - 103px)}
+.ups-line{height:28px;margin:9px 24px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;white-space:nowrap;color:#60aa7d;font:clamp(11px,1.43vw,15px)/1.2 "Courier New",monospace;letter-spacing:1px;text-shadow:0 0 5px #33ff8826;font-variant-numeric:tabular-nums}
+.ups-line b{font-weight:normal;color:#8dd9a9}.ups-line i{font-style:normal;opacity:.35}.ups-line.reserve,.ups-line.reserve b{color:#d1aa62}
+</style></head>
+    <body class="console-page">
+        <div class="timer-status">
+            Терминал не активирован
+        </div>
+        <div class="console-container">
+            <div class="console-prompt">
+                >:
+            </div>
+            <div class="console-input">
+                <input type="text" class="my-console" disabled /><span class="console-cursor"></span>
+            </div>
+        </div>
+    <div class="ups-line" id="telemetry" aria-label="Пример строки UPS">
+<span>PWR: <b id="source">EXT</b></span><i>·</i><span>RSV: <b>100%</b></span><i>·</i><span>ENDURANCE: <b>~063m</b></span><i>·</i><span>BUS: <b>230 → 230V</b></span>
+</div>
+<script>if(new URLSearchParams(location.search).get('mode')==='reserve'){document.getElementById('telemetry').classList.add('reserve');document.getElementById('source').textContent='RESERVE';}</script>
+</body>
+</html>

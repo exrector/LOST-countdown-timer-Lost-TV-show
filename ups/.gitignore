@@ -1,0 +1,5 @@
+*.png
+*.jpg
+connection.json
+policy.json
+__pycache__/
