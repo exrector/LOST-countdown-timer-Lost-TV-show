@@ -119,7 +119,10 @@ final class WeakStationHandler: NSObject, WKScriptMessageHandler {
         guard message.frameInfo.isMainFrame, let app = app,
               app.pages.values.contains(where: { message.webView === $0.web }) else { return }
         if message.body as? String == "desktop", message.webView === app.pages["console"]?.web { app.showDesktop(); return }
-        if let command = message.body as? [String: Any], command["type"] as? String == "audio" { app.audio.receive(command) }
+        if let command = message.body as? [String: Any] {
+            if command["type"] as? String == "audio" { app.audio.receive(command) }
+            if command["type"] as? String == "microphone", message.webView === app.pages["console"]?.web { app.microphone.command(command) }
+        }
     }
 }
 
@@ -140,7 +143,7 @@ final class StationPage: NSObject, WKNavigationDelegate {
         config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.userContentController.add(WeakStationHandler(app), name: "station")
-        config.userContentController.addUserScript(WKUserScript(source: "window.LostStation={desktop:function(){window.webkit.messageHandlers.station.postMessage('desktop')},audio:function(command){command.type='audio';window.webkit.messageHandlers.station.postMessage(command)}};", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        config.userContentController.addUserScript(WKUserScript(source: "window.LostStation={desktop:function(){window.webkit.messageHandlers.station.postMessage('desktop')},audio:function(command){command.type='audio';window.webkit.messageHandlers.station.postMessage(command)},microphone:function(command){command.type='microphone';window.webkit.messageHandlers.station.postMessage(command)}};", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let errors = "window.__LOST_NATIVE_PLAY=HTMLMediaElement.prototype.play;window.__LOST_NATIVE_ERRORS=[];window.addEventListener('error',function(e){if(window.__LOST_NATIVE_ERRORS.length<100)window.__LOST_NATIVE_ERRORS.push(e.message)});window.addEventListener('unhandledrejection',function(e){if(window.__LOST_NATIVE_ERRORS.length<100)window.__LOST_NATIVE_ERRORS.push(String(e.reason))});"
         config.userContentController.addUserScript(WKUserScript(source: errors, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         web = WKWebView(frame: NSRect(origin: .zero, size: screen.frame.size), configuration: config)
@@ -200,6 +203,10 @@ final class StationPage: NSObject, WKNavigationDelegate {
 final class StationApp: NSObject, NSApplicationDelegate {
     var pages: [String: StationPage] = [:]
     lazy var audio = StationAudio()
+    lazy var microphone = StationMicrophone(baseURL: base) { [weak self] value in
+        guard let self = self, let data = try? JSONSerialization.data(withJSONObject: value), let json = String(data: data, encoding: .utf8) else { return }
+        self.pages["console"]?.web.evaluateJavaScript("window.dispatchEvent(new CustomEvent('lost-muse-microphone',{detail:\(json)}));", completionHandler: nil)
+    }
     var watchdog: Timer?
     var snapshotTimer: Timer?
     var ending = false
@@ -306,6 +313,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         }
     }
     @objc func showDesktop() {
+        microphone.cancel()
         desktopMode = true
         NSApp.presentationOptions = []
         NSApp.hide(nil)
@@ -367,7 +375,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
             default: break
             }
         }
-        let info: [String: Any] = ["pid": getpid(), "owner": owner, "renderer": "WKWebView", "desktopMode": desktopMode, "hidden": NSApp.isHidden, "globalPF6": hotKey != nil, "updatedAt": Date().timeIntervalSince1970,
+        let info: [String: Any] = ["pid": getpid(), "owner": owner, "renderer": "WKWebView", "desktopMode": desktopMode, "hidden": NSApp.isHidden, "globalPF6": hotKey != nil, "microphone": microphone.snapshot(), "updatedAt": Date().timeIntervalSince1970,
             "windows": pages.mapValues { ["url": $0.web.url?.absoluteString ?? "", "loading": $0.web.isLoading,
                                           "width": $0.web.bounds.width, "height": $0.web.bounds.height] as [String: Any] }]
         if let data = try? JSONSerialization.data(withJSONObject: info, options: [.sortedKeys]) { try? data.write(to: statusURL, options: .atomic) }
@@ -403,6 +411,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         NSApp.reply(toApplicationShouldTerminate: true)
     }
     func applicationWillTerminate(_ notification: Notification) {
+        microphone.cancel()
         watchdog?.invalidate(); snapshotTimer?.invalidate()
         if owner > 0 { audio.stopAll() }
         if let hotKey = hotKey { UnregisterEventHotKey(hotKey) }

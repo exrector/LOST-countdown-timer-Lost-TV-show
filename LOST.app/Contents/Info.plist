@@ -9,6 +9,7 @@
 <key>CFBundleIconFile</key><string>LOST.icns</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>NSMicrophoneUsageDescription</key><string>LOST записывает голосовое сообщение для Muse только пока вы удерживаете RESET в режиме AI.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>

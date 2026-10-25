@@ -2,7 +2,7 @@
 
 The module hosts the preserved Muse Linux SDK on macOS, including Intel Monterey/Python 3.9. It reuses the already paired gadget; Bluetooth and the Pi are not needed at runtime.
 
-This is the transport/runtime foundation. No avatar, voice UI or animated pet is implemented yet. The SDK is pinned to upstream c9354b7a765cfb7dd3c4f1945a9ca838d871630c; see vendor/UPSTREAM.txt. See vendor/LICENSE and https://github.com/facebookincubator/muse-gadget-sdk. Current LinkSession includes send_voice, subscribe_chat and stream_tts; these APIs still need a macOS microphone/player/UI adapter and live voice verification.
+The terminal AI UI supports PF3/AI+Enter activation, text streaming, and native hold-to-talk with RESET inside AI. An animated avatar and spoken replies are not implemented. Russian WAV input with a real text response was verified; actual KT USB capture awaits the user’s first recording/permission test. The SDK is pinned to upstream c9354b7a765cfb7dd3c4f1945a9ca838d871630c; see vendor/UPSTREAM.txt. See vendor/LICENSE and https://github.com/facebookincubator/muse-gadget-sdk. Current LinkSession includes send_voice, subscribe_chat and stream_tts; these APIs still need a macOS microphone/player/UI adapter and live voice verification.
 
 Private state is outside the checkout: ~/Library/Application Support/LOST Muse/state/{identity.json,pairing.json,sdk_token}; owner-only files. The recovery originals are separate and never edited by the runtime. Do not run the same identity on two hosts. Stop the previous runtime before moving the latest state; refreshed credentials must travel together.
 
@@ -15,3 +15,5 @@ Only an acknowledged `registered with the Muse` sets ready. Starting, connecting
 Network for this bring-up: router VPN, explicitly left enabled by the owner on 2026-10-25. This does NOT implement or prove the planned isolated US SSH/SOCKS route. HTTPS, token refresh and WSS currently use the router route. Do not claim fail-closed or per-process isolation until that transport is implemented and tested. No global route, macOS proxy or Tailscale settings are changed by this module.
 
 Validation: node --test cast-app/test/*.test.cjs muse/supervisor.test.cjs. The local workstation Preview can exercise the real module with the private working state; stop it before handing that state to the mini. `muse/install.sh` alone never starts or pairs a device.
+
+Side-chat IDs must be stable UUIDs for the real server; arbitrary readable names passed mocks but were rejected live. The runtime uses UUIDv5 derived from the existing gadget identity. Native microphone access is requested only on explicit RESET capture, never at startup. Capture uses AVAudioRecorder input only; timer output audio is unchanged.

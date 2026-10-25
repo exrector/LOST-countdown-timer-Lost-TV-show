@@ -1,5 +1,8 @@
 """Offline fixtures only: no SDK network, credentials or personal state."""
 import asyncio
+import base64
+import io
+import wave
 import importlib.util
 import json
 import os
@@ -153,6 +156,51 @@ class LocalRequestTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.state.error)
         self.state.event(event('message.assistant', 1, parent='note', display_text='caught up'))
         self.assertEqual(self.state.messages[-1]['text'], 'caught up')
+
+    async def test_voice_accepts_pcm_wav_without_saving_audio(self):
+        stream = io.BytesIO()
+        with wave.open(stream, 'wb') as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(16000)
+            audio.writeframes(b'\x00\x00' * 1600)
+        data = stream.getvalue()
+        registered = asyncio.Event()
+        registered.set()
+        calls = []
+        async def send_voice(audio, session_id, **kwargs):
+            calls.append((audio, session_id, kwargs))
+            await asyncio.sleep(0)
+            return {'ok': True, 'response': {'message_id': 'voice-note'}}
+        self.service._current = types.SimpleNamespace(registered=registered, send_voice=send_voice)
+        request = json.dumps({'action': 'chat_voice', 'audio_base64': base64.b64encode(data).decode()}).encode()
+        first = asyncio.create_task(self.service._local_request(request))
+        await asyncio.sleep(0)
+        self.assertEqual(await self.service._local_request(request), {'ok': False, 'error': 'busy'})
+        self.assertEqual(await first, {'ok': True})
+        self.assertEqual(calls, [(data, 'lost-terminal-test', {'output_modality': 'text'})])
+        self.assertEqual(self.module.MAX_LOCAL_REQUEST, 3 * 1024 * 1024)
+        self.assertEqual(self.state.messages[0]['text'], '[Голосовое сообщение: 0.1 с]')
+        self.state.event(event('message.assistant', 1, parent='voice-note', display_text='recognized fixture'))
+        self.assertEqual(self.state.messages[-1]['text'], 'recognized fixture')
+        self.state.flush()
+        self.assertNotIn(base64.b64encode(data).decode(), self.state.path.read_text())
+        self.assertEqual(sorted(p.name for p in Path(self.tmp.name).iterdir()), ['chat.json'])
+
+    async def test_voice_rejects_invalid_base64_wav_format_and_oversize(self):
+        bad = ['not base64!', base64.b64encode(b'not a wave file').decode(), 'A' * (chat.MAX_VOICE_BASE64 + 1)]
+        for channels, rate, width, frames in [(2, 16000, 2, 10), (1, 44100, 2, 10), (1, 16000, 1, 10), (1, 16000, 2, 0)]:
+            stream = io.BytesIO()
+            with wave.open(stream, 'wb') as audio:
+                audio.setnchannels(channels)
+                audio.setsampwidth(width)
+                audio.setframerate(rate)
+                audio.writeframes(b'\x00' * (channels * width * frames))
+            bad.append(base64.b64encode(stream.getvalue()).decode())
+        for encoded in bad:
+            result = await self.service._local_request(json.dumps({'action': 'chat_voice', 'audio_base64': encoded}).encode())
+            self.assertEqual(result, {'ok': False, 'error': 'invalid_audio'})
+        self.assertEqual(self.state.messages, [])
 
     async def test_rejected_send_sanitized(self):
         registered = asyncio.Event()

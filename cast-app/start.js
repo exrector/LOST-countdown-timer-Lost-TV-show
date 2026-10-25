@@ -166,7 +166,7 @@ events.on('quit', () => shutdown(0));
 events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
 events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, moduleInstalled: { muse: museRuntime.installed() }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, moduleInstalled: { muse: museRuntime.installed() }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
     caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
     screens = await readScreens() || []; lastScreensAt = Date.now();
     await openWindow('console'); if (localTimer) await openWindow('tv');

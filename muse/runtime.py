@@ -10,6 +10,7 @@ import sys
 import signal
 import threading
 import time
+import uuid
 
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE / 'vendor'))
@@ -99,7 +100,7 @@ def main():
                 return
     threading.Thread(target=watch_owner, daemon=True).start()
     from chat_adapter import install
-    install(ROOT, 'lost-terminal-' + fixed_identity.suffix)
+    install(ROOT, str(uuid.uuid5(uuid.NAMESPACE_URL, 'lost-terminal-' + fixed_identity.suffix)))
     status('connecting')
     sys.argv = ['musegadget', 'run']
     try:
