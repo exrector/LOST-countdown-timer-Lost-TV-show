@@ -6,6 +6,11 @@ belongs to the explicit LOST side chat, not to the user's main Muse chat.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import io
+import struct
+import wave
 from collections import OrderedDict
 import hashlib
 import json
@@ -21,6 +26,8 @@ MAX_TOTAL = 64000
 WRITE_DELAY = 0.15
 SETTLE_SECONDS = 2.0
 WAIT_SECONDS = 90.0
+MAX_VOICE_BYTES = 2 * 1024 * 1024
+MAX_VOICE_BASE64 = 4 * ((MAX_VOICE_BYTES + 2) // 3)
 
 
 class ChatState:
@@ -254,12 +261,49 @@ class ChatState:
             self.changed()
 
 
+def _voice_note(encoded):
+    """Accept one bounded 16-kHz mono signed-16-bit PCM WAV, never persist it."""
+    if not isinstance(encoded, str) or not encoded or len(encoded) > MAX_VOICE_BASE64:
+        raise ValueError('invalid_audio')
+    try:
+        data = base64.b64decode(encoded.encode('ascii'), validate=True)
+        if not data or len(data) > MAX_VOICE_BYTES:
+            raise ValueError('invalid_audio')
+        with wave.open(io.BytesIO(data), 'rb') as audio:
+            frames = audio.getnframes()
+            if (audio.getnchannels() != 1 or audio.getsampwidth() != 2
+                    or audio.getframerate() != 16000 or audio.getcomptype() != 'NONE'
+                    or frames <= 0 or frames * 2 > len(data)):
+                raise ValueError('invalid_audio')
+            if len(audio.readframes(frames)) != frames * 2:
+                raise ValueError('invalid_audio')
+        return data, frames / 16000.0
+    except (ValueError, UnicodeError, binascii.Error, wave.Error, EOFError, struct.error):
+        raise ValueError('invalid_audio') from None
+
+
 def install(root: Path, session_id: str):
     """Install the side-chat projection before the SDK's cli.main()."""
     if not isinstance(session_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,64}', session_id):
         raise ValueError('Invalid local side-chat session id')
     from musegadget import service
+    service.MAX_LOCAL_REQUEST = 3 * 1024 * 1024
     state = ChatState(root)
+    def diagnostic(stage, exc=None, reply=None):
+        detail = {'stage': stage, 'time': int(time.time()), 'exception': type(exc).__name__ if exc else None}
+        if exc is not None and isinstance(getattr(exc, 'status', None), int): detail['status'] = exc.status
+        if isinstance(reply, dict):
+            detail['status'] = reply.get('status')
+            body = reply.get('response')
+            detail['response_type'] = type(body).__name__
+            if isinstance(body, dict): detail['response_keys'] = list(body)[:12]
+        p = Path(root) / 'chat-diagnostics.json'
+        try: value = json.loads(p.read_text())
+        except (OSError, ValueError): value = {}
+        value[stage] = detail
+        fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f: json.dump(value, f)
+
     BaseSession, BaseService = service.LinkSession, service.Service
 
     class ChatSession(BaseSession):
@@ -275,8 +319,8 @@ def install(root: Path, session_id: str):
                         state.event(event)
                 except asyncio.CancelledError:
                     raise
-                except Exception:
-                    pass  # No raw error or event values in logs/status.
+                except Exception as exc:
+                    diagnostic('subscribe', exc=exc)
                 # A new side chat may not exist until its first POST. A
                 # subscription 404 must neither block that POST nor fail its
                 # active turn; retry while the main session remains registered.
@@ -311,11 +355,20 @@ def install(root: Path, session_id: str):
                 request = json.loads(line)
             except (ValueError, TypeError):
                 return {'ok': False, 'error': 'invalid_request'}
-            if not isinstance(request, dict) or request.get('action') != 'chat_send':
+            if not isinstance(request, dict) or request.get('action') not in ('chat_send', 'chat_voice'):
                 return await super()._local_request(line)
-            message = request.get('message')
-            if not isinstance(message, str) or not message.strip() or len(message) > MAX_TEXT:
-                return {'ok': False, 'error': 'invalid_message'}
+            voice = request.get('action') == 'chat_voice'
+            audio = None
+            if voice:
+                try:
+                    audio, duration = _voice_note(request.get('audio_base64'))
+                except ValueError:
+                    return {'ok': False, 'error': 'invalid_audio'}
+                message = '[Голосовое сообщение: {:.1f} с]'.format(duration)
+            else:
+                message = request.get('message')
+                if not isinstance(message, str) or not message.strip() or len(message) > MAX_TEXT:
+                    return {'ok': False, 'error': 'invalid_message'}
             session = self._current
             if session is None or not session.registered.is_set():
                 return {'ok': False, 'error': 'not_connected'}
@@ -323,15 +376,20 @@ def install(root: Path, session_id: str):
                 return {'ok': False, 'error': 'busy'}
             state.begin(message.strip())
             try:
-                reply = await session.send_chat(message.strip(), session_id, output_modality='text')
+                if voice:
+                    reply = await session.send_voice(audio, session_id, output_modality='text')
+                else:
+                    reply = await session.send_chat(message.strip(), session_id, output_modality='text')
                 if not isinstance(reply, dict) or reply.get('ok') is not True or not session.registered.is_set():
+                    diagnostic('send_rejected', reply=reply)
                     raise ValueError('Rejected')
                 state.accept(reply)
                 return {'ok': True}
             except asyncio.CancelledError:
                 state.fail('Отправка прервана; доставка не подтверждена')
                 raise
-            except Exception:
+            except Exception as exc:
+                if not isinstance(exc, ValueError): diagnostic('send', exc=exc)
                 state.fail('Не удалось подтвердить отправку в Muse')
                 return {'ok': False, 'error': 'send_failed'}
 

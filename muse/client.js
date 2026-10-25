@@ -17,14 +17,14 @@
     var notice = node('div', 'muse-notice'); notice.setAttribute('role', 'status'); panel.appendChild(notice);
     var form = node('form', 'muse-compose'), prompt = node('label', 'muse-input-label', '>'); prompt.htmlFor = 'lost-muse-input'; var input = node('input', 'muse-input'); input.id = 'lost-muse-input'; input.type = 'text'; input.maxLength = 4000; input.autocomplete = 'off'; input.spellcheck = false; input.setAttribute('aria-label', 'Сообщение Muse'); input.placeholder = 'Сообщение';
     var sendButton = node('button', 'muse-button muse-send', 'ENTER ОТПРАВИТЬ'); sendButton.type = 'submit'; form.appendChild(prompt); form.appendChild(input); form.appendChild(sendButton); panel.appendChild(form);
-    var footer = node('footer', 'muse-footer'), voiceButton = button('PF4 УДЕРЖИВАТЬ — ГОЛОС', function () { if (!canRecord()) tellMicUnavailable(); }), footerText = node('span', '', 'PF3 — НАЗАД   ↑↓ — ИСТОРИЯ'); footer.appendChild(voiceButton); footer.appendChild(footerText); panel.appendChild(footer);
+    var footer = node('footer', 'muse-footer'), voiceButton = button('RESET УДЕРЖИВАТЬ — ГОЛОС', function () { if (!canRecord()) tellMicUnavailable(); }), footerText = node('span', '', 'PF3 — НАЗАД   ↑↓ — ИСТОРИЯ'); footer.appendChild(voiceButton); footer.appendChild(footerText); panel.appendChild(footer);
     var ghost = node('div', 'muse-command'); ghost.hidden = true; ghost.setAttribute('aria-live', 'polite'); document.body.appendChild(ghost); document.body.appendChild(panel);
     function emit(name, detail) { window.dispatchEvent(new CustomEvent(name, { detail: detail })); }
     function moduleInfo() { return snapshot.module || {}; }
     function phase() { return (snapshot.chat || {}).phase || 'idle'; }
-    function busy() { return posting || held || microphone.recording || ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) !== -1; }
+    function busy() { return posting || held || microphone.recording || microphone.uploading || microphone.requesting || ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) !== -1; }
     function connected() { var m = moduleInfo(); return m.installed !== false && m.enabled === true && m.status === 'ready'; }
-    function canRecord() { return opened && !priority && connected() && microphone.available === true && microphone.supported === true && !posting && ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) === -1; }
+    function canRecord() { return opened && !priority && connected() && microphone.available === true && microphone.supported === true && !posting && !microphone.uploading && !microphone.requesting && ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) === -1; }
     function clearGhost() { clearTimeout(ghostTimer); ghostTimer = null; ghostText = ''; ghost.hidden = true; ghost.textContent = ''; }
     function commandLetter(letter) { ghostText = ghostText === 'A' && letter === 'I' ? 'AI' : letter === 'A' ? 'A' : ''; ghost.hidden = !ghostText; ghost.textContent = '> ' + ghostText + (ghostText === 'AI' ? '  ENTER' : ''); clearTimeout(ghostTimer); ghostTimer = setTimeout(clearGhost, 3000); }
     function tellMicUnavailable() { noticeText = microphone.error || (microphone.available ? 'ГОЛОСОВОЙ АДАПТЕР ЕЩЁ НЕ ПОДКЛЮЧЁН. ПОКА ДОСТУПЕН ТЕКСТ.' : 'МИКРОФОН НЕ ПОДКЛЮЧЁН. ПОКА ДОСТУПЕН ТЕКСТ.'); render(); }
@@ -38,17 +38,17 @@
         var messages = Array.isArray((snapshot.chat || {}).messages) ? snapshot.chat.messages.slice(-100) : [];
         var key = JSON.stringify(messages); if (key === transcript._messagesKey) return; transcript._messagesKey = key;
         var bottom = transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop < 48, previous = transcript.scrollTop; transcript.replaceChildren();
-        if (!messages.length) { var empty = node('div', 'muse-empty'); empty.appendChild(node('div', 'muse-empty-title', 'mUse')); empty.appendChild(node('p', '', 'Разговор появится здесь.')); empty.appendChild(node('p', '', 'Введите сообщение или удерживайте PF4, когда микрофон будет подключён.')); transcript.appendChild(empty); }
+        if (!messages.length) { var empty = node('div', 'muse-empty'); empty.appendChild(node('div', 'muse-empty-title', 'mUse')); empty.appendChild(node('p', '', 'Разговор появится здесь.')); empty.appendChild(node('p', '', 'Введите сообщение или удерживайте RESET, когда микрофон будет подключён.')); transcript.appendChild(empty); }
         messages.forEach(function (m) { var role = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'system', row = node('article', 'muse-message muse-message-' + role), label = node('div', 'muse-message-role', role === 'user' ? 'ВЫ' : role === 'assistant' ? 'MUSE' : 'СИСТЕМА'), body = node('div', 'muse-message-text', typeof m.text === 'string' ? m.text.slice(0, 40000) : ''); if (m.pending) body.classList.add('muse-message-pending'); row.appendChild(label); row.appendChild(body); transcript.appendChild(row); });
         transcript.scrollTop = bottom ? transcript.scrollHeight : previous;
     }
     function render() {
         var inputWasDisabled = input.disabled;
         var m = moduleInfo(), active = connected(), currentPhase = phase(); panel.classList.toggle('muse-offline', !active); panel.classList.toggle('muse-recording', microphone.recording === true); connection.textContent = statuses[m.status] || 'ОЖИДАНИЕ'; connection.dataset.status = m.status || 'unknown'; preview.hidden = snapshot.preview !== true;
-        phaseText.textContent = microphone.recording ? 'СЛУШАЮ — ОТПУСТИТЕ PF4 ДЛЯ ОТПРАВКИ' : held ? 'ВКЛЮЧАЮ МИКРОФОН' : posting ? 'ОТПРАВЛЯЮ' : active ? phases[currentPhase] || 'ГОТОВ К РАЗГОВОРУ' : m.enabled === false ? 'ВКЛЮЧИТЕ mUse В МЕНЮ → МОДУЛИ' : 'СВЯЗЬ С MUSE НЕ ГОТОВА';
-        micText.textContent = !microphone.available ? 'МИКРОФОН НЕ ПОДКЛЮЧЁН' : !microphone.supported ? 'ГОЛОС ЕЩЁ НЕ ПОДКЛЮЧЁН' : microphone.recording ? '● REC' : 'PF4 — УДЕРЖИВАТЬ ДЛЯ РЕЧИ';
+        phaseText.textContent = microphone.recording ? 'СЛУШАЮ — ОТПУСТИТЕ RESET ДЛЯ ОТПРАВКИ' : held ? 'ВКЛЮЧАЮ МИКРОФОН' : posting ? 'ОТПРАВЛЯЮ' : active ? phases[currentPhase] || 'ГОТОВ К РАЗГОВОРУ' : m.enabled === false ? 'ВКЛЮЧИТЕ mUse В МЕНЮ → МОДУЛИ' : 'СВЯЗЬ С MUSE НЕ ГОТОВА';
+        micText.textContent = microphone.requesting ? 'РАЗРЕШИТЕ МИКРОФОН В macOS' : microphone.uploading ? 'ОТПРАВКА ГОЛОСА' : !microphone.available ? 'МИКРОФОН НЕ ПОДКЛЮЧЁН' : !microphone.supported ? 'ГОЛОС ЕЩЁ НЕ ПОДКЛЮЧЁН' : microphone.recording ? '● REC' : 'RESET — УДЕРЖИВАТЬ ДЛЯ РЕЧИ';
         recorder.hidden = microphone.recording !== true; var elapsed = Math.max(0, Math.floor(Number(microphone.elapsed) || 0)); duration.textContent = String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0'); level.style.width = Math.round(Math.max(0, Math.min(1, Number(microphone.level) || 0)) * 100) + '%';
-        input.disabled = !active || busy(); sendButton.disabled = !active || busy() || !input.value.trim(); voiceButton.disabled = !canRecord() && !held; voiceButton.title = !microphone.available ? 'Нужен микрофон' : !microphone.supported ? 'Нативная запись ещё не подключена' : 'Нажмите и удерживайте PF4, отпустите для отправки';
+        input.disabled = !active || busy(); sendButton.disabled = !active || busy() || !input.value.trim(); voiceButton.disabled = !canRecord() && !held; voiceButton.title = !microphone.available ? 'Нужен микрофон' : !microphone.supported ? 'Нативная запись ещё не подключена' : 'Нажмите и удерживайте RESET, отпустите для отправки';
         notice.textContent = noticeText || (snapshot.chat || {}).error || m.error || ''; notice.hidden = !notice.textContent; renderMessages();
         if (opened && inputWasDisabled && !input.disabled && (document.activeElement === closeButton || document.activeElement === document.body)) input.focus();
     }
@@ -66,6 +66,8 @@
     function close() { if (!opened) return; recordStop(true); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); panel.hidden = true; document.body.classList.remove('lost-muse-active'); clearGhost(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
     function setMicrophone(value) {
         if (!value || typeof value !== 'object') return; microphone = Object.assign({}, microphone, value);
+        if(value.finished || value.error){held=false;}
+        if(typeof value.error==='string')noticeText=value.error;
         if (microphone.recording && (!held || !opened || priority)) { microphone.recording = false; emit('lost-muse-record', { on: false, cancel: true }); }
         if (held && (!microphone.available || !microphone.supported)) recordStop(true); render();
     }
@@ -87,7 +89,7 @@
         if (opened) {
             e.stopImmediatePropagation();
             if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) close(); return; }
-            if (e.code === 'F4') { e.preventDefault(); if (!e.repeat) recordStart(); return; }
+            if (e.code === 'ControlLeft') { e.preventDefault(); if (!e.repeat) recordStart(); return; }
             if (e.key === 'Escape') { e.preventDefault(); if (!e.repeat) { if (held || microphone.recording) recordStop(true); else close(); } return; }
             if (e.key === 'Enter' && e.target === input) { e.preventDefault(); if (!e.repeat && !e.isComposing) submit(); return; }
             if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.target === transcript || e.target === panel || (e.target === input && !input.value))) { e.preventDefault(); transcript.scrollBy(0, e.key === 'ArrowUp' ? -55 : 55); return; }
@@ -96,7 +98,6 @@
         }
         if (priority || e.ctrlKey || e.metaKey || e.altKey) { clearGhost(); return; }
         if (e.code === 'F3') { block(e); if (!e.repeat) open(); return; }
-        if (e.code === 'F4' && !menuOpen()) { block(e); if (!e.repeat && open()) recordStart(); return; }
         var original = document.querySelector('.my-console'); if (menuOpen() || !original || !original.disabled) { clearGhost(); return; }
         if (e.repeat) return;
         if (e.key === 'Enter' && ghostText === 'AI') { block(e); swallowedEnter = true; clearGhost(); open(); return; }
@@ -104,7 +105,7 @@
         clearGhost();
     }, true);
     window.addEventListener('keyup', function (e) {
-        if (e.code === 'F4' && (held || microphone.recording)) { block(e); recordStop(false); return; }
+        if (e.code === 'ControlLeft' && (held || microphone.recording)) { block(e); recordStop(false); return; }
         if (e.key === 'Enter' && swallowedEnter) { swallowedEnter = false; block(e); return; }
         if (opened && e.code !== 'F6') e.stopImmediatePropagation();
     }, true);
@@ -116,6 +117,11 @@
     window.addEventListener('lost-muse-microphone', function (e) { setMicrophone(e.detail); });
     window.addEventListener('message', function (e) { if (e.data && e.data.type === 'enableConsole') { priority = !!e.data.enabled || !!(window.__LOST_CLOCK && window.__LOST_CLOCK.phase && window.__LOST_CLOCK.phase !== 'countdown'); if (priority) { clearGhost(); close(); } } });
     var clock = window.__LOST_CLOCK; if (clock && clock.phase === 'countdown' && clock.left > 0 && clock.left <= 240) priority = true;
+    window.addEventListener('lost-muse-record', function(e){
+        if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:e.detail.on?'start':e.detail.cancel?'cancel':'stop'});
+    });
+    window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});});
+    if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});
     window.LostMuse = { open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone };
     render();
 })();

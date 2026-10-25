@@ -32,7 +32,7 @@ function start(port = 8765, opts = {}) {
     let clockTimer;
     const stage = opts.stage || { width: 1560, height: 720 };
     const upsGateway = createUPSGateway({ port: opts.upsPort || 8766, origin: 'http://localhost:' + port });
-    const museGateway=createMuseGateway({port:()=>server.address()?.port || port, getModule:()=>moduleManager.snapshot().muse, getChat:opts.getMuseChat, sendMessage:opts.sendMuseMessage, preview:opts.musePreview===true});
+    const museGateway=createMuseGateway({port:()=>server.address()?.port || port, getModule:()=>moduleManager.snapshot().muse, getChat:opts.getMuseChat, sendMessage:opts.sendMuseMessage,sendVoice:opts.sendMuseVoice, preview:opts.musePreview===true});
     const server = http.createServer((req, res) => {
         syncClock();
         const url = new URL(req.url, 'http://x');

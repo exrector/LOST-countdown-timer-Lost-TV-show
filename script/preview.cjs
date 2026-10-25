@@ -29,7 +29,7 @@ function request(route){return new Promise((resolve,reject)=>{const r=http.get({
   },600);return Promise.resolve({ok:true});
  }
  const {start,events}=require(path.join(appDir,'server.js'));
- const core=await start(port,{host:'127.0.0.1',audioDevice:false,liveInDev:true,upsPort:18766,stage:{width:1000,height:460},moduleInstalled:{muse:museDemo||museRuntime.installed()},musePreview:museDemo,getMuseChat:museDemo?()=>demoChat:museRuntime.chat,sendMuseMessage:museDemo?demoSend:museRuntime.sendMessage,applyModule:(id,on)=>id==='muse'&&!museDemo?museRuntime.apply(id,on):Promise.resolve({status:on?'ready':'disabled',installed:true}),getRuntimeStatus:()=>({preview:true})});
+ const core=await start(port,{host:'127.0.0.1',audioDevice:false,liveInDev:true,upsPort:18766,stage:{width:1000,height:460},moduleInstalled:{muse:museDemo||museRuntime.installed()},musePreview:museDemo,getMuseChat:museDemo?()=>demoChat:museRuntime.chat,sendMuseMessage:museDemo?demoSend:museRuntime.sendMessage,sendMuseVoice:museDemo?undefined:museRuntime.sendVoice,applyModule:(id,on)=>id==='muse'&&!museDemo?museRuntime.apply(id,on):Promise.resolve({status:on?'ready':'disabled',installed:true}),getRuntimeStatus:()=>({preview:true})});
  const musePoll=setInterval(()=>core.updateMuse(museDemo?{enabled:true,installed:true,status:'ready'}:museRuntime.read()),2000);
  const log=fs.openSync(path.join(logs,'native.log'),'a');
  const child=spawn(path.join(dest,'Contents/MacOS/LOSTNative'),['--managed','--owner-pid',String(process.pid),'--url',`http://localhost:${port}`,'--preview','--status',path.join(logs,'native-status.json')],{stdio:['ignore',log,log]});

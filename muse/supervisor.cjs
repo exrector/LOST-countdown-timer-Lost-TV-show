@@ -43,17 +43,19 @@ function createMuse({root,home=path.join(os.homedir(),'Library/Application Suppo
   try{const p=path.join(home,'chat.json');if(fs.statSync(p).size>524288)throw Error();const d=JSON.parse(fs.readFileSync(p,'utf8'));return {phase:d.phase||'idle',messages:Array.isArray(d.messages)?d.messages:[],error:d.error||null,available:d.available===true};}
   catch(_){return {phase:'idle',messages:[],available:false,error:null};}
  }
- function sendMessage(message){
+ function requestChat(payload){
   if(!desired||read().status!=='ready')return Promise.resolve({ok:false,error:'not_connected'});
   return new Promise((resolve,reject)=>{
    const socket=net.createConnection(path.join(home,'muse.sock'));let body='',done=false;
    function finish(e,value){if(done)return;done=true;socket.destroy();e?reject(e):resolve(value);}
    socket.setTimeout(65000,()=>finish(Error('timeout')));socket.once('error',e=>finish(e));
-   socket.once('connect',()=>socket.write(JSON.stringify({action:'chat_send',message})+'\n'));
+   socket.once('connect',()=>socket.write(JSON.stringify(payload)+'\n'));
    socket.on('data',part=>{body+=part;if(body.length>65536)return finish(Error('reply too large'));if(body.includes('\n')){try{finish(null,JSON.parse(body.split('\n')[0]));}catch(e){finish(e);}}});
    socket.once('end',()=>{if(!done)finish(Error('empty reply'));});
   });
  }
- return {installed,read,chat,sendMessage,async apply(id,on){if(id!=='muse')throw Error('Unknown module');desired=on;if(on)launch();else await stop();return read();},async close(){closing=true;desired=false;await stop();}};
+ const sendMessage=message=>requestChat({action:'chat_send',message});
+ const sendVoice=data=>requestChat({action:'chat_voice',audio_base64:data.toString('base64')});
+ return {installed,read,chat,sendMessage,sendVoice,async apply(id,on){if(id!=='muse')throw Error('Unknown module');desired=on;if(on)launch();else await stop();return read();},async close(){closing=true;desired=false;await stop();}};
 }
 module.exports={createMuse};

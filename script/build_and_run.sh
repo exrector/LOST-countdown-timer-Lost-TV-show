@@ -6,7 +6,7 @@ TARGET_ARCH="${LOST_BUILD_ARCH:-$(uname -m)}"
 BUNDLE="$ROOT/native/dist/LOST.app"
 case "$MODE" in run|--debug|--logs|--telemetry|--verify|--build-only|--preview) ;; *) echo 'usage: build_and_run.sh [--preview|--build-only|--debug|--logs|--telemetry|--verify]' >&2; exit 2 ;; esac
 mkdir -p "$BUNDLE/Contents/MacOS" "$ROOT/native/.module-cache"
-xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation "$ROOT/native/Sources/main.swift" -o "$BUNDLE/Contents/MacOS/LOSTNative"
+xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation "$ROOT/native/Sources/main.swift" "$ROOT/native/Sources/StationMicrophone.swift" -o "$BUNDLE/Contents/MacOS/LOSTNative"
 if [ -f "$ROOT/native/Resources/LOST.icns" ]; then
  mkdir -p "$BUNDLE/Contents/Resources"; cp "$ROOT/native/Resources/LOST.icns" "$BUNDLE/Contents/Resources/LOST.icns"
 fi
@@ -22,6 +22,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIconFile</key><string>LOST.icns</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>NSMicrophoneUsageDescription</key><string>LOST записывает голосовое сообщение для Muse только пока вы удерживаете RESET в режиме AI.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>

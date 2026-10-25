@@ -215,3 +215,11 @@ iMessage с номеров `config.json → sleepFrom` на Apple ID Mac mini = 
 - Local AI terminal UI: PF3 or AI+Enter opens, Escape closes, protected code window takes priority. Plain S/D/L/Q/U shortcuts removed; pause/menu and PF6 desktop retained. RESET remains Ctrl. PF4 is hold/release PTT preparation; actual microphone capture not implemented.
 - Added loopback/origin-restricted chat API and side-chat stream adapter with bounded private history, replay/correlation handling and timeouts. UI smoke uses an explicitly labelled local test response, never a fabricated production Muse answer.
 - Validation: 62 Node tests and 9 Python3.9 offline chat tests; native WKWebView/keyboard smoke. No computer reboot performed. After the owner began disassembling mini to add a microphone, remote work stopped. New terminal UI remains local and awaits installation/live testing after reassembly.
+
+## 2026-10-25 — live voice experiment and RESET input
+
+- Corrected PTT binding to RESET/ControlLeft inside AI at the owner’s explicit request; PF4 is not voice. Standard Ctrl remains outside AI.
+- A real experiment found that the server rejected readable non-UUID side-chat IDs. Stable UUIDv5 fixed the conversation: actual reply “СВЯЗЬ РАБОТАЕТ”.
+- Russian synthetic WAV5.82s/PCM16kmono16bit was accepted by real Muse and returned “Слышу отлично, русский голосовой ввод работает.” This did not use the hardware mic.
+- Added macOS AVAudioRecorder capture, explicit TCC permission, release-during-prompt guard, bounded WAV bridge and voice IPC. Existing output engine unchanged. ARM and Intel macOS12 builds pass;63 Node+11 chat/voice+7 LaunchAgent tests pass.
+- Installed on mini with backup voice-ready-20261025-205142. Native status reports KT USB Audio available, permission not yet requested, recordingfalse. Muse and both windows/UPS ready. Local profile retired again to avoid concurrent sessions. Physical RESET+KT capture pending user test.
