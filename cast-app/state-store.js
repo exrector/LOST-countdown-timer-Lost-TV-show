@@ -1,12 +1,13 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { normalizeModules } = require('./modules');
 function slot(s = {}) { return { left: Number.isFinite(s.left) ? s.left : null, paused: s.paused === true }; }
 function loadState(file) {
     let s = {}; try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
     if (!s || typeof s !== 'object') s = {};
     return { audio: ['speakers','monitor','off'].includes(s.audio) ? s.audio : null,
-        mode: s.mode === 'dev' ? 'dev' : 'live', live: slot(s.live || s), dev: slot(s.dev) };
+        modules: normalizeModules(s.modules), mode: s.mode === 'dev' ? 'dev' : 'live', live: slot(s.live || s), dev: slot(s.dev) };
 }
 function writeState(file, state) {
     const temp = file + '.' + process.pid + '.tmp';

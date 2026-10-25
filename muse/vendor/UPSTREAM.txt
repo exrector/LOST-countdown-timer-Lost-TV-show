@@ -1,0 +1,4 @@
+facebookincubator/muse-gadget-sdk
+commit c9354b7a765cfb7dd3c4f1945a9ca838d871630c
+https://github.com/facebookincubator/muse-gadget-sdk/tree/c9354b7a765cfb7dd3c4f1945a9ca838d871630c
+Updated 2026-10-25. Runtime wrapper preserves identity and revoked pairing without modifying upstream.

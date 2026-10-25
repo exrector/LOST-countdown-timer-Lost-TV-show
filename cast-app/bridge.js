@@ -6,6 +6,8 @@
 (function () {
     var role = location.pathname.indexOf('console') !== -1 ? 'console' : 'tv';
     var ws, queue = [], fake = { closed: false };
+    var moduleState=window.__LOST_MODULES || {ups:{enabled:true,status:'starting'},muse:{enabled:false,status:'not_installed',installed:false}};
+    function applyModules(value){moduleState=value;window.__LOST_MODULES=value;window.dispatchEvent(new CustomEvent('lost-modules',{detail:value}));if(ui&&ui.render)ui.render();}
     var restoringPause = !window.__LOST_CLOCK && role === 'tv' && !!(window.__LOST_RESUME && window.__LOST_RESUME.paused);
     var SOUNDS = ['alarm', 'beep', 'discharge', 'keypress', 'reset', 'spinup', 'systemfailure', 'thud', 'tick', 'timeout'];
 
@@ -31,7 +33,9 @@
         };
         ws.onmessage = function (e) {
             var d = JSON.parse(e.data);
-            if (d.type === '__clock') { send({type:'__alive',role:role,up:Math.round(performance.now()/1000)}); window.__LOST_CLOCK = d; if (role === 'tv' && d.mode === tvMode() && window.__LOST_TIMER) window.__LOST_TIMER.applyClock(d); return; }
+            if (d.type === '__clock') { send({type:'__alive',role:role,up:Math.round(performance.now()/1000)}); window.__LOST_CLOCK = d; if(role==='console')window.dispatchEvent(new CustomEvent('lost-muse-code-priority',{detail:{active:d.phase!=='countdown'||(d.left>0&&d.left<=240)}})); if (role === 'tv' && d.mode === tvMode() && window.__LOST_TIMER) window.__LOST_TIMER.applyClock(d); return; }
+            if(d.type==='__modules'){applyModules(d.modules);return;}
+            if(d.type==='__module_error'){if(ui){ui.moduleError=d.error==='not_installed'?'МОДУЛЬ НЕ УСТАНОВЛЕН':'НЕ УДАЛОСЬ ПЕРЕКЛЮЧИТЬ МОДУЛЬ';if(ui.render)ui.render();}return;}
             if (d.type === '__cmd') return runCommand(d);
             if (d.type === '__state') return applyState(d);
             if (d.type === '__audio') return setAudioMode(d.mode);
@@ -307,6 +311,25 @@
         var AUDIO_DIR = { label: function () { return 'ЗВУК: ' + (AUDIO[audioMode] || 'ДИНАМИКИ'); }, pathLabel: 'ЗВУК', dir: Object.keys(AUDIO).map(function (v) {
             return { label: AUDIO[v], current: function () { return audioMode === v; }, act: function () { send({ type: '__audio', mode: v }); } };
         }) };
+        var MODULE_STATUS={ready:'РАБОТАЕТ',starting:'ЗАПУСК',stopping:'ОСТАНОВКА',disabled:'ВЫКЛЮЧЕН',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН',degraded:'НЕТ СВЕЖИХ ДАННЫХ',unavailable:'НЕТ СВЯЗИ',connecting:'СОЕДИНЕНИЕ',reconnecting:'ПЕРЕПОДКЛЮЧЕНИЕ',revoked:'ПАРА ОТОЗВАНА'};
+        function moduleInfo(id){return moduleState[id] || {enabled:false,status:'not_installed',installed:false};}
+        function setModule(id,enabled){return function(){
+            if(id==='ups'&&window.LostUPS&&window.LostUPS.status().busy){ui.moduleError='ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ UPS';render();return;}
+            ui.moduleError='';send({type:'__module',id:id,enabled:enabled});
+        };}
+        function moduleDirectory(id,title){
+            var result={label:function(){var m=moduleInfo(id);return title+': '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?'ВКЛ':'ВЫКЛ');},pathLabel:title,dir:[]};
+            if(id==='ups'||moduleInfo(id).installed)result.dir=[
+                {label:'ВКЛЮЧИТЬ',current:function(){return moduleInfo(id).enabled;},act:setModule(id,true)},
+                {label:'ВЫКЛЮЧИТЬ',current:function(){return !moduleInfo(id).enabled;},act:setModule(id,false)}
+            ];
+            result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
+                var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. Голосовой модуль ещё не подключён.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+            }});
+            return result;
+        }
+        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse')]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
@@ -317,13 +340,14 @@
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, pathLabel: 'РЕЖИМ', key: 'D/L', dir: [
                 { label: 'LIVE', key: 'L', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
             ] },
+            MODULES_DIR,
             { label: 'ЖУРНАЛ', view: true },
             { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
                 var d = JSON.parse(raw), c = d.components || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ', ups: 'ЭНЕРГОКОНТУР' };
-                var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
+                var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', disabled:'ВЫКЛЮЧЕН', stopping:'ОСТАНОВКА',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
                 return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' + Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n');
             } },
-            { label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
+            { module:'ups', label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
             QUIT
         ] };
 
@@ -332,7 +356,7 @@
         var box = document.createElement('div'); box.className = 'ctl';
         var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
         var path = [ROOT], sel = 0;
-        function items() { var n = path[path.length - 1]; return n.view ? [] : n.dir.filter(function (it) { return !it.devOnly || ui.mode === 'dev'; }); }
+        function items() { var n = path[path.length - 1]; return n.view ? [] : n.dir.filter(function (it) { return (!it.devOnly || ui.mode === 'dev') && (!it.module || moduleInfo(it.module).enabled); }); }
         function text(v) { return typeof v === 'function' ? v() : v; }
         function render() {
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
@@ -358,7 +382,7 @@
                 rows.appendChild(r);
             });
             var ft = document.createElement('div'); ft.className = 'ft';
-            ft.textContent = ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ESC НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : path.length > 1 ? '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ←/ESC НАЗАД' : '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ESC ЗАКРЫТЬ';
+            ft.textContent = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ESC НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : path.length > 1 ? '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ←/ESC НАЗАД' : '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ESC ЗАКРЫТЬ';
             win.appendChild(ft);
             if (isOpen()) { var selected = rows.querySelector('.sel'); if (selected) selected.scrollIntoView({ block: 'nearest' }); }
         }
@@ -382,6 +406,7 @@
         }
         function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
         function move(d) { if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
+        window.addEventListener('lost-muse-open', function(){open(false);});
         ui.render = render;
         ui.onMode = function () {
             if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, ROOT.dir[2]]; sel = 0; }
@@ -411,15 +436,11 @@
         render();
 
         // ===== Клавиатура (у компьютера нет мыши) =====
-        // Код набирается цифрами и пробелами, поэтому буквы свободны под команды. Клавиши ловятся по физическому
-        // положению (e.code), так что работают и в русской раскладке.
+        // Вне меню доступны пауза и вход в меню. Буквы не запускают режимы/звук/выход;
+        // они зарезервированы под явную команду AI и будущий ввод ассистента.
         var KEYS = {
             KeyP: click('#pauseResume'),
-            KeyS: openAudio,
-            KeyD: openDev,
-            KeyL: mode('live'),
             KeyM: function () { open(!isOpen()); },
-            KeyQ: openQuit,
             Escape: function () { if (isOpen()) back(); },
             ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
             ArrowRight: function () { if (isOpen()) enter(true); else open(true); },
