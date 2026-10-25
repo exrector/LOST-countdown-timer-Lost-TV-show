@@ -120,7 +120,7 @@
     window.addEventListener('lost-muse-record', function(e){
         if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:e.detail.on?'start':e.detail.cancel?'cancel':'stop'});
     });
-    window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});});
+    window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone){window.LostStation.microphone({op:'query'});window.LostStation.microphone({op:'authorize'});}});
     if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});
     window.LostMuse = { open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone };
     render();

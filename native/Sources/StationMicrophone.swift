@@ -24,6 +24,8 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
     private var generation = 0
     private var wantRecord = false
     private var requesting = false
+    private var permissionRequests = 0
+    private var lastCommand = ""
     private var recording = false
     private var uploading = false
     private var finished = false
@@ -74,7 +76,9 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
 
     func command(_ command: [String: Any]) {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.command(command) }; return }
+        lastCommand = command["op"] as? String ?? ""
         switch command["op"] as? String {
+        case "authorize": authorize()
         case "query": publish()
         case "start": start()
         case "stop": stopAndSend()
@@ -94,12 +98,32 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         let available = device != nil
         var value: [String: Any] = ["available": available, "supported": true, "recording": recording,
                                    "level": level, "elapsed": elapsed, "uploading": uploading,
-                                   "requesting": requesting, "finished": finished, "device": device?.localizedName ?? "", "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue]
+                                   "requesting": requesting, "finished": finished, "device": device?.localizedName ?? "", "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "permissionRequests": permissionRequests, "lastCommand": lastCommand]
         value["error"] = errorText ?? ""
         return value
     }
 
     private func publish() { update(snapshot()) }
+
+    private func authorize() {
+        guard !requesting else { publish(); return }
+        guard AVCaptureDevice.default(for: .audio) != nil else { fail("Микрофон не подключён"); return }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .notDetermined:
+            requesting = true; errorText = nil; permissionRequests += 1; publish()
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] allowed in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    self.requesting = false
+                    self.errorText = allowed ? nil : "macOS не разрешила доступ к микрофону"
+                    self.publish()
+                }
+            }
+        case .authorized: errorText = nil; publish()
+        case .denied, .restricted: fail("Разрешите LOST доступ к микрофону в настройках macOS")
+        @unknown default: fail("Не удалось проверить разрешение микрофона")
+        }
+    }
 
     private func start() {
         guard !recording, !requesting, !uploading, recorder == nil else { publish(); return }
@@ -112,7 +136,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: beginRecording(current)
         case .notDetermined:
-            requesting = true; publish()
+            requesting = true; permissionRequests += 1; publish()
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] allowed in
                 DispatchQueue.main.async {
                     guard let self = self, self.generation == current, self.wantRecord else { return }

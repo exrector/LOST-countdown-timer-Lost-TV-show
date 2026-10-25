@@ -9,6 +9,7 @@ const { promisify } = require('util');
 const run = promisify(execFile);
 const { start, events } = require('./server');
 const { createUPSService } = require('./modules');
+const { launchNative } = require('./native-host');
 const { RecoveryController } = require('./runtime');
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -46,8 +47,9 @@ async function readScreens() {
 function timerDisplay() { return screens.find(d => d.name === cfg.display) || (screens.length > 1 ? screens[screens.length - 1] : null); }
 async function closeWindow(role) {
     if (nativeUI) {
-        const child = nativeHost; nativeHost = null; windows.tv = windows.console = null;
-        if (child?.pid) try { child.kill('SIGTERM'); } catch (_) {}
+        const child = nativeHost;
+        if (child) await child.stop();
+        if (nativeHost === child) { nativeHost = null; windows.tv = windows.console = null; }
         return;
     }
     const child = windows[role]; windows[role] = null;
@@ -68,7 +70,7 @@ async function openWindow(role) {
             '--display', cfg.display || 'Waveshare-625', '--status', path.join(logDir, 'native-status.json')];
         if (!localTimer) args.push('--no-timer');
         if (process.env.LOST_NATIVE_DIAGNOSTICS === '1') args.push('--diagnostics');
-        const child = spawn(NATIVE, args, { stdio: ['ignore', 'inherit', 'inherit'] });
+        const child = launchNative({bundle:path.join(ROOT,'LOST.app'),args,status:path.join(logDir,'native-status.json')});
         nativeHost = child; nativeStartedAt = Date.now(); windows.console = child; if (localTimer) windows.tv = child;
         child.on('error', error => console.error('[native]', error.code || 'launch failed'));
         child.on('exit', () => { if (nativeHost === child) { nativeHost = null; windows.tv = windows.console = null; } });

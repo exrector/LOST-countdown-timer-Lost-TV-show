@@ -17,3 +17,7 @@ Network for this bring-up: router VPN, explicitly left enabled by the owner on 2
 Validation: node --test cast-app/test/*.test.cjs muse/supervisor.test.cjs. The local workstation Preview can exercise the real module with the private working state; stop it before handing that state to the mini. `muse/install.sh` alone never starts or pairs a device.
 
 Side-chat IDs must be stable UUIDs for the real server; arbitrary readable names passed mocks but were rejected live. The runtime uses UUIDv5 derived from the existing gadget identity. Native microphone access is requested only on explicit RESET capture, never at startup. Capture uses AVAudioRecorder input only; timer output audio is unchanged.
+
+### macOS permission policy diagnosis (2026-10-25)
+
+The GUI uses LaunchServices and a tokenized lease so TCC identifies LOST itself. The explicit `authorize` operation requests consent without recording; opening AI can invoke it independently from hold-to-talk. On this inspected mini, disabled AMFI (`amfi=0x80`) still causes a system-level prompt-policy denial. Restoring AMFI/reboot was authorized by the owner but remains pending administrator authentication. Do not claim microphone consent was granted or bypass TCC silently.
