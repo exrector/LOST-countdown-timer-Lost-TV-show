@@ -109,7 +109,7 @@ a:hover {
     transform: translate(-50%, -50%);
     background: url(../assets/dharma-neon.png) center / contain no-repeat;
     /* тот же цвет и свечение, что у текста терминала (text-shadow: 0 0 5px …0.6, 0 0 15px …0.2) */
-    opacity: 0.5; /* потускнее текста, чтобы не спорил со строкой ввода */
+    opacity: 0.4; /* на 20% тускнее прежних 0.5; потускнее текста, чтобы не спорил со строкой ввода */
     filter: drop-shadow(0 0 5px rgba(51, 255, 136, 0.6)) drop-shadow(0 0 15px rgba(51, 255, 136, 0.2));
     pointer-events: none;
     z-index: -1;
@@ -270,6 +270,8 @@ a:hover {
     /* переворот: 0.7 с с ускорением (ease-in), как у настоящей откидной таблички; было 0.4 с равномерно */
     transition: 0.7s all ease-in;
     transform-style: preserve-3d;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
     -webkit-mask: linear-gradient(#fff, #fff) top/100% 50% no-repeat;
     mask: linear-gradient(#fff, #fff) top/100% 50% no-repeat;
 }

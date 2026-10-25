@@ -28,7 +28,7 @@
                     if (event.data.type === 'enableConsole') {
                         consoleInput.disabled = !event.data.enabled;
                         if (event.data.enabled) {
-                            consoleInput.focus();
+                            if (!document.hidden) consoleInput.focus();
                             updateCursorPosition();
                             timerStatus.textContent = `Оставшееся время для ввода кода: ${event.data.remainingTime} секунд`;
                         } else {
@@ -39,6 +39,8 @@
                         }
                     }
                 });
+
+                document.addEventListener('visibilitychange', () => { if (!document.hidden && !consoleInput.disabled) consoleInput.focus(); });
 
                 // Handle input submission
                 consoleInput.addEventListener('keyup', (e) => {

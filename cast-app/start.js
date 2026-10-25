@@ -1,128 +1,166 @@
-// LOST: одна команда — сервер, таймер на Chromecast, окно терминала на этом компьютере.
+'use strict';
+// Единственный процесс станции: launchd наблюдает ядро, ядро восстанавливает окна.
 const fs = require('fs');
 const path = require('path');
-const { spawn, execFileSync } = require('child_process');
+const os = require('os');
+const http = require('http');
+const { spawn, execFile } = require('child_process');
+const { promisify } = require('util');
+const run = promisify(execFile);
 const { start, events } = require('./server');
-
+const { RecoveryController } = require('./runtime');
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-
-// Chrome без единого всплывающего элемента: режим киоска (нет баннера «нажмите Esc для выхода из полноэкранного режима»,
-// Esc не выходит из полного экрана — у нас это клавиша меню), без уведомлений, окна восстановления после сбоя,
-// перевода, вопроса о браузере по умолчанию и окон ошибок.
+const ROOT = path.resolve(__dirname, '..');
+const nativeUI = cfg.renderer === 'native';
+const NATIVE = path.join(ROOT, 'LOST.app/Contents/MacOS/LOSTNative');
+let nativeHost = null, nativeStartedAt = 0;
 const QUIET = ['--kiosk', '--no-first-run', '--no-default-browser-check', '--disable-notifications', '--noerrdialogs',
-    '--disable-session-crashed-bubble', '--hide-crash-restore-bubble', '--disable-features=Translate,TranslateUI'];
-
-const children = [];
-function track(child) { children.push(child); return child; }
-
-function openTerminalWindow(url) {
-    // чистое окно без адресной строки, если есть Chrome; иначе обычный браузер по умолчанию
-    if (fs.existsSync(CHROME)) {
-        const profile = path.join(require('os').tmpdir(), 'lost-terminal-profile');
-        fs.rmSync(profile, { recursive: true, force: true }); // чистый профиль каждый запуск — без старого кэша страниц
-        // на весь главный экран, как таймер на втором (главный — первый в списке macOS)
-        const main = listScreens()[0];
-        const place = main ? [`--window-position=${main.x},${main.y}`, `--window-size=${main.w},${main.h}`] : ['--window-size=800,600'];
-        track(spawn(CHROME, [`--app=${url}`, ...place, ...QUIET, `--user-data-dir=${profile}`, '--autoplay-policy=no-user-gesture-required'], { stdio: 'ignore', detached: true })).unref();
-    } else {
-        execFileSync('open', [url]);
-    }
+    '--disable-session-crashed-bubble', '--hide-crash-restore-bubble', '--disable-features=Translate,TranslateUI,CalculateNativeWinOcclusion'];
+const recovery = new RecoveryController();
+const windows = { tv: null, console: null };
+const peers = { tv: 0, console: 0 };
+const heartbeat = { tv: 0, console: 0 };
+const modules = { timer: { status: 'starting' }, terminal: { status: 'starting' }, display: { status: 'starting' }, ups: { status: 'starting' } };
+let stopping = false, core, caffeinate, castSession, screens = [], lastScreensAt = 0, lastUPSAt = 0, lastUPSStart = 0, busy = false;
+const localTimer = ['local', 'both'].includes(cfg.output || 'chromecast');
+function profile(role) { return path.join(os.tmpdir(), role === 'tv' ? 'lost-timer-profile' : 'lost-terminal-profile'); }
+function getJSON(port, route, timeout = 3000, headers = {}) {
+    return new Promise((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port, path: route, headers }, res => {
+            let body = ''; res.on('data', c => { body += c; if (body.length > 262144) req.destroy(new Error('response too large')); });
+            res.on('end', () => { if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode)); try { resolve(JSON.parse(body)); } catch (_) { reject(new Error('invalid JSON')); } });
+        });
+        req.setTimeout(timeout, () => req.destroy(new Error('timeout'))); req.on('error', reject);
+    });
 }
-
-// Координаты экранов macOS (через JXA). Chrome ждёт левый верхний угол, Cocoa даёт левый нижний.
-function listScreens() {
+async function readScreens() {
+    const script = 'ObjC.import("AppKit"); const s=$.NSScreen.screens,r=[];for(let i=0;i<s.count;i++){const sc=s.objectAtIndex(i),f=sc.frame;r.push({name:ObjC.unwrap(sc.localizedName),x:f.origin.x,y:f.origin.y,w:f.size.width,h:f.size.height});}JSON.stringify(r)';
     try {
-        const out = execFileSync('osascript', ['-l', 'JavaScript', '-e', `
-            ObjC.import("AppKit"); const s = $.NSScreen.screens, r = [];
-            for (let i = 0; i < s.count; i++) { const sc = s.objectAtIndex(i), f = sc.frame;
-              r.push({ name: ObjC.unwrap(sc.localizedName), x: f.origin.x, y: f.origin.y, w: f.size.width, h: f.size.height }); }
-            JSON.stringify(r)`], { encoding: 'utf8' });
-        const list = JSON.parse(out), H0 = list[0].h;
-        return list.map(d => ({ name: d.name, x: Math.round(d.x), y: Math.round(H0 - (d.y + d.h)), w: Math.round(d.w), h: Math.round(d.h) }));
-    } catch (e) { return []; }
+        const { stdout } = await run('/usr/bin/osascript', ['-l','JavaScript','-e',script], { timeout: 4000 });
+        const list = JSON.parse(stdout), H0 = list[0]?.h || 0;
+        return list.map(d => ({ ...d, x: Math.round(d.x), y: Math.round(H0 - d.y - d.h), w: Math.round(d.w), h: Math.round(d.h) }));
+    } catch (_) { console.error('[экран] временно не удалось прочитать список экранов'); return null; }
 }
-
-function findDisplay(name) {
-    const list = listScreens();
-    return list.find(d => d.name === name) || (list.length > 1 ? list[list.length - 1] : null);
+function timerDisplay() { return screens.find(d => d.name === cfg.display) || (screens.length > 1 ? screens[screens.length - 1] : null); }
+async function closeWindow(role) {
+    if (nativeUI) {
+        const child = nativeHost; nativeHost = null; windows.tv = windows.console = null;
+        if (child?.pid) try { child.kill('SIGTERM'); } catch (_) {}
+        return;
+    }
+    const child = windows[role]; windows[role] = null;
+    if (child?.pid) try { process.kill(-child.pid, 'SIGTERM'); } catch (_) {}
+    // Удаляет также осиротевший Chrome после аварии предыдущего ядра. Только профиль LOST.
+    try { await run('/usr/bin/pkill', ['-f', role === 'tv' ? 'lost-timer-profile' : 'lost-terminal-profile'], { timeout: 3000 }); } catch (_) {}
 }
-
-function openTimerOnDisplay(url, display) {
-    if (!fs.existsSync(CHROME)) { console.log('⚠ Нужен Google Chrome для окна таймера на втором экране.'); return false; }
-    const profile = path.join(require('os').tmpdir(), 'lost-timer-profile');
-    fs.rmSync(profile, { recursive: true, force: true });
-    track(spawn(CHROME, [`--app=${url}`, `--window-position=${display.x},${display.y}`, `--window-size=${display.w},${display.h}`,
-        ...QUIET, `--user-data-dir=${profile}`, '--autoplay-policy=no-user-gesture-required',
-        // таймер идёт в окне на втором экране: без этих флагов Chrome притормаживает скрытые/перекрытые окна
-        '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
-        '--disable-features=CalculateNativeWinOcclusion',
-        '--force-device-scale-factor=1'], // 1 CSS-пиксель = 1 физический: размер таймера не зависит от масштаба экрана macOS
-        { stdio: 'ignore', detached: true })).unref();
+async function openWindow(role) {
+    if (nativeUI) {
+        if (stopping) return false;
+        // One app owns both windows. A second role must not restart a freshly launched host.
+        if (nativeHost && Date.now() - nativeStartedAt < 20000) return true;
+        if (!fs.existsSync(NATIVE)) throw new Error('Native LOST app is missing; run script/build_and_run.sh --build-only');
+        if (nativeHost) { await closeWindow(role); await new Promise(resolve => setTimeout(resolve, 500)); }
+        if (stopping) return false;
+        const logDir = path.join(os.homedir(), 'Library/Logs/LOST'); fs.mkdirSync(logDir, { recursive: true });
+        const args = ['--managed', '--owner-pid', String(process.pid), '--url', 'http://localhost:' + core.port,
+            '--display', cfg.display || 'Waveshare-625', '--status', path.join(logDir, 'native-status.json')];
+        if (!localTimer) args.push('--no-timer');
+        if (process.env.LOST_NATIVE_DIAGNOSTICS === '1') args.push('--diagnostics');
+        const child = spawn(NATIVE, args, { stdio: ['ignore', 'inherit', 'inherit'] });
+        nativeHost = child; nativeStartedAt = Date.now(); windows.console = child; if (localTimer) windows.tv = child;
+        child.on('error', error => console.error('[native]', error.code || 'launch failed'));
+        child.on('exit', () => { if (nativeHost === child) { nativeHost = null; windows.tv = windows.console = null; } });
+        console.log('[native] WKWebView host started');
+        return true;
+    }
+    if (stopping || !fs.existsSync(CHROME)) return false;
+    const display = role === 'tv' ? timerDisplay() : screens[0];
+    if (!display) return false;
+    await closeWindow(role);
+    if (stopping) return false;
+    fs.rmSync(profile(role), { recursive: true, force: true });
+    const url = 'http://localhost:' + core.port + (role === 'tv' ? '/index.html?mode=' + core.getMode() : '/console.html');
+    const args = ['--app=' + url, '--window-position=' + display.x + ',' + display.y, '--window-size=' + display.w + ',' + display.h,
+        ...QUIET, '--user-data-dir=' + profile(role), '--autoplay-policy=no-user-gesture-required', '--disable-renderer-backgrounding',
+        '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows'];
+    if (role === 'tv') args.push('--force-device-scale-factor=1');
+    const child = spawn(CHROME, args, { stdio: 'ignore', detached: true }); windows[role] = child;
+    child.on('error', error => { console.error('[окно]', role, error.code || 'launch failed'); if (windows[role] === child) windows[role] = null; });
+    child.on('exit', () => { if (windows[role] === child) windows[role] = null; });
+    child.unref();
+    console.log('[окно]', role, 'запуск на', display.name);
     return true;
 }
-
+async function ensureUPS() {
+    if (Date.now() - lastUPSStart < 60000) return;
+    lastUPSStart = Date.now();
+    const plist = path.join(os.homedir(), 'Library/LaunchAgents/com.exrector.lost-ups.plist');
+    if (!fs.existsSync(plist)) return;
+    const domain = 'gui/' + process.getuid();
+    try { await run('/bin/launchctl', ['kickstart', domain + '/com.exrector.lost-ups'], { timeout: 4000 }); }
+    catch (_) { try { await run('/bin/launchctl', ['bootstrap', domain, plist], { timeout: 4000 }); } catch (_) {} }
+}
+async function pollUPS() {
+    try {
+        const state = await getJSON(8766, '/state', 3000, { Origin: 'http://localhost:' + core.port });
+        const fresh = state.online && Date.now() - state.updatedAt < 20000;
+        modules.ups = { status: fresh ? 'ready' : 'degraded', updatedAt: state.updatedAt || null, error: fresh ? null : 'Нет актуальных показаний ИБП' };
+    } catch (_) { modules.ups = { status: 'unavailable', error: 'Агент энергоконтура недоступен' }; await ensureUPS(); }
+}
+async function tick() {
+    if (stopping || busy) return; busy = true;
+    try {
+        const now = Date.now();
+        if (now - lastScreensAt > 10000) {
+            lastScreensAt = now; const next = await readScreens(); if (next) screens = next;
+        }
+        const display = timerDisplay();
+        modules.display = { status: display ? 'ready' : 'waiting', name: display?.name || cfg.display || null };
+        if (!nativeUI && localTimer && !display && windows.tv) await closeWindow('tv');
+        for (const role of ['console', ...(localTimer ? ['tv'] : [])]) {
+            const available = role === 'tv' ? !!display : !!screens[0];
+            recovery.observe(role, { connected: peers[role] > 0, lastHeartbeat: heartbeat[role] || undefined, processAlive: !!windows[role], available });
+            const healthy = peers[role] > 0 && (!heartbeat[role] || now - heartbeat[role] < 45000);
+            modules[role === 'tv' ? 'timer' : 'terminal'] = { status: healthy ? 'ready' : available ? 'recovering' : 'waiting', connections: peers[role], heartbeatAge: heartbeat[role] ? Math.floor((now - heartbeat[role]) / 1000) : null };
+            if (recovery.beginAttempt(role)) {
+                let launched = false;
+                try { launched = await openWindow(role); } finally { recovery.completeAttempt(role, { launched }); }
+            }
+        }
+        if (now - lastUPSAt > 5000) { lastUPSAt = now; await pollUPS(); }
+    } catch (error) { console.error('[надзор]', error.code || error.message); }
+    finally { busy = false; }
+}
+async function shutdown(code = 0) {
+    if (stopping) return; stopping = true; recovery.stop();
+    console.log('[ядро]', code === 0 ? 'штатный выход' : 'аварийное завершение');
+    try { core?.saveState(); } catch (_) {}
+    try { castSession?.close(); } catch (_) {}
+    for (const role of ['console','tv']) await closeWindow(role);
+    try { caffeinate?.kill(); } catch (_) {}
+    // Значок закрывается вместе со станцией; обработчик quit безопасен при уже остановленном ядре.
+    if (!nativeUI) try { await run('/usr/bin/osascript', ['-e', 'if application "LOST" is running then tell application "LOST" to quit'], { timeout: 4000 }); } catch (_) {}
+    process.exit(code);
+}
+process.on('SIGINT', () => shutdown(0)); process.on('SIGTERM', () => shutdown(0)); process.on('SIGHUP', () => shutdown(0));
+process.on('uncaughtException', error => { console.error('[ядро] uncaught exception:', error.message); shutdown(1); });
+process.on('unhandledRejection', error => { console.error('[ядро] unhandled rejection:', error?.message || 'error'); shutdown(1); });
+events.on('quit', () => shutdown(0));
+events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
+events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    const { ip, port } = await start(cfg.port, { audioDefault: 'speakers', stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom });
-    // не даём Маку и экрану заснуть, пока идёт таймер
-    const caf = spawn('caffeinate', ['-d', '-i', '-w', String(process.pid)], { stdio: 'ignore' }); caf.unref();
-    const timerUrl = `http://${ip}:${port}/index.html`;
-    let session;
-    const out = cfg.output || 'chromecast';
-
-    if (out === 'external') console.log(`Таймер показывает внешнее устройство (Raspberry Pi): страница http://${ip}:${port}/index.html`);
-
-    if (out === 'local' || out === 'both') {
-        const d = findDisplay(cfg.display);
-        if (d) {
-            console.log(`Таймер — на экране «${d.name}» (${d.w}×${d.h}).`);
-            openTimerOnDisplay(`http://localhost:${port}/index.html`, d);
-        } else {
-            console.log(`⚠ Второй экран «${cfg.display}» не найден. Подключите его и отключите зеркалирование`);
-            console.log('  (Системные настройки → Мониторы → выберите панель → «Использовать как» → «Расширенный дисплей»).');
-            console.log('  Таймер не открыт; когда экран появится, перезапустите программу.');
-        }
+    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, getRuntimeStatus: () => ({ ...modules, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
+    screens = await readScreens() || []; lastScreensAt = Date.now();
+    await openWindow('console'); if (localTimer) await openWindow('tv');
+    if (['chromecast','both'].includes(cfg.output || 'chromecast')) {
+        try { castSession = await require('./cast').castSite(cfg.chromecast, 'http://' + core.ip + ':' + core.port + '/index.html?mode=' + core.getMode()); }
+        catch (_) { console.error('[cast] подключение недоступно'); }
     }
-
-    if (out === 'chromecast' || out === 'both') try {
-        console.log(`Открываю таймер на Chromecast (${cfg.chromecast})…`);
-        const { castSite } = require('./cast'); // castv2 нужен только для Chromecast
-        session = await castSite(cfg.chromecast, timerUrl, { onClose: () => console.log('⚠ Chromecast разорвал соединение отправителя — страница на ТВ может остановиться.') });
-        console.log('Таймер запущен на ТВ.');
-    } catch (e) {
-        console.log('⚠ Не удалось открыть таймер на Chromecast:', e.message);
-        console.log('  Проверьте, что он включён и в той же сети. Терминал всё равно откроется; таймер можно открыть вручную:', timerUrl);
+    await tick(); setInterval(tick, 2000);
+    if (!nativeUI && process.env.LOST_SUPERVISED === '1') {
+        run('/usr/bin/open', [path.join(ROOT, 'LOST.app')], { timeout: 5000 }).catch(() => {});
     }
-
-    // Слежение: ТВ шлёт пульс раз в 10 с. Если молчит дольше 40 с — страница, вероятно, зависла.
-    let lastAlive = 0, warned = false;
-    events.on('tv-alive', a => { lastAlive = Date.now(); if (warned) console.log('✔ ТВ снова отвечает (страница работает уже', a.up, 'с)'); warned = false; });
-    setInterval(() => {
-        if (lastAlive && !warned && Date.now() - lastAlive > 40000) {
-            warned = true;
-            console.log('⚠ ТВ не присылает пульс больше 40 с — страница таймера зависла или Chromecast пропал из сети.');
-        }
-    }, 5000);
-
-    // Закрыли окно терминала (кнопкой, ⌘W или ⌘Q) — программа завершается целиком, вместе с окном таймера.
-    // Небольшая пауза, чтобы не завершиться при перезагрузке страницы терминала.
-    let consoleGoneSince = 0, hadConsole = false;
-    events.on('peers', p => { if (p.console > 0) { hadConsole = true; consoleGoneSince = 0; } else if (hadConsole && !consoleGoneSince) consoleGoneSince = Date.now(); });
-    setInterval(() => { if (consoleGoneSince && Date.now() - consoleGoneSince > 10000) { console.log('Окно терминала закрыто — завершаю работу.'); bye(); } }, 2000);
-    events.on('quit', () => { console.log('Выход (по команде).'); bye(); });
-
-    openTerminalWindow(`http://localhost:${port}/console.html`);
-    console.log('Терминал открыт. Остановить: Ctrl+C или закрыть это окно.');
-
-    const bye = () => {
-        try { session && session.close(); } catch (_) {}
-        children.forEach(c => { try { process.kill(c.pid, 'SIGTERM'); } catch (_) {} });      // окна таймера и терминала
-        try { execFileSync('pkill', ['-f', 'lost-(timer|terminal)-profile']); } catch (_) {}  // на случай оставшихся процессов Chrome
-        // закрыть и значок LOST в Dock (сам он больше не опрашивает сервер каждые 4 с); не ждём — у значка свой обработчик выхода
-        try { spawn('osascript', ['-e', 'if application "LOST" is running then tell application "LOST" to quit'], { stdio: 'ignore', detached: true }).unref(); } catch (_) {}
-        process.exit(0);
-    };
-    process.on('SIGINT', bye);
-    process.on('SIGTERM', bye);
-    process.on('SIGHUP', bye);
-})();
+    console.log('[ядро] станция запущена; режим:', core.getMode(), '; выход — через меню LOST');
+})().catch(error => { if (error.code === 'EADDRINUSE') { console.log('[ядро] LOST уже запущен'); process.exit(0); } else { console.error('[ядро] запуск:', error.code || error.message); shutdown(1); } });

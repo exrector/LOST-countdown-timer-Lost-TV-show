@@ -6,10 +6,12 @@
 (function () {
     var role = location.pathname.indexOf('console') !== -1 ? 'console' : 'tv';
     var ws, queue = [], fake = { closed: false };
+    var restoringPause = !window.__LOST_CLOCK && role === 'tv' && !!(window.__LOST_RESUME && window.__LOST_RESUME.paused);
     var SOUNDS = ['alarm', 'beep', 'discharge', 'keypress', 'reset', 'spinup', 'systemfailure', 'thud', 'tick', 'timeout'];
 
     function raw(s) { if (ws && ws.readyState === 1) ws.send(s); else queue.push(s); }
     function send(data) { raw(JSON.stringify(data)); }
+    window.__LOST_CONTROL = function (data) { send(Object.assign({ type: '__timer', mode: tvMode() }, data)); };
     function log(msg) { send({ type: '__log', role: role, msg: String(msg) }); }
     window.addEventListener('error', function (e) { log('JS error: ' + e.message + ' @' + e.filename + ':' + e.lineno); });
 
@@ -24,10 +26,12 @@
         ws = new WebSocket('ws://' + location.host + '/bridge?role=' + role);
         ws.onopen = function () {
             queue.splice(0).forEach(function (s) { ws.send(s); });
+            send({ type: '__alive', role: role, up: 0 });
             if (role === 'tv') reportState();
         };
         ws.onmessage = function (e) {
             var d = JSON.parse(e.data);
+            if (d.type === '__clock') { send({type:'__alive',role:role,up:Math.round(performance.now()/1000)}); window.__LOST_CLOCK = d; if (role === 'tv' && d.mode === tvMode() && window.__LOST_TIMER) window.__LOST_TIMER.applyClock(d); return; }
             if (d.type === '__cmd') return runCommand(d);
             if (d.type === '__state') return applyState(d);
             if (d.type === '__audio') return setAudioMode(d.mode);
@@ -37,12 +41,15 @@
         ws.onclose = function () { setTimeout(connect, 1000); };
     }
     connect();
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && window.__LOST_TIMER && window.__LOST_CLOCK) window.__LOST_TIMER.applyClock(window.__LOST_CLOCK); });
 
     // ================= Звук: где играть (mac | tv | off) =================
     var audioMode = 'speakers';
     function nativeSound() { return audioMode === 'speakers' || audioMode === 'monitor'; }
     function setAudioMode(m) {
         audioMode = m;
+        if(m==='off')nativePending={};
+        if(window.LostStation && window.LostStation.audio)window.LostStation.audio({op:'mode',mode:m});
         if (role === 'console' && ui.render) ui.render();
         if (role === 'console' && m !== 'mac') stopConsoleSounds();
     }
@@ -59,13 +66,43 @@
         if (d.op === 'pause') { a.pause(); a.currentTime = 0; }
         else { var p = a.play(); if (p && p.catch) p.catch(function (e) { log('звук ' + d.key + ' заблокирован: ' + e.message); }); }
     }
-    var unlocked = false;
-    function unlockSounds() {
-        if (unlocked || role !== 'console') return; unlocked = true;
-        SOUNDS.forEach(function (k) { var a = consoleSound(k); a.muted = true; var p = a.play(); (p && p.then ? p : Promise.resolve()).then(function () { a.pause(); a.currentTime = 0; a.muted = false; }, function () { a.muted = false; unlocked = false; }); });
-    }
-    ['mousedown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, unlockSounds, true); });
+    // Не прогреваем эффекты через play(): WKWebView разрешает звук без жеста,
+    // а отложенное воспроизведение при первом вводе может запустить System Failure.
     function stopConsoleSounds() { Object.keys(consoleSounds).forEach(function (k) { consoleSounds[k].pause(); consoleSounds[k].currentTime = 0; }); }
+
+    // Audible countdown effects follow the first rendered transform, not the
+    // WebSocket callback which can run before WebKit paints the moving leaf.
+    var nativePending = {}, nativeFrame = null, nativeFallback = null;
+    function flushNativeSounds(reason) {
+        if(nativeFrame!==null && window.cancelAnimationFrame)window.cancelAnimationFrame(nativeFrame);
+        nativeFrame=null;clearTimeout(nativeFallback);nativeFallback=null;
+        var batch=nativePending;nativePending={};
+        Object.keys(batch).forEach(function(key){
+            var command=batch[key];
+            if(nativeSound()){
+                command.requestedAt=Date.now()/1000;
+                if(window.__LOST_TIMER && window.__LOST_TIMER.audioEvents)window.__LOST_TIMER.audioEvents.push({event:'render-sync',key:key,left:command.left,at:Date.now(),reason:reason});
+                window.LostStation.audio(command);
+            }
+        });
+    }
+    function queueNativeSound(key) {
+        var command={op:'play',key:key,left:window.__LOST_CLOCK ? window.__LOST_CLOCK.left : -1,requestedAt:Date.now()/1000};
+        var timer=window.__LOST_TIMER;
+        if(document.hidden || !/^(tick|beep|alarm)$/.test(key)){window.LostStation.audio(command);return;}
+        nativePending[key]=command;
+        if(nativeFrame!==null || nativeFallback!==null)return;
+        if(timer && Object.keys(timer.flips || {}).length){
+            // transitionstart is emitted on the rendered animation frame.
+            nativeFallback=setTimeout(function(){flushNativeSounds('transition-fallback');},900);
+        }else if(window.requestAnimationFrame){
+            nativeFrame=window.requestAnimationFrame(function(){flushNativeSounds('frame');});
+        }else flushNativeSounds('immediate');
+    }
+    document.addEventListener('visibilitychange',function(){if(document.hidden && window.LostStation && window.LostStation.audio)flushNativeSounds('hidden');});
+    document.addEventListener('transitionstart',function(e){
+        if((e.propertyName==='transform' || e.propertyName==='-webkit-transform') && e.target.classList.contains('lost-flipper-number-before'))flushNativeSounds('transitionstart');
+    },true);
 
     // ТВ: play()/pause() звуковых элементов таймера уходят на компьютер, если играть не на ТВ
     if (role === 'tv') {
@@ -73,11 +110,16 @@
         var keyOf = function (el) { var m = /\/([\w-]+)\.mp3/.exec(el.getAttribute('src') || ''); return m ? m[1] : null; };
         HTMLMediaElement.prototype.play = function () {
             var key = keyOf(this);
+            if(key && window.LostStation && window.LostStation.audio){
+                if(nativeSound())queueNativeSound(key);
+                return Promise.resolve();
+            }
             if (key && !nativeSound()) { if (audioMode === 'mac') send({ type: '__sound', op: 'play', key: key }); return Promise.resolve(); }
             return origPlay.apply(this, arguments);
         };
         HTMLMediaElement.prototype.pause = function () {
             var key = keyOf(this);
+            if(key && window.LostStation && window.LostStation.audio){delete nativePending[key];window.LostStation.audio({op:'stop',key:key});return origPause.apply(this,arguments);}
             if (key && !nativeSound()) { if (audioMode === 'mac') send({ type: '__sound', op: 'pause', key: key }); return; }
             return origPause.apply(this, arguments);
         };
@@ -87,6 +129,8 @@
     function tvMode() { return new URLSearchParams(location.search).get('mode') || 'live'; }
     function reportState() {
         var b = document.getElementById('pauseResume');
+        var drawn = document.querySelector('.lost-timer-number-1 .lost-flipper-prev .lost-flipper-number-table-cell');
+        if (!b || restoringPause || !drawn || !drawn.textContent.trim()) return;
         send({ type: '__state', mode: tvMode(), label: b ? b.textContent : '' });
     }
     // «Сон» — всегда пауза, «Утро» — всегда старт (какой бы ни была пауза до этого)
@@ -98,11 +142,12 @@
         var paused = b.textContent.indexOf('Старт') !== -1;
         if (on && !paused) { b.click(); log('сон: таймер на паузе'); }
         else if (!on && paused) { b.click(); log('утро: таймер идёт'); }
+        restoringPause = false;
         setTimeout(reportState, 50);
     }
     function runCommand(d) {
         if (role !== 'tv') return;
-        if (d.cmd === 'sleep') return applySleep(!!d.on);
+        if (d.cmd === 'sleep') { if (window.__LOST_CLOCK) return; return applySleep(!!d.on); }
         if (d.cmd === 'mode') { location.href = '?mode=' + encodeURIComponent(d.value); return; }
         if (d.cmd === 'click' && /^(#pauseResume|\.lost-timer-[\w-]+(\[data-seconds="\d+"\])?)$/.test(d.sel)) {
             var el = document.querySelector(d.sel);
@@ -112,7 +157,7 @@
     }
 
     // Продолжить с того же места: сервер подставляет, где остановился таймер. Явный ?seconds= (кнопки Dev-панели) важнее.
-    if (role === 'tv' && window.__LOST_RESUME) {
+    if (role === 'tv' && window.__LOST_RESUME && !window.__LOST_CLOCK) {
         var R = window.__LOST_RESUME, q = new URLSearchParams(location.search);
         var resumed = R.left > 0 && !q.get('seconds');
         if (resumed) { q.set('seconds', R.left); history.replaceState(null, '', '?' + q.toString()); }
@@ -144,8 +189,8 @@
             }, 1500);
         });
     }
-    if (role === 'tv') {
-        // пульс ТВ раз в 10 с: по нему сервер понимает, что страница не зависла
+    {
+        // Пульс обеих страниц раз в 10 с: по нему сервер понимает, что страница не зависла
         var born = Date.now();
         setInterval(function () {
             var m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : '?';
@@ -155,7 +200,10 @@
     if (role === 'tv') {
         var css = document.createElement('style');
         css.textContent = '.timer-modes,.lost-timer-dev{display:none!important}' +
-            // Chromecast 1: mask на 3D-слоях давал заминки до ~1 с при сбросе; clip-path даёт тот же вид, но заметно дешевле
+            '';
+        // This clip-path workaround belongs to Chromecast; the native renderer keeps
+        // the original half masks and flip timing.
+        if(!window.LostStation)css.textContent +=
             '.lost-flipper-number-before,.lost-flipper-number-after{-webkit-mask:none!important;mask:none!important}' +
             '.lost-flipper-number-before{-webkit-clip-path:inset(0 0 50% 0);clip-path:inset(0 0 50% 0)}' +
             '.lost-flipper-number-after{-webkit-clip-path:inset(50% 0 0 0);clip-path:inset(50% 0 0 0)}';
@@ -200,9 +248,13 @@
     // Вертикальный список в рамке, папки <DIR>, путь в заголовке (LOST:\МЕНЮ\…), выбранная строка — инверсия.
     // ↑↓ — по строкам, Enter/→ — войти/выполнить, ←/Esc — назад, M — открыть/закрыть; буквы-команды работают всегда.
     var ui = { paused: false, mode: 'live' };
+    window.LostBootActive = role === 'console';
     function applyState(d) {
+        var previousMode = ui.mode;
         if (d.label) ui.paused = d.label.indexOf('Старт') !== -1;
         if (d.mode) ui.mode = d.mode;
+        if (d.mode === ui.requestedMode) { ui.requestedMode = null; ui.modeError = false; }
+        if (ui.mode !== previousMode && ui.onMode) ui.onMode();
         if (ui.render) ui.render();
         if (ui.onPause) ui.onPause(ui.paused);
     }
@@ -220,45 +272,62 @@
             // меню
             '.ctl{flex-basis:100%;position:relative;z-index:2;margin-top:18px;display:none;font-family:"Courier New",Courier,monospace}' +
             '.ctl.open{display:block}' +
-            '.ctl .win{display:inline-block;min-width:440px;border:2px double #33ff88;background:#09120d;' +
+            '.ctl .win{display:inline-flex;flex-direction:column;min-width:min(440px,100%);max-width:100%;max-height:calc(100vh - 175px);border:2px double #33ff88;background:#09120d;' +
             'box-shadow:0 0 8px rgba(51,255,136,.35);color:#33ff88;text-shadow:0 0 5px rgba(51,255,136,.6)}' +
+            '.ctl .list{overflow-y:auto;min-height:0;scrollbar-color:#286440 #09120d}' +
             '.ctl .ttl{padding:3px 10px;border-bottom:1px solid #33ff88;font-size:15px;letter-spacing:1px;opacity:.85}' +
             '.ctl .row{display:flex;justify-content:space-between;gap:24px;padding:3px 10px;font-size:17px;cursor:pointer;white-space:nowrap}' +
             '.ctl .row .k{opacity:.6}' +
             '.ctl .row.sel{background:#33ff88;color:#09120d;text-shadow:none}' +
             '.ctl .row.sel .k{opacity:.8}' +
             '.ctl .ft{padding:3px 10px;border-top:1px solid #33ff88;font-size:13px;opacity:.6}' +
-            '.ctl .view{margin:0;padding:6px 10px;font:15px/1.35 "Courier New",Courier,monospace;white-space:pre-wrap;width:80ch;max-width:80vw;min-height:120px}';
+            '.ctl .view{box-sizing:border-box;overflow:auto;overflow-wrap:anywhere;min-height:0!important;margin:0;padding:6px 10px;font:15px/1.35 "Courier New",Courier,monospace;white-space:pre-wrap;width:80ch;max-width:100%;min-height:120px}';
         document.head.appendChild(st);
 
         function click(sel) { return function () { send({ type: '__cmd', cmd: 'click', sel: sel }); }; }
-        function mode(v) { return function () { send({ type: '__cmd', cmd: 'mode', value: v }); }; }
+        var modeTimeout;
+        function mode(v) { return function () {
+            if (ui.mode === v && !ui.requestedMode && !ui.modeError) return;
+            ui.requestedMode = v; ui.modeError = false;
+            clearTimeout(modeTimeout);
+            modeTimeout = setTimeout(function () {
+                if (ui.requestedMode === v) { ui.requestedMode = null; ui.modeError = true; render(); }
+            }, 8000);
+            send({ type: '__cmd', cmd: 'mode', value: v }); if (ui.render) ui.render();
+        }; }
         var AUDIO = { speakers: 'ДИНАМИКИ', monitor: 'МОНИТОР', off: 'ВЫКЛ' };
-        var quitArmed = 0, quitTimer;
-        function quit() {
-            if (Date.now() - quitArmed < 3000) return send({ type: '__cmd', cmd: 'quit' });
-            quitArmed = Date.now(); clearTimeout(quitTimer);
-            quitTimer = setTimeout(function () { quitArmed = 0; render(); }, 3000);
-            render();
-        }
         // дерево меню: label — строка или функция; dir — вложенная папка; key — подсказка клавиши
         var TIMERS = { label: 'ТАЙМЕР', dir: [['108 МИН', 6480], ['4 МИН', 240], ['1 МИН', 60], ['10 СЕК', 10]].map(function (p) {
             return { label: p[0], act: click('.lost-timer-dev-action-set[data-seconds="' + p[1] + '"]') }; }) };
         var SOUNDS_DIR = { label: 'ЗВУКИ', dir: SOUNDS.map(function (s) { return { label: s.toUpperCase(), act: click('.lost-timer-play-' + s) }; }) };
-        var DEV = { label: 'РАЗРАБОТКА', dir: [TIMERS,
+        var DEV = { label: 'DEV', current: function () { return ui.mode === 'dev'; }, onEnter: function () { if (ui.mode !== 'dev' || ui.modeError) mode('dev')(); }, dir: [TIMERS,
             { label: 'СБРОС ТАЙМЕРА', act: click('.lost-timer-dev-action-reset') },
             { label: 'ИЕРОГЛИФЫ', act: click('.lost-timer-dev-action-glyphs') },
             SOUNDS_DIR] };
+        var AUDIO_DIR = { label: function () { return 'ЗВУК: ' + (AUDIO[audioMode] || 'ДИНАМИКИ'); }, pathLabel: 'ЗВУК', dir: Object.keys(AUDIO).map(function (v) {
+            return { label: AUDIO[v], current: function () { return audioMode === v; }, act: function () { send({ type: '__audio', mode: v }); } };
+        }) };
+        var QUIT = { label: 'ВЫХОД', dir: [
+            { label: 'ОТМЕНА', act: function () { back(); } },
+            { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
+        ] };
         var ROOT = { label: 'МЕНЮ', dir: [
             { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
-            { label: function () { return 'ЗВУК: ' + (AUDIO[audioMode] || 'ДИНАМИКИ'); }, key: 'S', act: function () {
-                send({ type: '__audio', mode: { speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers' }); } },
-            { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, key: 'D/L', act: function () { mode(ui.mode === 'dev' ? 'live' : 'dev')(); } },
+            AUDIO_DIR,
+            { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, pathLabel: 'РЕЖИМ', key: 'D/L', dir: [
+                { label: 'LIVE', key: 'L', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
+            ] },
             { label: 'ЖУРНАЛ', view: true },
-            { label: 'ЭНЕРГОКОНТУР', key: 'U', act: function () { open(false); if (window.LostUPS) window.LostUPS.openMenu(); } },
-            { label: 'РАЗРАБОТКА', dir: DEV.dir, devOnly: true },
-            { label: function () { return quitArmed ? 'ВЫХОД? ЕЩЁ РАЗ' : 'ВЫХОД'; }, key: 'Q Q', act: quit }
+            { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
+                var d = JSON.parse(raw), c = d.components || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ', ups: 'ЭНЕРГОКОНТУР' };
+                var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
+                return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' + Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n');
+            } },
+            { label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
+            QUIT
         ] };
+
+        if (window.LostStation && window.LostStation.desktop) ROOT.dir.splice(ROOT.dir.length - 1, 0, { label: 'РАБОЧИЙ СТОЛ', key: 'PF6', act: function () { window.LostStation.desktop(); } });
 
         var box = document.createElement('div'); box.className = 'ctl';
         var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
@@ -269,46 +338,68 @@
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
             win.innerHTML = '';
             var ttl = document.createElement('div'); ttl.className = 'ttl';
-            ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.label); }).join('\\');
+            ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.pathLabel || n.label); }).join('\\');
             win.appendChild(ttl);
             var node = path[path.length - 1];
             if (node.view) {
                 var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
                 win.appendChild(pre);
-                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '← НАЗАД  ESC ЗАКРЫТЬ'; win.appendChild(f);
+                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '↑↓ ПРОКРУТКА  ←/ESC НАЗАД'; win.appendChild(f);
                 return;
             }
+            var rows = document.createElement('div'); rows.className = 'list'; win.appendChild(rows);
             list.forEach(function (it, i) {
                 var r = document.createElement('div'); r.className = 'row' + (i === sel ? ' sel' : '');
                 var l = document.createElement('span'); l.textContent = text(it.label);
-                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir ? '<DIR>' : it.view ? '<ФАЙЛ>' : (it.key ? '[' + it.key + ']' : '');
+                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : '');
                 r.appendChild(l); r.appendChild(k);
                 r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
                 r.addEventListener('click', function () { sel = i; enter(); });
-                win.appendChild(r);
+                rows.appendChild(r);
             });
             var ft = document.createElement('div'); ft.className = 'ft';
-            ft.textContent = path.length > 1 ? '↑↓ ВЫБОР  ENTER ОК  ← НАЗАД  ESC ВЫХОД' : '↑↓ ВЫБОР  ENTER ОК  ESC ЗАКРЫТЬ';
+            ft.textContent = ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ESC НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : path.length > 1 ? '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ←/ESC НАЗАД' : '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ESC ЗАКРЫТЬ';
             win.appendChild(ft);
+            if (isOpen()) { var selected = rows.querySelector('.sel'); if (selected) selected.scrollIntoView({ block: 'nearest' }); }
         }
         function isOpen() { return box.classList.contains('open'); }
         function open(on) { box.classList.toggle('open', on); if (on) { path = [ROOT]; sel = 0; render(); } }
-        function enter() {
+        function enter(directoryOnly) {
             var it = items()[sel]; if (!it) return;
-            if (it.dir) { path.push(it); sel = 0; render(); return; }
+            if (it.dir) { path.push(it); sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); if (it.onEnter) it.onEnter(); render(); return; }
             if (it.view) {
                 it.text = ''; path.push(it); render();
-                fetch('/__journal?lines=14').then(function (r) { return r.text(); }).then(function (t) {
-                    it.text = t || '(ЖУРНАЛ ПУСТ)'; render();
-                });
+                fetch(it.endpoint || '/__journal?lines=14').then(function (r) { if (!r.ok) throw new Error('journal unavailable'); return r.text(); }).then(function (t) {
+                    it.text = it.format ? it.format(t) : t || '(ЖУРНАЛ ПУСТ)'; render();
+                }).catch(function () { it.text = 'ДАННЫЕ НЕДОСТУПНЫ. ←/ESC НАЗАД; ОТКРОЙТЕ СНОВА ДЛЯ ПОВТОРА.'; render(); });
                 return;
             }
+            if (directoryOnly && !it.panel) return;
+            // Wait for the timer to acknowledge DEV before invoking its controls.
+            if (path.indexOf(DEV) !== -1 && (ui.mode !== 'dev' || ui.requestedMode)) return;
             if (it.act) it.act();
             setTimeout(render, 150);
         }
         function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
-        function move(d) { if (!isOpen()) return open(true); var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
+        function move(d) { if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         ui.render = render;
+        ui.onMode = function () {
+            if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, ROOT.dir[2]]; sel = 0; }
+        };
+        function openDev() {
+            open(true); path = [ROOT, ROOT.dir[2], DEV]; sel = 0; DEV.onEnter(); render();
+        }
+
+        function openAudio() { open(true); path = [ROOT, AUDIO_DIR]; sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); render(); }
+        function openQuit() {
+            if (isOpen() && path[path.length - 1] === QUIT) return QUIT.dir[1].act();
+            open(true); path = [ROOT, QUIT]; sel = 1; render();
+        }
+        window.addEventListener('lost-ups-open', function () {
+            if (!isOpen()) { path = [ROOT]; sel = ROOT.dir.findIndex(function (n) { return n.panel; }); }
+            box.classList.remove('open');
+        });
+        window.addEventListener('lost-ups-close', function () { box.classList.add('open'); render(); });
 
         var prompt = document.querySelector('.console-prompt');
         if (prompt) {
@@ -324,14 +415,14 @@
         // положению (e.code), так что работают и в русской раскладке.
         var KEYS = {
             KeyP: click('#pauseResume'),
-            KeyS: ROOT.dir[1].act,
-            KeyD: mode('dev'),
+            KeyS: openAudio,
+            KeyD: openDev,
             KeyL: mode('live'),
             KeyM: function () { open(!isOpen()); },
-            KeyQ: function () { if (!isOpen()) open(true); sel = items().length - 1; quit(); },
-            Escape: function () { if (isOpen()) { path = [ROOT]; open(false); } },
+            KeyQ: openQuit,
+            Escape: function () { if (isOpen()) back(); },
             ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
-            ArrowRight: function () { if (isOpen()) enter(); else open(true); },
+            ArrowRight: function () { if (isOpen()) enter(true); else open(true); },
             ArrowLeft: function () { if (isOpen()) back(); }
         };
         // в журнал запуска (/tmp/lost-start.log): есть ли у окна терминала фокус клавиатуры
@@ -341,11 +432,12 @@
         window.addEventListener('blur', function () { log('окно терминала потеряло фокус'); });
         var swallowEnter = false, lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды
         document.addEventListener('keydown', function (e) {
-            if (e.metaKey || e.ctrlKey || e.altKey) return;
-            if (e.key === 'Enter' && isOpen()) { e.preventDefault(); swallowEnter = true; if (!e.repeat) enter(); return; }
-            var f = KEYS[e.code];
+            if (e.metaKey || e.ctrlKey || e.altKey || window.LostBootActive) return;
+            var menuEnter = e.key === 'Enter' && isOpen();
+            var f = menuEnter ? function () { enter(false); } : KEYS[e.code];
             if (!f) return;
-            e.preventDefault(); // буква-команда не попадает в строку ввода кода
+            e.preventDefault();
+            if (menuEnter) swallowEnter = true;
             if (e.repeat) return;
             var now = Date.now();
             if (e.code === lastCode && now - lastAt < 250) return;
@@ -354,7 +446,7 @@
         }, true);
         // console.html отправляет код по keyup Enter — если Enter сработал в меню, код не отправляем
         document.addEventListener('keyup', function (e) {
-            if (e.key === 'Enter' && swallowEnter) { swallowEnter = false; e.stopPropagation(); e.preventDefault(); }
+            if (e.key === 'Enter' && (swallowEnter || window.LostBootEnter)) { swallowEnter = false; window.LostBootEnter = false; e.stopPropagation(); e.preventDefault(); }
         }, true);
     }
     if (role === 'console') document.addEventListener('DOMContentLoaded', buildPanel);
@@ -387,7 +479,7 @@
         boot.appendChild(out); boot.appendChild(cur); document.body.appendChild(boot);
         var W = 32, i = 0, timers = [], done = false;
         function finish() {
-            if (done) return; done = true;
+            if (done) return; done = true; window.LostBootActive = false;
             timers.forEach(clearTimeout);
             boot.style.opacity = '0';
             setTimeout(function () { boot.remove(); }, 650);
@@ -407,7 +499,7 @@
             })();
         }
         timers.push(setTimeout(line, 400));
-        document.addEventListener('keydown', function skip() { finish(); document.removeEventListener('keydown', skip, true); }, true);
+        document.addEventListener('keydown', function skip(e) { if (!done) { if (e.key === 'Enter') window.LostBootEnter = true; e.preventDefault(); e.stopImmediatePropagation(); finish(); } document.removeEventListener('keydown', skip, true); }, true);
     });
 
     // ПАУЗА — служебное уведомление по центру обоих экранов.
