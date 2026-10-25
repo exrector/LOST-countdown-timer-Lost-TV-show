@@ -34,3 +34,5 @@ body.console-page.lost-ups-ready .console-container { height: calc(100vh - 103px
 
 .ups-table tr:focus { outline:none; background:#163c26; }
 .ups-table tr:focus td { color:#a7ffca; text-shadow:0 0 5px #33ff8855; }
+
+.ups-line[hidden] { display:none; }

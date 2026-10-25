@@ -1,0 +1,6 @@
+# Identical versions on ARM development Mac and Intel macOS Monterey/Python 3.9.
+cryptography==46.0.3
+websockets==15.0.1
+cffi==2.0.0
+pycparser==2.23
+typing_extensions==4.16.0

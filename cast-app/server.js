@@ -9,7 +9,9 @@ const events = new EventEmitter();
 const { loadState, writeState } = require('./state-store');
 const { StationClock } = require('./clock');
 const timeline = require('../js/lost-timeline');
+const { createModules } = require('./modules');
 const { createUPSGateway } = require('./ups-gateway');
+const { createMuseGateway } = require('../muse/gateway.cjs');
 
 const _log = console.log;
 console.log = (...a) => _log(new Date().toTimeString().slice(0, 8), ...a);
@@ -30,15 +32,21 @@ function start(port = 8765, opts = {}) {
     let clockTimer;
     const stage = opts.stage || { width: 1560, height: 720 };
     const upsGateway = createUPSGateway({ port: opts.upsPort || 8766, origin: 'http://localhost:' + port });
+    const museGateway=createMuseGateway({port:()=>server.address()?.port || port, getModule:()=>moduleManager.snapshot().muse, getChat:opts.getMuseChat, sendMessage:opts.sendMuseMessage, preview:opts.musePreview===true});
     const server = http.createServer((req, res) => {
         syncClock();
         const url = new URL(req.url, 'http://x');
         let p = decodeURIComponent(url.pathname);
+        if (museGateway(req,res,p)) return;
         if (p === '/') p = '/index.html';
+        if ((p === '/__ups' || p.startsWith('/__ups/')) && !moduleManager.desired().ups) {
+            req.resume(); res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+            return res.end(JSON.stringify({ error: 'module_disabled' }));
+        }
         if (upsGateway(req, res, p)) return;
         if (p === '/__health') {
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-            return res.end(JSON.stringify({ core: { status: 'ready', uptime: Math.floor(process.uptime()), pid: process.pid }, timer: { mode: curMode, left: curLeft, paused: curPaused }, clocks: clock.snapshot(), components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : {} }));
+            return res.end(JSON.stringify({ core: { status: 'ready', uptime: Math.floor(process.uptime()), pid: process.pid }, timer: { mode: curMode, left: curLeft, paused: curPaused }, clocks: clock.snapshot(), modules: moduleManager.snapshot(), components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : {} }));
         }
         if (p === '/__ping') { res.writeHead(200); return res.end('ok'); }
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
@@ -71,16 +79,18 @@ function start(port = 8765, opts = {}) {
         if (p === '/index.html' || p === '/console.html')
             body = Buffer.from(body.toString()
                 .replace(/https:\/\/ajax\.googleapis\.com\/ajax\/libs\/jquery\/[\d.]+\/jquery\.min\.js/, '/__jquery.js')
-                .replace('</head>', `<script>window.__LOST_CLOCK=${JSON.stringify(clock.sample())};window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height, scale: stage.scale || 1 })};window.__LOST_RESUME=${JSON.stringify({ left: curLeft > 0 ? curLeft : null, paused: curPaused })}</script><script src="/__bridge.js"></script></head>`));
+                .replace('</head>', `<script>window.__LOST_MODULES=${JSON.stringify(moduleManager.snapshot())};window.__LOST_CLOCK=${JSON.stringify(clock.sample())};window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height, scale: stage.scale || 1 })};window.__LOST_RESUME=${JSON.stringify({ left: curLeft > 0 ? curLeft : null, paused: curPaused })}</script><script src="/__bridge.js"></script></head>`));
         res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
         res.end(body);
     });
 
     const wss = new WebSocketServer({ noServer: true });
     const peers = { tv: new Set(), console: new Set() };
-    const stateFile = path.join(__dirname, '.state.json');
+    const stateFile = opts.stateFile || path.join(__dirname, '.state.json');
     let audioMode = opts.audioDefault || 'mac';
     const saved = loadState(stateFile);
+    const moduleManager = createModules({ saved: saved.modules, persist: saveState, apply: opts.applyModule, installed: opts.moduleInstalled,
+        publish: modules => { const msg = JSON.stringify({ type: '__modules', modules }); for (const set of Object.values(peers)) for (const ws of set) if (ws.readyState === 1) ws.send(msg); } });
     audioMode = saved.audio || audioMode;
     // Где остановился таймер: продолжаем с того же места после перезапуска LOST и при переключении Dev/Live.
     // Downtime is excluded; failure phase and both independent slots resume atomically.
@@ -91,7 +101,7 @@ function start(port = 8765, opts = {}) {
     syncClock();
     function saveState() {
         savedAt = Date.now(); syncClock();
-        writeState(stateFile, { audio: audioMode, ...clock.snapshot() });
+        return writeState(stateFile, { audio: audioMode, ...clock.snapshot(), modules: moduleManager.desired() });
     }
     function switchMode(mode) {
         if (mode === clock.mode) return;
@@ -290,15 +300,19 @@ function start(port = 8765, opts = {}) {
             peers[role].add(ws);
             console.log(`[bridge] ${role} connected (tv=${peers.tv.size}, console=${peers.console.size})`);
             ws.send(audioMsg());
+            ws.send(JSON.stringify({ type: '__modules', modules: moduleManager.snapshot() }));
             ws.send(JSON.stringify({type:'__clock', ...syncClock()}));
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
             ws.on('message', m => {
                 const s = m.toString();
-                if (s.indexOf('"cmd":"quit"') !== -1) { events.emit('quit'); return; }
-                if (s.indexOf('"__audio"') !== -1) { setAudio(JSON.parse(s).mode); return; }
-                if (s.indexOf('"__alive"') !== -1) { const beat = JSON.parse(s); events.emit('client-alive', { ...beat, role }); if (role === 'tv') events.emit('tv-alive', beat); return; }
-                if (s.indexOf('"__log"') !== -1) { console.log('[' + role + ' log]', JSON.parse(s).msg); return; }
                 let data; try { data = JSON.parse(s); } catch (_) { return; }
+                if (!data || typeof data !== 'object') return;
+                if (data.type === '__cmd' && data.cmd === 'quit') { events.emit('quit'); return; }
+                if (data.type === '__audio') { if (['speakers','monitor','off'].includes(data.mode)) setAudio(data.mode); return; }
+                if (data.type === '__alive') { events.emit('client-alive', { ...data, role }); if (role === 'tv') events.emit('tv-alive', data); return; }
+                if (data.type === '__log') { console.log('[' + role + ' log]', data.msg); return; }
+                if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }
+                if (!data || typeof data !== 'object') return;
                 if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {
                     switchMode(data.value);
                     for (const tv of peers.tv) if (tv.readyState === 1) tv.send(s);
@@ -327,13 +341,14 @@ function start(port = 8765, opts = {}) {
         });
     });
 
-    return new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, opts.host || '0.0.0.0', () => {
+    return new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, opts.host || '0.0.0.0', async () => {
+        await moduleManager.initialize();
         process.on('exit', saveState);
         publishClock();
         server.once('close', () => clearTimeout(clockTimer));
         const ip = lanIp();
         console.log(`LOST server: http://${ip}:${port}/index.html  |  console: http://localhost:${port}/console.html`);
-        resolve({ server, port, ip, getMode: () => clock.mode, saveState, getTimer: () => { const c = syncClock(); return { mode: c.mode, left: c.left, paused: c.paused }; } });
+        resolve({ server, port, ip, getModules: moduleManager.snapshot, updateUPS: moduleManager.updateUPS, updateMuse: moduleManager.updateMuse, reconcileUPS: moduleManager.reconcileUPS, getMode: () => clock.mode, saveState, getTimer: () => { const c = syncClock(); return { mode: c.mode, left: c.left, paused: c.paused }; } });
     }); });
 }
 

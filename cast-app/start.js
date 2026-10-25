@@ -8,6 +8,7 @@ const { spawn, execFile } = require('child_process');
 const { promisify } = require('util');
 const run = promisify(execFile);
 const { start, events } = require('./server');
+const { createUPSService } = require('./modules');
 const { RecoveryController } = require('./runtime');
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -92,26 +93,40 @@ async function openWindow(role) {
     console.log('[окно]', role, 'запуск на', display.name);
     return true;
 }
+const museRuntime = require('../muse/supervisor.cjs').createMuse({ root: ROOT });
+const applyUPSService = createUPSService({ root: ROOT });
+async function applyModule(id, enabled) {
+    if (id === 'muse') return museRuntime.apply(id, enabled);
+    const result = await applyUPSService(id, enabled);
+    modules.ups = { ...result, enabled };
+    return result;
+}
+function upsEnabled() { return core?.getModules().ups.enabled === true; }
 async function ensureUPS() {
+    if (!upsEnabled()) return;
     if (Date.now() - lastUPSStart < 60000) return;
     lastUPSStart = Date.now();
-    const plist = path.join(os.homedir(), 'Library/LaunchAgents/com.exrector.lost-ups.plist');
-    if (!fs.existsSync(plist)) return;
-    const domain = 'gui/' + process.getuid();
-    try { await run('/bin/launchctl', ['kickstart', domain + '/com.exrector.lost-ups'], { timeout: 4000 }); }
-    catch (_) { try { await run('/bin/launchctl', ['bootstrap', domain, plist], { timeout: 4000 }); } catch (_) {} }
+    await core.reconcileUPS();
 }
 async function pollUPS() {
+    if (!upsEnabled() || ['starting','stopping','error','not_installed'].includes(core.getModules().ups.status)) return;
     try {
         const state = await getJSON(8766, '/state', 3000, { Origin: 'http://localhost:' + core.port });
         const fresh = state.online && Date.now() - state.updatedAt < 20000;
-        modules.ups = { status: fresh ? 'ready' : 'degraded', updatedAt: state.updatedAt || null, error: fresh ? null : 'Нет актуальных показаний ИБП' };
-    } catch (_) { modules.ups = { status: 'unavailable', error: 'Агент энергоконтура недоступен' }; await ensureUPS(); }
+        if (!upsEnabled()) return;
+        modules.ups = { enabled: true, status: fresh ? 'ready' : 'degraded', updatedAt: state.updatedAt || null, error: fresh ? null : 'Нет актуальных показаний ИБП' };
+        core.updateUPS(modules.ups);
+    } catch (_) {
+        if (!upsEnabled()) return;
+        modules.ups = { enabled: true, status: 'unavailable', error: 'Агент энергоконтура недоступен' };
+        core.updateUPS(modules.ups); await ensureUPS();
+    }
 }
 async function tick() {
     if (stopping || busy) return; busy = true;
     try {
         const now = Date.now();
+        core.updateMuse(museRuntime.read());
         if (now - lastScreensAt > 10000) {
             lastScreensAt = now; const next = await readScreens(); if (next) screens = next;
         }
@@ -128,7 +143,7 @@ async function tick() {
                 try { launched = await openWindow(role); } finally { recovery.completeAttempt(role, { launched }); }
             }
         }
-        if (now - lastUPSAt > 5000) { lastUPSAt = now; await pollUPS(); }
+        if (upsEnabled() && now - lastUPSAt > 5000) { lastUPSAt = now; await pollUPS(); }
     } catch (error) { console.error('[надзор]', error.code || error.message); }
     finally { busy = false; }
 }
@@ -136,6 +151,7 @@ async function shutdown(code = 0) {
     if (stopping) return; stopping = true; recovery.stop();
     console.log('[ядро]', code === 0 ? 'штатный выход' : 'аварийное завершение');
     try { core?.saveState(); } catch (_) {}
+    try { await museRuntime.close(); } catch (_) {}
     try { castSession?.close(); } catch (_) {}
     for (const role of ['console','tv']) await closeWindow(role);
     try { caffeinate?.kill(); } catch (_) {}
@@ -150,7 +166,7 @@ events.on('quit', () => shutdown(0));
 events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
 events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, getRuntimeStatus: () => ({ ...modules, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, moduleInstalled: { muse: museRuntime.installed() }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
     caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
     screens = await readScreens() || []; lastScreensAt = Date.now();
     await openWindow('console'); if (localTimer) await openWindow('tv');
