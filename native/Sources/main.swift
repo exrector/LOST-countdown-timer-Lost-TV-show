@@ -214,6 +214,8 @@ final class StationApp: NSObject, NSApplicationDelegate {
     var lastLayout = ""
     let args = CommandLine.arguments
     var owner: pid_t = 0
+    var ownerToken = ""
+    var ownerLease: URL?
     var base = URL(string: "http://localhost:8765")!
     var displayName = "Waveshare-625"
     var localTimer = true
@@ -231,6 +233,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         return args[i + 1]
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSLog("LOST: GUI launch callback")
         guard args.contains("--managed") else {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -250,13 +253,18 @@ final class StationApp: NSObject, NSApplicationDelegate {
             DistributedNotificationCenter.default().postNotificationName(Notification.Name("com.exrector.lost.activate"), object: nil, userInfo: nil, deliverImmediately: true)
             NSApp.terminate(nil); return
         }
-        guard let parent = argument("--owner-pid").flatMap(Int32.init), parent > 1, getppid() == parent,
+        guard let parent = argument("--owner-pid").flatMap(Int32.init), parent > 1, kill(parent, 0) == 0,
               let address = argument("--url"), let url = URL(string: address),
               url.scheme == "http", ["localhost", "127.0.0.1"].contains(url.host ?? "") else {
             exit(2)
         }
         owner = parent; base = url
+        ownerToken = argument("--owner-token") ?? ""
+        if let path = argument("--owner-lease") { ownerLease = URL(fileURLWithPath:path) }
+        guard ownerAlive() else { NSLog("LOST: owner lease rejected"); exit(2) }
+        NSLog("LOST: owner lease accepted")
         _ = audio
+        NSLog("LOST: output audio initialized")
         displayName = argument("--display") ?? displayName
         localTimer = !args.contains("--no-timer")
         if let path = argument("--status") { statusURL = URL(fileURLWithPath: path) }
@@ -361,8 +369,18 @@ final class StationApp: NSObject, NSApplicationDelegate {
         if key != lastLayout { NSLog("LOST displays: %@", key); lastLayout = key }
         if !desktopMode && !NSApp.isHidden { pages["console"]?.window.makeKeyAndOrderFront(nil) }
     }
+    func ownerAlive() -> Bool {
+        guard owner > 1, kill(owner,0) == 0 else { return false }
+        if ownerToken.isEmpty { return getppid() == owner }
+        guard let url = ownerLease, let data = try? Data(contentsOf:url),
+              let lease = (try? JSONSerialization.jsonObject(with:data)) as? [String:Any],
+              lease["owner"] as? Int == Int(owner), lease["token"] as? String == ownerToken,
+              let updated = lease["updatedAt"] as? Double,
+              Date().timeIntervalSince1970 * 1000 - updated < 30000 else { return false }
+        return true
+    }
     func tick() {
-        if getppid() != owner { ending = true; NSApp.terminate(nil); return }
+        if !ownerAlive() { ending = true; NSApp.terminate(nil); return }
         guard let statusURL = statusURL else { return }
         // Same-user control file also works from SSH without GUI automation permissions.
         let commandURL = statusURL.deletingLastPathComponent().appendingPathComponent("native-command.txt")
@@ -372,10 +390,11 @@ final class StationApp: NSObject, NSApplicationDelegate {
             case "desktop": showDesktop()
             case "activate": activateStation()
             case "diagnostics": snapshot()
+            case "microphone-permission": activateStation(); microphone.command(["op":"authorize"])
             default: break
             }
         }
-        let info: [String: Any] = ["pid": getpid(), "owner": owner, "renderer": "WKWebView", "desktopMode": desktopMode, "hidden": NSApp.isHidden, "globalPF6": hotKey != nil, "microphone": microphone.snapshot(), "updatedAt": Date().timeIntervalSince1970,
+        let info: [String: Any] = ["pid": getpid(), "owner": owner, "ownerToken": ownerToken, "bundle": Bundle.main.bundlePath, "renderer": "WKWebView", "desktopMode": desktopMode, "hidden": NSApp.isHidden, "globalPF6": hotKey != nil, "microphone": microphone.snapshot(), "updatedAt": Date().timeIntervalSince1970,
             "windows": pages.mapValues { ["url": $0.web.url?.absoluteString ?? "", "loading": $0.web.isLoading,
                                           "width": $0.web.bounds.width, "height": $0.web.bounds.height] as [String: Any] }]
         if let data = try? JSONSerialization.data(withJSONObject: info, options: [.sortedKeys]) { try? data.write(to: statusURL, options: .atomic) }
