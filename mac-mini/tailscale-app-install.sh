@@ -25,6 +25,11 @@ rm -f /usr/local/bin/tailscaled /usr/local/bin/tailscale
 [ -d /Library/Tailscale ] && mv /Library/Tailscale "/Library/Tailscale.bak-$(date +%Y%m%d-%H%M)"
 
 echo "3. Ставлю Tailscale 1.102.4"
+# Установщик не понижает версию: при уже стоящей 1.104.x он пропускает расширения 1.102.4,
+# и получается смесь, которая на macOS 12 не запускается. Старое приложение и квитанцию убираем.
+pkill -x Tailscale 2>/dev/null; sleep 1
+rm -rf /Applications/Tailscale.app
+pkgutil --forget com.tailscale.ipn.macsys >/dev/null 2>&1
 installer -pkg "$PKG" -target / || { echo "Установка не удалась"; exit 1; }
 # CLI приложения — та же команда tailscale, что и раньше
 ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale
