@@ -159,7 +159,7 @@ final class StationPage: NSObject, WKNavigationDelegate {
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
         window.setFrame(screen.frame, display: true)
-        if !NSApp.isHidden { window.orderFrontRegardless() }
+        if app.stationShown { window.orderFrontRegardless() }
         load()
     }
     func load() {
@@ -195,7 +195,7 @@ final class StationPage: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if role == "console" && !NSApp.isHidden { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(web) }
+        if role == "console" && app?.stationShown == true { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(web) }
     }
     func close() { if role == "tv" { app?.audio.stopAll() }; shuttingDown = true; web.configuration.userContentController.removeScriptMessageHandler(forName: "station"); web.stopLoading(); window.close() }
 }
@@ -275,9 +275,20 @@ final class StationApp: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let appItem = NSMenuItem(); menu.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "Рабочий стол — PF6", action: #selector(showDesktop), keyEquivalent: "h").target = self
+        appMenu.addItem(withTitle: "Вернуть станцию", action: #selector(activateStation), keyEquivalent: "").target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Завершить LOST", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appMenu.insertItem(withTitle: "Рабочий стол — PF6", action: #selector(showDesktop), keyEquivalent: "", at: 0)
-        appMenu.items.first?.target = self
+        // Without an Edit menu AppKit has no ⌘C/⌘V/⌘X/⌘A/⌘Z key equivalents: WKWebView never gets them and the system beeps.
+        let editItem = NSMenuItem(); menu.addItem(editItem)
+        let editMenu = NSMenu(title: "Правка"); editItem.submenu = editMenu
+        editMenu.addItem(withTitle: "Отменить", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Повторить", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Вырезать", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Скопировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Выделить всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         NSApp.mainMenu = menu
         installDesktopKey()
         activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "LOST countdown and telemetry continue while the desktop is in use")
@@ -320,10 +331,14 @@ final class StationApp: NSObject, NSApplicationDelegate {
             }
         }
     }
+    var stationShown: Bool { !desktopMode && !NSApp.isHidden }
     @objc func showDesktop() {
         microphone.cancel()
         desktopMode = true
         NSApp.presentationOptions = []
+        // Hiding alone is not enough: any activation (Cmd+Tab, Screen Sharing, launchservicesd) unhides the app
+        // and its full-screen windows would cover both displays again. Ordered-out windows stay off-screen.
+        for page in pages.values { page.window.orderOut(nil) }
         NSApp.hide(nil)
         NSLog("LOST: desktop; countdown continues")
         tick()
@@ -338,7 +353,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         if let page = pages["console"] { page.window.makeFirstResponder(page.web) }
         tick()
     }
-    func applicationDidUnhide(_ notification: Notification) { if desktopMode { activateStation() } }
+    // Leaving the desktop needs an explicit request: Dock icon / LOST.app (reopen), the menu item or the distributed notification.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { activateStation(); return false }
     @objc func screensChanged() { layout() }
     func layout() {
