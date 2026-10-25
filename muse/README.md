@@ -21,3 +21,7 @@ Side-chat IDs must be stable UUIDs for the real server; arbitrary readable names
 ### macOS permission policy diagnosis (2026-10-25)
 
 The GUI uses LaunchServices and a tokenized lease so TCC identifies LOST itself. The explicit `authorize` operation requests consent without recording; opening AI can invoke it independently from hold-to-talk. On this inspected mini, disabled AMFI (`amfi=0x80`) still causes a system-level prompt-policy denial. Restoring AMFI/reboot was authorized by the owner but remains pending administrator authentication. Do not claim microphone consent was granted or bypass TCC silently.
+
+## 2026-10-25 — полный аудит официального SDK
+
+Проверенная карта установленной версии, голоса/transcript/TTS, всех команд Python и ESP32, визуализации и видео: [SDK-CAPABILITIES-2026-10-25.md](SDK-CAPABILITIES-2026-10-25.md). Она уточняет прежние предварительные утверждения: Python stream_tts существует, voice-modality на аккаунте не проверена; message.user даёт путь к transcript; display.set_caption не является стандартной advertised командой этой версии.
