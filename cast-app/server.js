@@ -4,8 +4,12 @@ const path = require('path');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const { EventEmitter } = require('events');
-const { execFile, execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const events = new EventEmitter();
+const { loadState, writeState } = require('./state-store');
+const { StationClock } = require('./clock');
+const timeline = require('../js/lost-timeline');
+const { createUPSGateway } = require('./ups-gateway');
 
 const _log = console.log;
 console.log = (...a) => _log(new Date().toTimeString().slice(0, 8), ...a);
@@ -23,11 +27,19 @@ function lanIp() {
 }
 
 function start(port = 8765, opts = {}) {
+    let clockTimer;
     const stage = opts.stage || { width: 1560, height: 720 };
+    const upsGateway = createUPSGateway({ port: opts.upsPort || 8766, origin: 'http://localhost:' + port });
     const server = http.createServer((req, res) => {
+        syncClock();
         const url = new URL(req.url, 'http://x');
         let p = decodeURIComponent(url.pathname);
         if (p === '/') p = '/index.html';
+        if (upsGateway(req, res, p)) return;
+        if (p === '/__health') {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+            return res.end(JSON.stringify({ core: { status: 'ready', uptime: Math.floor(process.uptime()), pid: process.pid }, timer: { mode: curMode, left: curLeft, paused: curPaused }, clocks: clock.snapshot(), components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : {} }));
+        }
         if (p === '/__ping') { res.writeHead(200); return res.end('ok'); }
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
         // «Фокус: Сон» с iPhone (Команды → «Получить содержимое URL»): /__sleep?on=1 — пауза, /__sleep?on=0 — продолжить
@@ -50,11 +62,16 @@ function start(port = 8765, opts = {}) {
             res.writeHead(404); return res.end('not found');
         }
         let body = fs.readFileSync(file);
-        if (p === '/index.html') switchMode(url.searchParams.get('mode') === 'dev' ? 'dev' : 'live');
+        if (p === '/index.html') {
+            if (!url.searchParams.has('mode')) { url.searchParams.set('mode', curMode); res.writeHead(302, { Location: '/index.html?' + url.searchParams.toString(), 'Cache-Control': 'no-store' }); return res.end(); }
+            switchMode(url.searchParams.get('mode') === 'dev' ? 'dev' : 'live');
+            const requested = Number(url.searchParams.get('seconds'));
+            if (curMode === 'dev' && url.searchParams.has('seconds') && [10,60,240,6480].includes(requested)) { clock.reset(requested); saveState(); publishClock(); }
+        }
         if (p === '/index.html' || p === '/console.html')
             body = Buffer.from(body.toString()
                 .replace(/https:\/\/ajax\.googleapis\.com\/ajax\/libs\/jquery\/[\d.]+\/jquery\.min\.js/, '/__jquery.js')
-                .replace('</head>', `<script>window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height, scale: stage.scale || 1 })};window.__LOST_RESUME=${JSON.stringify({ left: curLeft > 0 ? curLeft : null, paused: curPaused })}</script><script src="/__bridge.js"></script></head>`));
+                .replace('</head>', `<script>window.__LOST_CLOCK=${JSON.stringify(clock.sample())};window.__LOST_STAGE=${JSON.stringify({ w: stage.width, h: stage.height, scale: stage.scale || 1 })};window.__LOST_RESUME=${JSON.stringify({ left: curLeft > 0 ? curLeft : null, paused: curPaused })}</script><script src="/__bridge.js"></script></head>`));
         res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
         res.end(body);
     });
@@ -63,36 +80,36 @@ function start(port = 8765, opts = {}) {
     const peers = { tv: new Set(), console: new Set() };
     const stateFile = path.join(__dirname, '.state.json');
     let audioMode = opts.audioDefault || 'mac';
-    let saved = {}; try { saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch (_) {}
+    const saved = loadState(stateFile);
     audioMode = saved.audio || audioMode;
     // Где остановился таймер: продолжаем с того же места после перезапуска LOST и при переключении Dev/Live.
-    // Время, пока LOST выключен, не идёт. Если таймер дошёл до нуля — следующий запуск с начала (108 мин).
+    // Downtime is excluded; failure phase and both independent slots resume atomically.
     // У Live и Dev — свои таймеры: уходя в Dev, Live замораживается на своём месте и при возврате продолжает с него.
-    const slots = {
-        live: saved.live || { left: saved.left > 0 ? saved.left : null, paused: !!saved.paused }, // старый формат = Live
-        dev: saved.dev || { left: null, paused: false },
-    };
-    let curMode = 'live', curLeft = slots.live.left, curPaused = !!slots.live.paused, savedAt = 0;
+    const clock = new StationClock(saved, { ...(opts.clockNow ? { now: opts.clockNow } : {}), liveInDev: opts.liveInDev === true });
+    let curMode, curLeft, curPaused, savedAt = 0;
+    function syncClock() { const s = clock.sample(); curMode = s.mode; curLeft = s.left; curPaused = s.paused; return s; }
+    syncClock();
     function saveState() {
-        savedAt = Date.now();
-        slots[curMode] = { left: curLeft, paused: curPaused };
-        try { fs.writeFileSync(stateFile, JSON.stringify({ audio: audioMode, live: slots.live, dev: slots.dev })); } catch (_) {}
+        savedAt = Date.now(); syncClock();
+        writeState(stateFile, { audio: audioMode, ...clock.snapshot() });
     }
-    // страница таймера запрошена в режиме mode: текущий таймер — в свой слот, текущим становится таймер этого режима
     function switchMode(mode) {
-        if (mode === curMode) return;
-        slots[curMode] = { left: curLeft, paused: curPaused };
+        if (mode === clock.mode) return;
+        clock.setMode(mode); syncClock();
         if (typeof journalFailure === 'function') journalFailure(false);
-        curMode = mode; curLeft = slots[mode].left; curPaused = !!slots[mode].paused;
+        sleepOn = curPaused;
+        delete last.enable; delete last.state;
         saveState();
-        console.log(`[режим] ${mode}: продолжаю с ${curLeft > 0 ? curLeft + ' с' : 'начала'}${curPaused ? ', на паузе' : ''}`);
+        console.log('[режим]', mode, ':', curLeft, 'с; пауза:', curPaused);
+        publishClock();
     }
-    process.on('exit', saveState); // при выходе — точное место, а не 10-секундной давности
+    // The exit hook is registered only after this process owns the listening socket.
+    // process.on('exit', saveState); // при выходе — точное место, а не 10-секундной давности
     // Физический выход звука (динамики Мака / монитор по HDMI) переключает macOS-помощник bin/lost-audio
     const AUDIO_BIN = path.join(__dirname, 'bin', 'lost-audio');
     function applyAudioDevice(mode) {
         const args = mode === 'monitor' ? ['set', 'display', opts.display || ''] : mode === 'speakers' ? ['set', 'builtin'] : null;
-        if (!args || !fs.existsSync(AUDIO_BIN)) return;
+        if (opts.audioDevice === false || !args || !fs.existsSync(AUDIO_BIN)) return;
         execFile(AUDIO_BIN, args.filter(Boolean), (e, out, err) => {
             if (e) console.log('[audio] не удалось переключить (' + mode + '):', (err || e.message).trim());
             else { try { console.log('[audio] выход звука:', JSON.parse(out).name); } catch (_) {} }
@@ -102,10 +119,10 @@ function start(port = 8765, opts = {}) {
     applyAudioDevice(audioMode);
     const audioMsg = () => JSON.stringify({ type: '__audio', mode: audioMode });
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
-    let sleepOn = false; // последняя удалённая команда паузы — заново отправляется таймеру после перезагрузки его страницы
+    let sleepOn = curPaused; // последняя удалённая команда паузы — заново отправляется таймеру после перезагрузки его страницы
     const sleepMsg = () => JSON.stringify({ type: '__cmd', cmd: 'sleep', on: sleepOn });
     function setSleep(on, source) {
-        sleepOn = on;
+        clock.setPaused(on); syncClock(); sleepOn = curPaused; saveState(); publishClock();
         console.log(`[пульт] ${on ? 'пауза' : 'старт'} (${source})`);
         for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
     }
@@ -117,11 +134,28 @@ function start(port = 8765, opts = {}) {
     }
     // Что сейчас с таймером: оставшееся время приходит от таймера каждую секунду (enableConsole), пауза — по подписи кнопки
     function timerInfo() {
-        let left = null, open = false, paused = false;
-        try { const e = JSON.parse(last.enable); left = e.remainingTime; open = !!e.enabled; } catch (_) {}
-        if (left == null) left = curLeft; // на паузе таймер время не присылает — берём сохранённое
-        try { paused = /Старт/.test(JSON.parse(last.state).label); } catch (_) {}
-        return { left, open, paused };
+        const sample = syncClock();
+        return { left: sample.left, open: sample.phase === 'countdown' && sample.left > 0 && sample.left <= 240, paused: sample.paused };
+    }
+    let lastClockKey = '', lastClockSentAt = 0;
+    function publishClock() {
+        const sample = syncClock();
+        clearTimeout(clockTimer);
+        // Reschedule after every control change as well as every broadcast.
+        // Keep a 1s checkpoint while paused; active clocks wake at the next boundary.
+        const fraction = sample.rawLeft - Math.floor(sample.rawLeft);
+        const delay = sample.paused ? 1000 : Math.max(1, Math.ceil((fraction || 1) * 1000));
+        clockTimer = setTimeout(() => { publishClock(); if (Date.now() - savedAt >= 1000) saveState(); }, delay);
+        const live = clock.snapshot().live; journalFailure(live.left <= -timeline.failure.zeroHold && !live.paused);
+        const key = [sample.mode,sample.left,sample.paused,sample.phase,sample.failureAge,sample.cycle].join(':');
+        if (key === lastClockKey && Date.now() - lastClockSentAt < 10000) return; lastClockKey = key; lastClockSentAt = Date.now();
+        const control = JSON.stringify({ type: '__clock', ...sample });
+        const enable = JSON.stringify({ type: 'enableConsole', mode: sample.mode, enabled: sample.phase === 'countdown' && sample.left > 0 && sample.left <= 240, remainingTime: sample.left });
+        const state = JSON.stringify({ type: '__state', mode: sample.mode, label: sample.paused ? '▶ Старт' : '⏸ Пауза' });
+        last.enable = enable; last.state = state;
+        for (const set of Object.values(peers)) for (const ws of set) if (ws.readyState === 1) ws.send(control);
+        for (const ws of peers.console) if (ws.readyState === 1) { ws.send(enable); ws.send(state); }
+
     }
     function statusText() {
         const t = timerInfo(), L = t.left;
@@ -137,7 +171,7 @@ function start(port = 8765, opts = {}) {
     //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Только Live, паузы не пишутся.
     const journalFile = path.join(__dirname, 'journal.txt');
     // журнал прежнего формата (с переносами по 80) — склеить в одну строку
-    try { const t = fs.readFileSync(journalFile, 'utf8'); if (t.indexOf('\n') !== -1) fs.writeFileSync(journalFile, t.split('\n').filter(Boolean).join(' ')); } catch (_) {}
+    // Existing history is never rewritten; new words are appended below.
     function jWrite(word) {
         let empty = true; try { empty = fs.statSync(journalFile).size === 0; } catch (_) {}
         try { fs.appendFileSync(journalFile, (empty ? '' : ' ') + word); } catch (_) {}
@@ -149,7 +183,7 @@ function start(port = 8765, opts = {}) {
     function journalAccepted() { if (curMode !== 'live') return; jWrite(stamp()); jWrite('accepted'); console.log('[журнал]', stamp(), 'accepted'); }
     let failTimer = null, failCount = 0;
     function journalFailure(on) {
-        if (on && !failTimer && curMode === 'live') {
+        if (on && !failTimer) {
             failCount = 0;
             const tick = () => { if (++failCount > 108) { clearInterval(failTimer); return; } jWrite('SYSTEM'); jWrite('FAILURE'); };
             console.log('[журнал] SYSTEM FAILURE');
@@ -176,9 +210,9 @@ function start(port = 8765, opts = {}) {
             const code = t.split(/\s+/).filter(Boolean).join(' ');
             if (!timerInfo().open) return 'Код не принят: терминал открывается только в последние 4 минуты.';
             const msg = JSON.stringify({ type: 'numberSubmitted', value: code });
-            for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
+            if(code !== '4 8 15 16 23 42') for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
             console.log('[пульт] код:', code);
-            if (code === '4 8 15 16 23 42') journalAccepted();
+            if (code === '4 8 15 16 23 42') { journalAccepted(); clock.reset(); saveState(); publishClock(); }
             return 'Код отправлен.';
         }
         // Своя команда из «Команд» этого Мака: текст сообщения точно совпадает с её названием (без учёта регистра).
@@ -206,12 +240,17 @@ function start(port = 8765, opts = {}) {
         return 'Не понял «' + text.trim() + '». ' + HELP;
     }
     // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
-    let shortcutNames = [], shortcutsAt = 0;
+    let shortcutNames = [], shortcutsAt = 0, shortcutsRefreshing = false;
+    function refreshShortcuts() {
+        if (shortcutsRefreshing || Date.now() - shortcutsAt < 60000) return;
+        shortcutsRefreshing = true; shortcutsAt = Date.now();
+        execFile('shortcuts', ['list'], { encoding: 'utf8', timeout: 10000 }, (error, output) => {
+            shortcutsRefreshing = false;
+            if (!error) shortcutNames = output.split('\n').map(x => x.trim()).filter(Boolean);
+        });
+    }
     function findShortcut(text) {
-        if (Date.now() - shortcutsAt > 60000) {
-            try { shortcutNames = execFileSync('shortcuts', ['list'], { encoding: 'utf8', timeout: 10000 }).split('\n').map(x => x.trim()).filter(Boolean); } catch (_) {}
-            shortcutsAt = Date.now();
-        }
+        refreshShortcuts();
         const want = String(text || '').trim().toLowerCase();
         return shortcutNames.find(n => n.toLowerCase() === want) || null;
     }
@@ -251,29 +290,36 @@ function start(port = 8765, opts = {}) {
             peers[role].add(ws);
             console.log(`[bridge] ${role} connected (tv=${peers.tv.size}, console=${peers.console.size})`);
             ws.send(audioMsg());
+            ws.send(JSON.stringify({type:'__clock', ...syncClock()}));
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
             ws.on('message', m => {
                 const s = m.toString();
                 if (s.indexOf('"cmd":"quit"') !== -1) { events.emit('quit'); return; }
                 if (s.indexOf('"__audio"') !== -1) { setAudio(JSON.parse(s).mode); return; }
-                if (s.indexOf('"__alive"') !== -1) { events.emit('tv-alive', JSON.parse(s)); return; }
+                if (s.indexOf('"__alive"') !== -1) { const beat = JSON.parse(s); events.emit('client-alive', { ...beat, role }); if (role === 'tv') events.emit('tv-alive', beat); return; }
                 if (s.indexOf('"__log"') !== -1) { console.log('[' + role + ' log]', JSON.parse(s).msg); return; }
-                if (role === 'console' && s.indexOf('numberSubmitted') !== -1) {
-                    try { if (JSON.parse(s).value === '4 8 15 16 23 42' && timerInfo().open) journalAccepted(); } catch (_) {}
+                let data; try { data = JSON.parse(s); } catch (_) { return; }
+                if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {
+                    switchMode(data.value);
+                    for (const tv of peers.tv) if (tv.readyState === 1) tv.send(s);
+                    return;
                 }
+                if (data.type === '__timer') {
+                    if (role !== 'tv' || data.mode !== clock.mode) return;
+                    if (data.op === 'pause' && typeof data.paused === 'boolean') clock.setPaused(data.paused);
+                    else if (data.op === 'reset') clock.reset();
+                    else if (data.op === 'failure' && clock.mode === 'dev') clock.reset(0);
+                    else if (data.op === 'set' && clock.mode === 'dev' && [10,60,240,6480].includes(data.seconds)) clock.reset(data.seconds);
+                    else return;
+                    syncClock(); sleepOn = curPaused; saveState(); publishClock(); return;
+                }
+                if (role === 'console' && data.type === 'numberSubmitted' && data.value === '4 8 15 16 23 42') {
+                    if (timerInfo().open) { journalAccepted(); clock.reset(); saveState(); publishClock(); }
+                    return;
+                }
+                // Browser rendering reports are never a time source.
+                if (role === 'tv' && (data.type === 'enableConsole' || data.type === '__state')) return;
                 const to = role === 'tv' ? 'console' : 'tv';
-                if (role === 'tv') {
-                    if (s.indexOf('enableConsole') !== -1) {
-                        // секунды от страницы другого режима (ещё не успела закрыться при переключении) — не наши
-                        try { const e = JSON.parse(s); if ((e.mode || 'live') !== curMode) return; curLeft = e.remainingTime; } catch (_) {}
-                        last.enable = s;
-                        journalFailure(curLeft <= 0);
-                        if (Date.now() - savedAt > 10000 || curLeft <= 0) saveState();
-                    } else if (s.indexOf('"__state"') !== -1) {
-                        last.state = s;
-                        try { const d = JSON.parse(s); const p = /Старт/.test(d.label); if ((d.mode || 'live') === curMode && p !== curPaused) { curPaused = p; saveState(); } } catch (_) {}
-                    }
-                }
                 for (const o of peers[to]) if (o.readyState === 1) o.send(s);
             });
             events.emit('peers', { tv: peers.tv.size, console: peers.console.size });
@@ -281,12 +327,15 @@ function start(port = 8765, opts = {}) {
         });
     });
 
-    return new Promise(resolve => server.listen(port, '0.0.0.0', () => {
+    return new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, opts.host || '0.0.0.0', () => {
+        process.on('exit', saveState);
+        publishClock();
+        server.once('close', () => clearTimeout(clockTimer));
         const ip = lanIp();
         console.log(`LOST server: http://${ip}:${port}/index.html  |  console: http://localhost:${port}/console.html`);
-        resolve({ server, port, ip });
-    }));
+        resolve({ server, port, ip, getMode: () => clock.mode, saveState, getTimer: () => { const c = syncClock(); return { mode: c.mode, left: c.left, paused: c.paused }; } });
+    }); });
 }
 
 module.exports = { start, lanIp, events };
-if (require.main === module) start(parseInt(process.env.PORT) || 8765);
+if (require.main === module) start(parseInt(process.env.PORT) || 8765, { host: process.env.LOST_BIND_HOST || '0.0.0.0' });

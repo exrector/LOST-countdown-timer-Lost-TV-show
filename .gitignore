@@ -2,3 +2,13 @@
 cast-app/node_modules/
 .state.json
 cast-app/journal.txt
+
+# Native macOS build products and reversible installations
+native/dist/
+native/.module-cache/
+.native-backups/
+.LOST-install-*.app/
+**/__pycache__/
+
+# Isolated local workstation preview
+.preview/

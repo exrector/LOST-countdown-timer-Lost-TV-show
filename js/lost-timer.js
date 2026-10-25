@@ -23,6 +23,7 @@ var lostTimer = ( function() {
 	var lostTimer = function( args ) {
 		// give us our self
 		var self = this;
+        self.controlled = typeof window !== 'undefined' && !!window.__LOST_CLOCK;
 
 		// html container class the timer will populate
 		self.containerClass = 'lost-timer';
@@ -51,7 +52,8 @@ var lostTimer = ( function() {
 		// update height/width/font-size/margin-left according to the height
 		$( self.containerClassCss + ' .lost-flipper' ).css( 'height', self.height + 'px' );
 		$( self.containerClassCss + ' .lost-flipper' ).css( 'width', self.width + 'px' );
-		$( self.containerClassCss + ' .lost-flipper' ).css( 'font-size', ( self.height * .8 ) + 'px' );
+		// Explicit layer sizes: Monterey WebKit can retain 16px on nested flip layers.
+		$( self.containerClassCss + ' .lost-flipper, ' + self.containerClassCss + ' .lost-flipper *' ).css( 'font-size', ( self.height * .8 ) + 'px' );
 		$( self.containerClassCss + ' .lost-timer-side-right' ).css( 'margin-left', ( self.width / 6 ) + 'px' );
 
 		// setup audio for use
@@ -61,7 +63,7 @@ var lostTimer = ( function() {
 		self.initializeTimer( args.initialSeconds );
 
 		// start the timer countdown
-        self.startTimer();
+        if(self.controlled){window.__LOST_TIMER=self;self.applyClock(window.__LOST_CLOCK,true);}else self.startTimer();
 	};
 
 	/**
@@ -132,6 +134,7 @@ var lostTimer = ( function() {
 			} );
 
 			$( self.containerClassCss + '-dev-action-set' ).on( 'click', function () { // on click for setting the initial seconds
+                if(self.controlled){window.__LOST_CONTROL({op:'set',seconds:Number($(this).data('seconds'))});return;}
 				window.location.href = '?mode=dev&seconds=' + $( this ).data( 'seconds' );
 			} );
 
@@ -232,7 +235,7 @@ var lostTimer = ( function() {
 			var audioClassName = self.containerClass + '-audio-' + self.sounds[i];
 
 			// html for the audio element
-			var audioHtml = '<audio class="' + self.containerClass + '-audio ' + audioClassName + '" src="' + self.soundsFolderPath + self.sounds[i] + '.mp3" type="audio/mp3"></audio>';
+			var audioHtml = '<audio class="' + self.containerClass + '-audio ' + audioClassName + '" src="' + self.soundsFolderPath + self.sounds[i] + '.mp3" type="audio/mp3" preload="auto"></audio>';
 
 			// append audio html to the container
 			$( self.containerClassCss ).append( audioHtml );
@@ -266,7 +269,20 @@ var lostTimer = ( function() {
 		var self = this;
 
 		// play specified audio by key
-		$( self.containerClassCss + '-audio-' + key )[0].play();
+        var a = $( self.containerClassCss + '-audio-' + key )[0];
+        self.audioEvents = self.audioEvents || [];
+        function record(event, error) {
+            var item = {event:event,key:key,left:self.totalSeconds,at:Date.now(),time:a.currentTime,paused:a.paused,muted:a.muted,ready:a.readyState,error:error || null};
+            self.audioEvents.push(item); if(self.audioEvents.length>1600)self.audioEvents.shift();
+        }
+        if(!a.lostObserved){
+            a.lostObserved=true;
+            ['playing','ended','error','waiting'].forEach(function(event){a.addEventListener(event,function(){record(event,a.error ? String(a.error.code) : null);});});
+        }
+        record('request');
+        // Preserve the original play semantics: an active clip plays to its end.
+        var result=a.play();
+        if(result && result.then)result.then(function(){record(window.LostStation && window.LostStation.audio ? 'submitted-native' : 'started');},function(e){record('rejected',String(e));console.error('LOST audio '+key+': '+e);});
 	};
 
 	/**
@@ -302,6 +318,7 @@ var lostTimer = ( function() {
 	 * @return void
 	 */
 	lostTimer.prototype.updateNumbers = function( isRandom ) {
+        this.stopFlips();
 		// give us our self
 		var self = this;
 
@@ -353,6 +370,7 @@ var lostTimer = ( function() {
 	 * @return void
 	 */
 	lostTimer.prototype.startTimer = function() {
+        if(this.controlled)return;
 		// get self
 		var self = this;
 
@@ -373,20 +391,7 @@ var lostTimer = ( function() {
 	       		$( self.containerClassCss + '-timer' ).html( self.minutes + ":" + self.seconds );
 	       	}
 
-			if ( 0 == self.seconds || self.totalSeconds < 240 ) { // play ticker below four minutes
-				self.playAudio( 'tick' );
-			}
-
-			if ( self.totalSeconds < 240 && self.totalSeconds % 2 == 0 && self.totalSeconds > 60 ) { // play beep below four minutes and even number
-				self.playAudio( 'beep' );
-			}
-
-			if ( // play the alarm when only one minute is left every other second and every second if below ten seconds
-				( self.totalSeconds <= 60 && self.totalSeconds % 2 == 0 ) ||
-				( self.totalSeconds < 10 )
-			) {
-				self.playAudio( 'alarm' );
-			}
+            LostTimeline.countdownSounds(self.totalSeconds).forEach(function(key){self.playAudio(key);});
 
 	        // always try and flip the first three numbers
 	        self.flip( '1', self.num1 );
@@ -408,37 +413,48 @@ var lostTimer = ( function() {
 	 *
 	 * @return void
 	 */
-	lostTimer.prototype.flip = function( number, value ) {
-		// get self
-		var self = this; 
-
-		if ( String( value ) != $( self.containerClassCss + '-number-' + number + ' .lost-flipper-prev .lost-flipper-number-table-cell' ).html() ) { // only flip if next/prev numbers are different
-			// clone tranforming elements
-	      	var flipperClassName = self.containerClassCss + '-number-' + number;
-
-	      	// update the next number to the value
-	      	$( flipperClassName + ' .lost-flipper-next .lost-flipper-number-table-cell' ).html( value );
-
-	      	// save current elements with clone
-	        var flipperNext = $( flipperClassName + ' .lost-flipper-next' ).clone();
-			var flipperNextAfter = $( flipperClassName + ' .lost-flipper-next .lost-flipper-number-after' ).clone();
-			var flipperPrevBefore = $( flipperClassName + ' .lost-flipper-prev .lost-flipper-number-before' ).clone();
-
-			// make flip transform active
-			$( flipperClassName + ' .lost-flipper-next' ).addClass( 'lost-flipper-next-active' );
-			$( flipperClassName + ' .lost-flipper-next .lost-flipper-number-after' ).addClass( 'lost-flipper-next-after-active' );
-
-			$( flipperClassName + ' .lost-flipper-prev .lost-flipper-number-before' ).addClass( 'lost-flipper-prev-before-active' ).one( 'webkitTransitionEnd otransitionend oTransitionEnd msTransitionEnd transitionend', function() { // do things once flip transform is complete
-				// replace with the clones so the css transform resets
-			   	$( flipperClassName + ' .lost-flipper-next' ).replaceWith( flipperNext );
-				$( flipperClassName + ' .lost-flipper-next .lost-flipper-number-after' ).replaceWith( flipperNextAfter );
-				$( flipperClassName + ' .lost-flipper-prev .lost-flipper-number-before' ).replaceWith( flipperPrevBefore );
-
-				// update the prev number to the value 
-				$( flipperClassName + ' .lost-flipper-prev .lost-flipper-number-table-cell' ).html( value );
-			} );
-		}
-	};
+    // A slot owns one transition. Repeated clock snapshots must not restart it,
+    // and a lost transitionend must never leave the old digit on screen.
+    lostTimer.prototype.stopFlips = function() {
+        var self=this;
+        Object.keys(self.flips || {}).forEach(function(number){ self.flips[number].finish(false); });
+    };
+    lostTimer.prototype.flip = function(number, value) {
+        var self=this, slots=self.flips || (self.flips={}), active=slots[number];
+        value=String(value);
+        if(active){active.pending=value;return;}
+        var selector=self.containerClassCss+'-number-'+number;
+        if(value === $(selector+' .lost-flipper-prev .lost-flipper-number-table-cell').html())return;
+        $(selector+' .lost-flipper-next .lost-flipper-number-table-cell').html(value);
+        var next=$(selector+' .lost-flipper-next').clone();
+        var nextAfter=$(selector+' .lost-flipper-next .lost-flipper-number-after').clone();
+        var previousBefore=$(selector+' .lost-flipper-prev .lost-flipper-number-before');
+        var previousClone=previousBefore.clone();
+        var animation={value:value,pending:null,timer:null};
+        slots[number]=animation;
+        animation.finish=function(continuePending){
+            if(slots[number]!==animation)return;
+            clearTimeout(animation.timer);
+            previousBefore.off('.lostFlip');
+            $(selector+' .lost-flipper-next').replaceWith(next);
+            $(selector+' .lost-flipper-next .lost-flipper-number-after').replaceWith(nextAfter);
+            $(selector+' .lost-flipper-prev .lost-flipper-number-before').replaceWith(previousClone);
+            $(selector+' .lost-flipper-prev .lost-flipper-number-table-cell').html(value);
+            delete slots[number];
+            if(continuePending && animation.pending!==null && animation.pending!==value)self.flip(number,animation.pending);
+        };
+        previousBefore.on('transitionend.lostFlip webkitTransitionEnd.lostFlip',function(e){
+            var event=e.originalEvent || e;
+            if(e.target!==previousBefore[0] || (event.propertyName!=='transform' && event.propertyName!=='-webkit-transform'))return;
+            animation.finish(true);
+        });
+        // Commit the restored starting layer before applying the next transform.
+        if(previousBefore[0])void previousBefore[0].offsetHeight;
+        $(selector+' .lost-flipper-next').addClass('lost-flipper-next-active');
+        $(selector+' .lost-flipper-next .lost-flipper-number-after').addClass('lost-flipper-next-after-active');
+        previousBefore.addClass('lost-flipper-prev-before-active');
+        animation.timer=setTimeout(function(){animation.finish(true);},850);
+    };
 
 	/**
 	 * Get a random number including the min/max passed in
@@ -517,6 +533,7 @@ var lostTimer = ( function() {
 	 * @return int
 	 */
 	lostTimer.prototype.rollGlyphs = function() {
+        if(this.controlled){window.__LOST_CONTROL({op:"failure"});return;}
 		// get self
 		var self = this;
 
@@ -623,6 +640,12 @@ var lostTimer = ( function() {
 			$( '.lost-timer-end-screen' ).animate( { opacity: 1 }, 500 );
 
 			self.playAudio( 'thud' );
+
+			// Hold the white screen for 10 seconds, then begin a fresh 108-minute cycle.
+			self.autoRestartTimeout = setTimeout( function() {
+				self.initialSeconds = 60 * 108;
+				self.reset();
+			}, 10000 );
 		}, 46000 );
 	};
 
@@ -632,6 +655,7 @@ var lostTimer = ( function() {
 	 * @return void
 	 */
 	lostTimer.prototype.pauseResume = function() {
+        if(this.controlled){window.__LOST_CONTROL({op:"pause",paused:!this.paused});return;}
 		var self = this;
 		if ( self.paused ) {
 			self.paused = false;
@@ -648,6 +672,7 @@ var lostTimer = ( function() {
 	 * @return int
 	 */
 	lostTimer.prototype.reset = function() {
+        if(this.controlled){window.__LOST_CONTROL({op:"reset"});return;}
 		// get self
 		var self = this;
 		
@@ -664,6 +689,8 @@ var lostTimer = ( function() {
 		// clear timeouts system failure and thud
 		clearTimeout( self.systemFailureTimout );
 		clearTimeout( self.thudTimeout );
+		clearTimeout( self.autoRestartTimeout );
+		clearInterval( self.resetAnimate );
 
 		// play flipping reset sound
 		self.playAudio( 'reset' );
@@ -681,16 +708,86 @@ var lostTimer = ( function() {
 		// count times we play reset animation
 		var count = 0;
 		
-		resetAnimate = setInterval( function () { // randomly display number in each spot until reset sound is complete
+		self.resetAnimate = setInterval( function () { // randomly display number in each spot until reset sound is complete
 			// update the number slots html
 			self.updateNumbers( true );
 
 			if ( ++count > 10 ) { // after 10 times stop reset initialize and start timer
-	            clearInterval( resetAnimate );
+	            clearInterval( self.resetAnimate );
 	            self.initializeTimer( self.initialSeconds );
-            	self.startTimer();
+	            if ( !self.paused ) self.startTimer();
 	        }
 		}, 120 );
+    };
+
+    // With the station core present this object renders time; it never owns the clock.
+    lostTimer.prototype.clearClockVisuals = function() {
+        var self = this;
+        self.stopFlips();
+        self.stopGlyphs();
+        clearInterval(self.clockGlyphs); clearInterval(self.clockResetInterval);
+        clearTimeout(self.clockResetEnd);
+        clearInterval(self.systemFailureInterval); clearTimeout(self.systemFailureTimout);
+        clearTimeout(self.thudTimeout); clearTimeout(self.autoRestartTimeout);
+        $(self.containerClassCss + ' audio').each(function(){ this.pause(); this.currentTime = 0; });
+        $('body').removeClass('lost-timer-shake');
+        $('.lost-timer-end-screen').stop(true, true).hide().css('opacity', 0);
+        self.clockResetUntil = 0;
+    };
+    lostTimer.prototype.drawClockGlyphs = function(d) {
+        var self=this, locks=LostTimeline.failure.glyphLocks;
+        var age=typeof d.rawFailureAge==='number' ? d.rawFailureAge : d.failureAge;
+        if(!d.paused && typeof self.clockSampleAt==='number')age+=Math.max(0,Date.now()-self.clockSampleAt)/1000;
+        for(var i=0;i<5;i++) $(self.containerClassCss+'-number-'+(i+1)+' .lost-flipper-number-table-cell').html(self.getGlyphHtml(i+1,age<locks[i]));
+    };
+    lostTimer.prototype.applyClock = function(d, initial) {
+        var self=this, previous=self.clockLatest, failure=LostTimeline.failure;
+        self.clockLatest=d; if(previous!==d)self.clockSampleAt=Date.now(); self.totalSeconds=d.left; self.paused=d.paused;
+        var button=document.getElementById('pauseResume');
+        if(button)button.textContent=d.paused?'▶ Старт':'⏸ Пауза';
+        var changedCycle=previous && previous.cycle!==d.cycle;
+        if(d.phase==='failure') {
+            if(!previous || previous.phase!=='failure' || changedCycle) {
+                self.clearClockVisuals();
+                if(d.failureAge<1)self.playAudio('timeout');
+                self.clockGlyphs=setInterval(function(){if(self.clockLatest.phase==='failure'&&self.clockLatest.failureAge<LostTimeline.failure.glyphs)self.drawClockGlyphs(self.clockLatest);},50);
+            }
+            self.drawClockGlyphs(d);
+            if(d.failureAge>=failure.glyphs) {
+                clearInterval(self.clockGlyphs);
+                if(previous && previous.failureAge<failure.glyphs) {self.playAudio('spinup');self.playAudio('discharge');}
+            }
+            if(d.failureAge>=failure.glyphs && d.failureAge<failure.voiceStop && !d.paused) {
+                $('body').addClass('lost-timer-shake');
+                if(d.failureAge>=failure.voiceStart && (!previous || previous.failureAge!==d.failureAge))self.playAudio('systemfailure');
+            } else $('body').removeClass('lost-timer-shake');
+            if(d.failureAge>=failure.white) {
+                $('.lost-timer-end-screen').show().css('opacity',1);
+                if(previous && previous.failureAge<failure.white)self.playAudio('thud');
+            }
+            return;
+        }
+        if(changedCycle || (previous && previous.phase==='failure')) {
+            self.clearClockVisuals();
+            if(!document.hidden) {
+                self.playAudio('reset'); self.clockResetUntil=Date.now()+1320;
+                self.clockResetInterval=setInterval(function(){self.updateNumbers(true);},120);
+                self.clockResetEnd=setTimeout(function(){self.clockResetUntil=0;clearInterval(self.clockResetInterval);self.applyClock(self.clockLatest);},1320);
+            }
+        }
+        if(self.clockResetUntil && Date.now()<self.clockResetUntil)return;
+        clearInterval(self.clockResetInterval);
+        self.updateTimeVars();
+        if(d.left>240){self.num4=0;self.num5=0;}
+        if(initial || !previous || changedCycle || document.hidden || Math.abs(previous.left-d.left)>1) self.updateNumbers(false);
+        else {
+            self.flip('1',self.num1);self.flip('2',self.num2);self.flip('3',self.num3);
+            self.flip('4',self.num4);self.flip('5',self.num5);
+        }
+        if(self.mode==='dev')$(self.containerClassCss+'-timer').html(self.minutes+':'+self.seconds);
+        if(previous && previous.left!==d.left && !d.paused && d.left>=0 && !changedCycle) {
+            LostTimeline.countdownSounds(d.left).forEach(function(key){self.playAudio(key);});
+        }
     };
 
 	// return it

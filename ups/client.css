@@ -31,3 +31,6 @@ body.console-page.lost-ups-ready .console-container { height: calc(100vh - 103px
 .ups-error { color:#ffb272; }
 .ups-notice { padding:4px 10px; min-height:19px; border-top:1px solid #33ff8822; }
 @media(max-width:650px) { .ups-panel{inset:60px 20px 52px;font-size:12px}.ups-title{letter-spacing:0}.ups-key{font-size:10px}.ups-line{letter-spacing:0}.ups-table td:last-child{width:65px} }
+
+.ups-table tr:focus { outline:none; background:#163c26; }
+.ups-table tr:focus td { color:#a7ffca; text-shadow:0 0 5px #33ff8855; }
