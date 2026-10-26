@@ -5,6 +5,13 @@ const path = require('node:path');
 const os = require('node:os');
 const { execFile: execDefault } = require('node:child_process');
 
+// Ответ пульта: текст команды и состояние станции. { text, bare: true } — только текст (справка).
+// status может вернуть строку или Promise; если состояние не собралось, уходит один текст команды.
+function compose(answer, status) {
+    const bare = answer && typeof answer === 'object', text = bare ? answer.text : answer;
+    return Promise.resolve().then(() => bare && answer.bare ? '' : status()).catch(() => '')
+        .then(state => [text, state].filter(Boolean).join('\n\n') || 'LOST: состояние недоступно.');
+}
 function createIMessage({ senders = [], run, status, active = () => true, db = path.join(os.homedir(), 'Library/Messages/chat.db'), exec = execDefault, log = console.log, intervalMs = 10000, delayMs = 1500, setTimer = setInterval, later = setTimeout }) {
     const list = senders.map(x => String(x).replace(/'/g, '')).filter(Boolean);
     const from = list.map(x => "'" + x + "'").join(',');
@@ -27,7 +34,7 @@ function createIMessage({ senders = [], run, status, active = () => true, db = p
                 const answer = run(rest.join(' '), 'imessage', sender);
                 if (answer === null) continue;
                 // ответ — после того, как таймер успеет отработать команду и прислать новое состояние
-                later(() => reply(sender, answer ? answer + ' ' + status() : status()), delayMs);
+                later(() => compose(answer, status).then(text => reply(sender, text)), delayMs);
             }
         });
     }
@@ -39,4 +46,4 @@ function createIMessage({ senders = [], run, status, active = () => true, db = p
     }
     return { start, check, reply, senders: () => list.slice(), configured: () => list.length > 0 };
 }
-module.exports = { createIMessage };
+module.exports = { compose, createIMessage };

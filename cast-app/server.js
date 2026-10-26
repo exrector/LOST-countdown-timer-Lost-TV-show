@@ -11,7 +11,8 @@ const { StationClock } = require('./clock');
 const timeline = require('../js/lost-timeline');
 const { createModules } = require('./modules');
 const { createRemote, isHomeNetwork } = require('../remote/runtime.cjs');
-const { createIMessage } = require('../remote/imessage.cjs');
+const { createIMessage, compose } = require('../remote/imessage.cjs');
+const { formatStatus } = require('../remote/status.cjs');
 const { createUPSGateway } = require('./ups-gateway');
 const { createMuseGateway } = require('../muse/gateway.cjs');
 
@@ -62,7 +63,7 @@ function start(port = 8765, opts = {}) {
             if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: команды по адресу станции принимаются только из домашней сети'); }
             const text = p === '/__sleep' ? (url.searchParams.get('on') === '1' ? 'пауза' : 'старт') : url.searchParams.get('text') || '';
             const answer = remote.run(text, 'сеть');
-            setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(answer ? answer + ' ' + statusText() : statusText()); }, p === '/__sleep' ? 0 : 1500);
+            setTimeout(() => compose(answer, statusText).then(text => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(text); }), p === '/__sleep' ? 0 : 1500);
             return;
         }
         if (p === '/__journal') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(journalTail(Math.min(200, parseInt(url.searchParams.get('lines')) || 16))); }
@@ -171,10 +172,22 @@ function start(port = 8765, opts = {}) {
         for (const ws of peers.console) if (ws.readyState === 1) { ws.send(enable); ws.send(state); }
 
     }
-    function statusText() {
-        const t = timerInfo(), L = t.left;
-        const left = L == null ? '?' : L > 240 ? Math.ceil(L / 60) + ' мин' : Math.floor(L / 60) + ':' + String(L % 60).padStart(2, '0');
-        return `LOST: ${t.paused ? 'пауза' : 'идёт'}, осталось ${left}${t.open ? ' — можно вводить код' : ''}.`;
+    // Показания ИБП для ответа «статус» — у агента напрямую, не дольше 2 с; нет ответа — null.
+    function readUPS() {
+        return new Promise(resolve => {
+            const req = http.get({ host: '127.0.0.1', port: opts.upsPort || 8766, path: '/state', timeout: 2000, headers: { 'Accept': 'application/json', 'X-LOST-UPS': '1', 'Origin': 'http://localhost:' + port } }, r => {
+                let body = ''; r.setEncoding('utf8'); r.on('data', c => { body += c; if (body.length > 1048576) r.destroy(); });
+                r.on('end', () => { try { resolve(r.statusCode === 200 ? JSON.parse(body) : null); } catch (_) { resolve(null); } });
+                r.on('error', () => resolve(null));
+            });
+            req.on('timeout', () => req.destroy()); req.on('error', () => resolve(null));
+        });
+    }
+    // Ответ пульта о состоянии станции (iMessage, «Команды» iPhone).
+    async function statusText() {
+        const sample = syncClock(), modules = moduleManager.snapshot();
+        const ups = modules.ups && modules.ups.enabled !== false ? await readUPS() : null;
+        return formatStatus({ timer: { mode: curMode, left: sample.left, paused: sample.paused, phase: sample.phase }, modules, components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : null, ups });
     }
 
     // ===== Журнал станции «Лебедь» — как распечатка в сериале =====
