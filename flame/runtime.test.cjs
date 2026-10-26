@@ -14,13 +14,13 @@ const status = (backend = 'Running') => JSON.stringify({
         c: { HostName: 'box\u0007', DNSName: 'stranger.example.ts.net.', OS: 'linux', Online: true },
     },
 });
-const map = { swan: { station: 'ЛЕБЕДЬ', number: '3' }, nas: { station: 'ЖЕМЧУЖИНА', number: 5 }, phone: { station: 'РАДИОВЫШКА' } };
+const map = { swan: { station: 'THE SWAN', number: '3' }, nas: { station: 'THE PEARL', number: 5 }, phone: { station: 'THE BEACON' } };
 
 test('nodes become stations by MagicDNS name; addresses never leave the runtime', () => {
     const r = parseStatus(status(), map);
     assert.equal(r.backend, 'Running');
     assert.deepEqual(r.stations.map(s => [s.device, s.station, s.number, s.online, s.self]), [
-        ['SWAN', 'ЛЕБЕДЬ', '3', true, true], ['NAS', 'ЖЕМЧУЖИНА', '5', true, false], ['PHONE', 'РАДИОВЫШКА', '', false, false], ['STRANGER', '', '', true, false]]);
+        ['SWAN', 'THE SWAN', '3', true, true], ['NAS', 'THE PEARL', '5', true, false], ['PHONE', 'THE BEACON', '', false, false], ['STRANGER', '', '', true, false]]);
     assert.equal(r.stations[2].lastSeen, Date.parse('2026-10-05T07:41:00Z'));
     assert.equal(r.stations[1].lastSeen, null);
     assert.equal(JSON.stringify(r).includes('100.64.'), false);
@@ -33,7 +33,7 @@ test('reads the local CLI with a fixed command and a local stations file', async
     const flame = createFlame({ tailscale: '/fixture/tailscale', stationsFile: file, run: async (bin, args) => { calls.push([bin, ...args]); return { stdout: status() }; }, setTimer: () => 1, clearTimer() {} });
     const s = await flame.refresh({ force: true });
     assert.deepEqual(calls, [['/fixture/tailscale', 'status', '--json']]);
-    assert.equal(s.status, 'ready'); assert.equal(s.stations[0].station, 'ЛЕБЕДЬ');
+    assert.equal(s.status, 'ready'); assert.equal(s.stations[0].station, 'THE SWAN');
 });
 
 test('stopped Tailscale, failing CLI and a missing binary are reported, not hidden', async () => {
@@ -69,13 +69,13 @@ test('gateway answers only the station itself and only reads', async () => {
 test('screen: own station first, unknown machines named, offline shows last contact, blocked signal', () => {
     const screen = Flame.format({ installed: true, enabled: true, status: 'ready', stations: parseStatus(status(), map).stations });
     const lines = screen.split('\n');
-    assert.match(lines[0], /СТАНЦИЯ 4 «ПЛАМЯ»/); assert.match(screen, /НА СВЯЗИ 3 ИЗ 4/);
-    assert.match(lines[4], /^3  ЛЕБЕДЬ\s+SWAN\s+ONLINE\s+ЭТА СТАНЦИЯ$/);
-    assert.match(screen, /НЕОПОЗНАННЫЙ ОБЪЕКТ\s+STRANGER\s+ONLINE/);
-    assert.match(screen, /РАДИОВЫШКА\s+PHONE\s+OFFLINE LAST SEEN \d\d\.10 \d\d:\d\d/);
+    assert.match(lines[0], /STATION 4 · THE FLAME/); assert.match(screen, /ONLINE 3 OF 4/);
+    assert.match(lines[4], /^3  THE SWAN\s+SWAN\s+ONLINE\s+THIS STATION$/);
+    assert.match(screen, /UNKNOWN STATION\s+STRANGER\s+ONLINE/);
+    assert.match(screen, /THE BEACON\s+PHONE\s+OFFLINE LAST SEEN \d\d\.10 \d\d:\d\d/);
     assert.ok(lines.slice(4).every(l => l.length <= 78), 'rows fit the 820px panel');
-    assert.match(Flame.row({ number: '1', station: 'ГИДРА', device: 'EXRECTORS-MAC-MINI-USA-LONG-NAME', online: true }), /EXRECTORS-MAC-MINI-USA  ONLINE$/);
-    assert.match(Flame.format({ installed: true, enabled: true, status: 'unavailable', error: 'Tailscale на станции: Stopped' }), /ЗАЗЕРКАЛЬЕ БЛОКИРУЕТ СИГНАЛ\.\nTailscale на станции: Stopped/);
-    assert.match(Flame.format({ enabled: false }), /МОДУЛЬ ВЫКЛЮЧЕН/);
+    assert.match(Flame.row({ number: '1', station: 'THE HYDRA', device: 'EXRECTORS-MAC-MINI-USA-LONG-NAME', online: true }), /EXRECTORS-MAC-MINI-USA  ONLINE$/);
+    assert.match(Flame.format({ installed: true, enabled: true, status: 'unavailable', error: 'Tailscale на станции: Stopped' }), /THE LOOKING GLASS IS BLOCKING ALL SIGNALS\.\nTailscale на станции: Stopped/);
+    assert.match(Flame.format({ enabled: false }), /MODULE OFFLINE/);
     assert.match(Flame.format('not json'), /ДАННЫЕ НЕДОСТУПНЫ/);
 });

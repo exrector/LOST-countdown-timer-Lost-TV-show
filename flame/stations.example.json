@@ -1,7 +1,7 @@
 {
   "stations": {
-    "имя-устройства-в-magicdns": { "number": "3", "station": "ЛЕБЕДЬ" },
-    "nas":                       { "number": "5", "station": "ЖЕМЧУЖИНА" },
-    "phone":                     { "station": "РАДИОВЫШКА" }
+    "имя-устройства-в-magicdns": { "number": "3", "station": "THE SWAN" },
+    "nas":                       { "number": "5", "station": "THE PEARL" },
+    "phone":                     { "station": "THE BEACON" }
   }
 }
