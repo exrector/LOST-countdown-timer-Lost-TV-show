@@ -20,3 +20,7 @@ body.lost-muse-active .my-console::placeholder{color:#747c77;text-shadow:none}
 @media(max-width:650px){.muse-transcript{font-size:17px}.muse-hint,.muse-notice{font-size:11px}.muse-message{grid-template-columns:5ch minmax(0,1fr)}}
 body.lost-muse-active .pz{display:none}
 body.lost-muse-active .console-prompt{pointer-events:none}
+/* AI: тёмная подложка на весь фрейм терминала. Чертёж почти не просвечивает, неоновый знак DHARMA убран:
+   его размытое свечение под меняющимся текстом чата на панели mini выглядело как мигание фона. */
+body.lost-muse-active .console-container{background:linear-gradient(rgba(3,9,6,.97),rgba(3,9,6,.97)),url(../assets/swan-blueprint.png) center / contain no-repeat,#030906}
+body.lost-muse-active .console-container::after{display:none}
