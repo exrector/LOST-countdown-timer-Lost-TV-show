@@ -313,11 +313,11 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='flame'?'Станция 4 «Пламя»: список машин tailnet как станции DHARMA. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             return result;
         }
-        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN')]};
+        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','ПЛАМЯ')]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
@@ -336,6 +336,7 @@
                 return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' + Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n');
             } },
             { module:'vpn', label:function(){return window.LostVPN?window.LostVPN.title():'VPN';}, pathLabel:'VPN', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostVPN){var tree=window.LostVPN.menu();own.dir=tree.dir;own.description=tree.description;} } },
+            { module:'flame', label:'ПЛАМЯ: СВЯЗЬ СО СТАНЦИЯМИ', pathLabel:'ПЛАМЯ', view:true, endpoint:'/__flame/state?refresh=1', format:function(raw){ return window.LostFlame ? window.LostFlame.format(raw) : 'ДАННЫЕ НЕДОСТУПНЫ'; } },
             { module:'ups', label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
             QUIT
         ] };

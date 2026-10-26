@@ -97,9 +97,11 @@ async function openWindow(role) {
 }
 const museRuntime = require('../muse/supervisor.cjs').createMuse({ root: ROOT });
 const vpnRuntime = require('../vpn/runtime.cjs').createVPN();
+const flameRuntime = require('../flame/runtime.cjs').createFlame();
 const applyUPSService = createUPSService({ root: ROOT });
 async function applyModule(id, enabled) {
     if (id === 'muse') return museRuntime.apply(id, enabled);
+    if (id === 'flame') { flameRuntime.setEnabled(enabled); return {installed:flameRuntime.snapshot().installed,status:enabled?'starting':'disabled'}; }
     if (id === 'vpn') { vpnRuntime.setEnabled(enabled); return {installed:vpnRuntime.snapshot().installed,status:enabled?'starting':'disabled'}; }
     const result = await applyUPSService(id, enabled);
     modules.ups = { ...result, enabled };
@@ -132,6 +134,7 @@ async function tick() {
         const now = Date.now();
         core.updateMuse(museRuntime.read());
         core.updateVPN(vpnRuntime.snapshot());
+        core.updateFlame(flameRuntime.snapshot());
         if (now - lastScreensAt > 10000) {
             lastScreensAt = now; const next = await readScreens(); if (next) screens = next;
         }
@@ -157,6 +160,7 @@ async function shutdown(code = 0) {
     console.log('[ядро]', code === 0 ? 'штатный выход' : 'аварийное завершение');
     try { core?.saveState(); } catch (_) {}
     try { vpnRuntime.close(); } catch (_) {}
+    try { flameRuntime.close(); } catch (_) {}
     try { await museRuntime.close(); } catch (_) {}
     try { castSession?.close(); } catch (_) {}
     for (const role of ['console','tv']) await closeWindow(role);
@@ -172,7 +176,7 @@ events.on('quit', () => shutdown(0));
 events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
 events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, vpnRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
     caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
     screens = await readScreens() || []; lastScreensAt = Date.now();
     await openWindow('console'); if (localTimer) await openWindow('tv');
