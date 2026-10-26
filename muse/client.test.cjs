@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
 function fixture(){
- const listeners=new Map(),commands=[];let document;
+ const listeners=new Map(),commands=[],fetches=[];let document;
  class Element{
   constructor(tag,cls=''){this.tagName=tag;this.className=cls;this.children=[];this.hidden=false;this.disabled=false;this.value='';this.placeholder='';this._maxLength=-1;this.scrollHeight=100;this.scrollTop=0;this.clientHeight=100;this.style={};this.events={};this._dataset={};
    this.classList={contains:c=>this.className.split(' ').includes(c),add:c=>{if(!this.classList.contains(c))this.className+=' '+c;},remove:c=>{this.className=this.className.split(' ').filter(x=>x!==c).join(' ');},toggle:(c,on)=>on?this.classList.add(c):this.classList.remove(c)};
@@ -18,11 +18,11 @@ function fixture(){
  function dispatch(e){e.preventDefault=()=>{};e.stopImmediatePropagation=()=>{e.stopped=true;};for(const fn of listeners.get(e.type)||[]){fn(e);if(e.stopped)break;}return true;}
  const win={document,__LOST_CLOCK:{phase:'countdown',left:6480},__LOST_MODULES:{muse:{enabled:true,installed:true,status:'ready'}},addEventListener(k,fn){listeners.set(k,[...(listeners.get(k)||[]),fn]);},dispatchEvent:dispatch};
  win.LostStation={microphone(c){commands.push(c.op);if(c.op==='start')win.LostMuse.setMicrophone({recording:true,finished:false,draftReady:false});if(c.op==='stop')win.LostMuse.setMicrophone({recording:false,finished:true,draftReady:true,elapsed:2});if(c.op==='cancel')win.LostMuse.setMicrophone({recording:false,finished:true,draftReady:false});if(c.op==='send')win.LostMuse.setMicrophone({draftReady:false,uploading:true});}};
- const context={window:win,document,CustomEvent:class{constructor(type,o={}){this.type=type;this.detail=o.detail;}},AbortController,setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){},fetch:()=>new Promise(()=>{})};
+ const context={window:win,document,CustomEvent:class{constructor(type,o={}){this.type=type;this.detail=o.detail;}},AbortController,setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){},fetch:(url,o)=>{fetches.push([url,o&&o.body]);return new Promise(()=>{});}};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../js/station-input.js'),'utf8'),context);
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'client.js'),'utf8'),context);
  win.LostMuse.setMicrophone({available:true,supported:true,recording:false,requesting:false,uploading:false});
- return {win,commands,input,surface,body,dispatch,key:(type,key,code=key,extra={})=>dispatch({type,key,code,target:input,repeat:false,...extra})};
+ return {win,commands,fetches,input,surface,body,dispatch,key:(type,key,code=key,extra={})=>dispatch({type,key,code,target:input,repeat:false,...extra})};
 }
 test('RESET release retains voice draft; only Enter sends once',()=>{
  const f=fixture();f.win.LostMuse.open();assert.equal(f.surface.querySelector('.my-console'),f.input);assert.equal(f.body.querySelector('.muse-panel'),null);
@@ -137,4 +137,31 @@ test('received messages appear in the transcript (a real element\'s dataset is r
  assert.ok(transcript,'transcript exists');
  const rows=transcript.children.map(r=>[r.dataset.timelineId,r._body.textContent]);
  assert.deepEqual(rows,[['message:a1','Тест дошёл.'],['message:u1','prosto odin test']]);
+});
+
+test('while Muse replies a voice note can be recorded; Enter queues it and it is sent once Muse is free',()=>{
+ const f=fixture();f.win.LostMuse.open();
+ const replying={module:{enabled:true,installed:true,status:'ready'},chat:{phase:'replying',messages:[]}};
+ f.win.LostMuse.receive(replying);
+ f.key('keydown','Control','ControlLeft');assert.equal(f.commands.includes('start'),true,'recording starts while Muse replies');
+ f.key('keyup','Control','ControlLeft');f.key('keydown','Enter');
+ assert.equal(f.commands.includes('send'),false,'not sent while Muse replies');
+ f.win.LostMuse.receive(replying);assert.equal(f.commands.includes('send'),false);
+ f.win.LostMuse.receive({chat:{phase:'idle',messages:[]}});
+ assert.equal(f.commands.filter(x=>x==='send').length,1,'sent once when Muse is free');
+ f.win.LostMuse.receive({chat:{phase:'idle',messages:[]}});assert.equal(f.commands.filter(x=>x==='send').length,1);
+});
+test('Escape drops the queued send but keeps the voice draft',()=>{
+ const f=fixture();f.win.LostMuse.open();f.win.LostMuse.receive({chat:{phase:'waiting',messages:[]}});
+ f.key('keydown','Control','ControlLeft');f.key('keyup','Control','ControlLeft');f.key('keydown','Enter');f.key('keydown','Escape');
+ assert.equal(f.commands.includes('cancel'),false,'draft kept');
+ f.win.LostMuse.receive({chat:{phase:'idle',messages:[]}});assert.equal(f.commands.includes('send'),false);
+ f.key('keydown','Enter');assert.equal(f.commands.filter(x=>x==='send').length,1);
+});
+test('text can be typed while Muse replies; Enter sends it after the reply',()=>{
+ const f=fixture();f.win.LostMuse.open();f.win.LostMuse.receive({chat:{phase:'replying',messages:[]}});
+ assert.equal(f.input.disabled,false);f.input.value='следующий вопрос';f.key('keydown','Enter');
+ assert.equal(f.fetches.some(x=>x[0]==='/__muse/message'),false);
+ f.win.LostMuse.receive({chat:{phase:'idle',messages:[]}});
+ const sent=f.fetches.filter(x=>x[0]==='/__muse/message');assert.equal(sent.length,1);assert.equal(JSON.parse(sent[0][1]).message,'следующий вопрос');
 });
