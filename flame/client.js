@@ -17,7 +17,7 @@
     }
     function format(raw) {
         var d; try { d = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return 'ДАННЫЕ НЕДОСТУПНЫ. ←/ESC НАЗАД; ОТКРОЙТЕ СНОВА ДЛЯ ПОВТОРА.'; }
-        var head = 'DHARMA INITIATIVE · COMMUNICATIONS\n\n';
+        var head = 'DHARMA INITIATIVE · THE SWAN → ALL STATIONS\n\n';
         if (!d || d.enabled === false) return head + 'MODULE OFFLINE. МЕНЮ → МОДУЛИ → ПЛАМЯ.';
         if (d.installed === false) return head + 'NO LINK: TAILSCALE NOT FOUND ON THIS STATION.';
         if (d.status !== 'ready') return head + 'THE LOOKING GLASS IS BLOCKING ALL SIGNALS.\n' + (d.error || 'Нет ответа Tailscale на станции');
