@@ -1,0 +1,6 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),HiddenCommands=require('../../js/station-input');
+test('unknown typing and partial command stay invisible',()=>{const c=new HiddenCommands();c.register('AI');for(const x of 'XYZ123QA')assert.equal(c.feed(x),'');assert.equal(c.matched,'');assert.equal(c.feed('I'),'AI');});
+test('recognized command stays visible until explicit reset',()=>{const c=new HiddenCommands();c.register('AI');c.feed('A');c.feed('I');for(const x of 'RANDOM123')assert.equal(c.feed(x),'AI');assert.equal(c.matched,'AI');c.reset();assert.equal(c.matched,'');assert.equal(c.buffer,'');});
+test('registry supports additional secret words without exposing partial input',()=>{const c=new HiddenCommands();c.register('AI');c.register('STATUS');for(const x of 'STATU')assert.equal(c.feed(x),'');assert.equal(c.feed('S'),'STATUS');});
+test('unknown input is bounded and punctuation breaks partial matching',()=>{const c=new HiddenCommands();c.register('AI');for(let i=0;i<10000;i++)c.feed('X');assert.equal(c.buffer.length,32);c.feed('A');c.feed(' ');assert.equal(c.feed('I'),'');assert.throws(()=>c.register('bad command'),TypeError);});

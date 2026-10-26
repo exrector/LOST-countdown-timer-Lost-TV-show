@@ -13,7 +13,7 @@
  var content=el('div','ups-content');panel.appendChild(content);
  var notice=el('div','ups-notice');notice.setAttribute('role','status');panel.appendChild(notice);
  panel.appendChild(el('div','ups-footer','← → — РАЗДЕЛЫ   ↑ ↓ — ПОКАЗАНИЯ   ENTER — ИЗМЕНИТЬ   ESC — НАЗАД'));
- document.body.appendChild(panel);
+ (document.querySelector('.console-container') || document.body).appendChild(panel);
  function button(text,fn){var b=el('button','',text);b.type='button';b.addEventListener('click',fn);return b;}
  function fresh(){return enabled&& window.LostUPSTelemetry.fresh(state,lastResponse,Date.now());}
  function renderLine(){
@@ -51,14 +51,14 @@
   enabled=on;epoch++;clearInterval(pollTimer);clearInterval(lineTimer);pollTimer=null;lineTimer=null;
   activeReads.slice().forEach(function(controller){controller.abort();});
   state=null;lastResponse=0;lastError='';line.hidden=!on;document.body.classList.toggle('lost-ups-ready',on);
-  if(!on){var wasOpen=!panel.hidden;panel.hidden=true;editing=false;if(wasOpen)window.dispatchEvent(new Event('lost-ups-close'));return;}
+  if(!on){var wasOpen=!panel.hidden;panel.hidden=true;document.body.classList.remove('station-panel-open');editing=false;if(wasOpen)window.dispatchEvent(new Event('lost-ups-close'));return;}
   renderLine();poll();pollTimer=setInterval(poll,5000);lineTimer=setInterval(renderLine,1000);
  }
  window.addEventListener('lost-modules',function(e){setEnabled(!(e.detail&&e.detail.ups&&e.detail.ups.enabled===false));});
 
  function leave(){if(pending)return;if(editing){editing=false;renderPanel();focusReturn();}else hide();}
- function hide(){if(pending)return;panel.hidden=true;editing=false;if(returnFocus&&returnFocus.focus)returnFocus.focus();window.dispatchEvent(new Event('lost-ups-close'));}
- function open(){if(!enabled||!panel.hidden)return;returnFocus=document.activeElement;window.dispatchEvent(new Event('lost-ups-open'));panel.hidden=false;editing=false;message('');renderPanel();tabs.querySelector('[aria-selected=true]').focus();}
+ function hide(){if(pending)return;panel.hidden=true;document.body.classList.remove('station-panel-open');editing=false;if(returnFocus&&returnFocus.focus)returnFocus.focus();window.dispatchEvent(new Event('lost-ups-close'));}
+ function open(){if(!enabled||!panel.hidden)return;returnFocus=document.activeElement;window.dispatchEvent(new Event('lost-ups-open'));panel.hidden=false;document.body.classList.add('station-panel-open');editing=false;message('');renderPanel();tabs.querySelector('[aria-selected=true]').focus();}
  window.LostUPS={openMenu:open,status:function(){return {enabled:enabled,busy:pending,polling:pollTimer!==null,fresh:fresh(),online:!!(state&&state.online),fields:state&&state.fields?state.fields.length:0,error:lastError};}};
  function statusText(){var v=state&&state.vars||{};return fresh()?'CPS / '+(v['ups.model']||v['device.model']||'UPS')+' · '+state.connection.host+':'+state.connection.port+' · '+new Date(state.updatedAt).toLocaleTimeString():'TELEMETRY LOST — '+(lastError||'нет актуальных данных. Последние значения ниже справочные.');}
  function renderPanel(){
