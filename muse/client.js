@@ -49,7 +49,7 @@
         var old = transcript._rows || Object.create(null), current = Object.create(null);
         rows.forEach(function (m, index) {
             var row = old[m.id];
-            if (!row) { row = node('article'); row.dataset = row.dataset || {}; row.dataset.timelineId = m.id; row._label = node('div', 'muse-message-role'); row._body = node('div', 'muse-message-text'); row.appendChild(row._label); row.appendChild(row._body); }
+            if (!row) { row = node('article'); row.dataset.timelineId = m.id; row._label = node('div', 'muse-message-role'); row._body = node('div', 'muse-message-text'); row.appendChild(row._label); row.appendChild(row._body); }
             current[m.id] = row;
             if (m.kind === 'audit') {
                 var detail = timelineApi.describe(m);

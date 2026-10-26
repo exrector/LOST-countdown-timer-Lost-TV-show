@@ -3,9 +3,11 @@ const test=require('node:test'),assert=require('node:assert/strict'),vm=require(
 function fixture(){
  const listeners=new Map(),commands=[];let document;
  class Element{
-  constructor(tag,cls=''){this.tagName=tag;this.className=cls;this.children=[];this.hidden=false;this.disabled=false;this.value='';this.placeholder='';this._maxLength=-1;this.scrollHeight=100;this.scrollTop=0;this.clientHeight=100;this.style={};this.events={};
+  constructor(tag,cls=''){this.tagName=tag;this.className=cls;this.children=[];this.hidden=false;this.disabled=false;this.value='';this.placeholder='';this._maxLength=-1;this.scrollHeight=100;this.scrollTop=0;this.clientHeight=100;this.style={};this.events={};this._dataset={};
    this.classList={contains:c=>this.className.split(' ').includes(c),add:c=>{if(!this.classList.contains(c))this.className+=' '+c;},remove:c=>{this.className=this.className.split(' ').filter(x=>x!==c).join(' ');},toggle:(c,on)=>on?this.classList.add(c):this.classList.remove(c)};
   }
+  // как в браузере: dataset есть всегда и только для чтения (присваивание в строгом режиме — TypeError)
+  get dataset(){return this._dataset;}
   appendChild(e){if(e.parent)e.parent.children=e.parent.children.filter(x=>x!==e);this.children.push(e);e.parent=this;return e;}
   get maxLength(){return this._maxLength;} set maxLength(v){if(v<0)throw new Error('IndexSizeError');this._maxLength=v;} removeAttribute(n){if(n==='maxlength')this._maxLength=-1;}
   setAttribute(){} addEventListener(k,fn){this.events[k]=fn;} replaceChildren(){this.children=[];} focus(){document.activeElement=this;} scrollBy(_,n){this.scrollTop+=n;}
@@ -126,4 +128,13 @@ test('pause plate is not hidden on the terminal after leaving AI',()=>{
 test('AI always opens at the newest message, not at the old scroll position',()=>{
  const f=fixture();const history=f.surface.querySelector('.muse-transcript');history.scrollTop=300;
  f.win.LostMuse.open();assert.equal(history.scrollTop,0);
+});
+
+test('received messages appear in the transcript (a real element\'s dataset is read-only)',()=>{
+ const f=fixture();f.win.LostMuse.open();
+ f.win.LostMuse.receive({module:{enabled:true,installed:true,status:'ready'},chat:{phase:'idle',available:true,messages:[{id:'u1',role:'user',text:'prosto odin test',createdAt:1},{id:'a1',role:'assistant',text:'Тест дошёл.',createdAt:2}]}});
+ const transcript=f.surface.querySelector('.muse-transcript')||f.body.querySelector('.muse-transcript');
+ assert.ok(transcript,'transcript exists');
+ const rows=transcript.children.map(r=>[r.dataset.timelineId,r._body.textContent]);
+ assert.deepEqual(rows,[['message:a1','Тест дошёл.'],['message:u1','prosto odin test']]);
 });
