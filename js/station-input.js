@@ -29,6 +29,8 @@
     function block(e) { e.preventDefault(); e.stopImmediatePropagation(); }
     root.addEventListener('keydown', function (e) {
         if (root.LostBootActive || insideTool() || codeEnabled || keyboardLocked) return;
+        // M (menu) and P (pause) belong to the station and always reach its handler.
+        if (HiddenCommands.STATION_KEYS[e.code] && !e.ctrlKey && !e.metaKey && !e.altKey) { commands.interrupt(); return; }
         if (priority) { if (e.key === 'Enter' || typeof e.key === 'string' && e.key.length === 1) block(e); return; }
         if (root.__LOST_CLOCK && root.__LOST_CLOCK.phase !== 'countdown') { reset(); return; }
         if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
@@ -75,9 +77,13 @@
     HiddenCommands.prototype.register = function (name) {
         name = String(name).toUpperCase();
         if (!/^[A-Z][A-Z0-9]{1,31}$/.test(name)) throw new TypeError('Invalid station command');
+        if (/[MP]/.test(name)) throw new TypeError('M and P are station keys');
         if (this.names.indexOf(name) < 0) this.names.push(name);
     };
     HiddenCommands.prototype.reset = function () { this.buffer = ''; this.matched = ''; };
+    // A station key breaks a partial word but keeps a recognized command.
+    HiddenCommands.prototype.interrupt = function () { if (!this.matched) this.buffer = ''; };
+    HiddenCommands.STATION_KEYS = { KeyM: true, KeyP: true };
     HiddenCommands.prototype.feed = function (letter) {
         if (this.matched) return this.matched;
         letter = String(letter).toUpperCase();
