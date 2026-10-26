@@ -34,8 +34,8 @@ function parseStatus(json, stations = {}) {
             lastSeen: node.self ? null : lastSeen(node.LastSeen), self: !!node.self,
         };
     });
-    // Своя станция первой, затем опознанные по номеру и имени, затем неопознанные.
-    const rank = s => s.self ? 0 : s.station ? 1 : 2;
+    // Своя станция первой, затем станции с номером, затем остальные на связи, затем молчащие, неопознанные в конце.
+    const rank = s => s.self ? 0 : !s.station ? 4 : s.number ? 1 : s.online ? 2 : 3;
     list.sort((a, b) => rank(a) - rank(b) || (Number(a.number) || 99) - (Number(b.number) || 99) || a.station.localeCompare(b.station, 'ru') || a.device.localeCompare(b.device));
     return { backend, stations: list };
 }

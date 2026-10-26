@@ -1,4 +1,5 @@
-/* «Пламя», станция 4: экран связи с другими станциями DHARMA. Только показ, без команд узлам. */
+/* «Пламя», станция 4: экран связи с другими станциями DHARMA. Только показ, без команд узлам.
+   Экран по-английски, как оригинальные названия станций и строки мейнфрейма. */
 (function (root, factory) {
     var Flame = factory();
     if (typeof module === 'object' && module.exports) module.exports = Flame;
@@ -11,17 +12,17 @@
     // Колонки на 78 знаков панели 820 px; длинное имя обрезается, между колонками всегда отступ.
     function cell(value, size, gap) { return pad(String(value).slice(0, size), size + gap); }
     function row(s) {
-        var note = s.self ? 'ЭТА СТАНЦИЯ' : s.online ? '' : contact(s.lastSeen);
-        return (cell(s.number || '–', 2, 1) + cell(s.station || 'НЕОПОЗНАННЫЙ ОБЪЕКТ', 19, 2) + cell(s.device, 22, 2) + cell(s.online ? 'ONLINE' : 'OFFLINE', 7, 1) + note).replace(/\s+$/, '');
+        var note = s.self ? 'THIS STATION' : s.online ? '' : contact(s.lastSeen);
+        return (cell(s.number || '–', 2, 1) + cell(s.station || 'UNKNOWN STATION', 19, 2) + cell(s.device, 22, 2) + cell(s.online ? 'ONLINE' : 'OFFLINE', 7, 1) + note).replace(/\s+$/, '');
     }
     function format(raw) {
         var d; try { d = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return 'ДАННЫЕ НЕДОСТУПНЫ. ←/ESC НАЗАД; ОТКРОЙТЕ СНОВА ДЛЯ ПОВТОРА.'; }
-        var head = 'СТАНЦИЯ 4 «ПЛАМЯ» · СВЯЗЬ СО СТАНЦИЯМИ DHARMA\n\n';
-        if (!d || d.enabled === false) return head + 'МОДУЛЬ ВЫКЛЮЧЕН. МЕНЮ → МОДУЛИ → ПЛАМЯ.';
-        if (d.installed === false) return head + 'СВЯЗЬ НЕ УСТАНОВЛЕНА: TAILSCALE НА СТАНЦИИ НЕ НАЙДЕН.';
-        if (d.status !== 'ready') return head + 'ЗАЗЕРКАЛЬЕ БЛОКИРУЕТ СИГНАЛ.\n' + (d.error || 'Нет ответа Tailscale на станции');
+        var head = 'STATION 4 · THE FLAME · DHARMA INITIATIVE COMMUNICATIONS\n\n';
+        if (!d || d.enabled === false) return head + 'MODULE OFFLINE. МЕНЮ → МОДУЛИ → ПЛАМЯ.';
+        if (d.installed === false) return head + 'NO LINK: TAILSCALE NOT FOUND ON THIS STATION.';
+        if (d.status !== 'ready') return head + 'THE LOOKING GLASS IS BLOCKING ALL SIGNALS.\n' + (d.error || 'Нет ответа Tailscale на станции');
         var list = Array.isArray(d.stations) ? d.stations : [], online = list.filter(function (s) { return s.online; }).length;
-        return head + 'НА СВЯЗИ ' + online + ' ИЗ ' + list.length + '\n\n' + list.map(row).join('\n');
+        return head + 'ONLINE ' + online + ' OF ' + list.length + '\n\n' + list.map(row).join('\n');
     }
     return { format: format, row: row };
 });
