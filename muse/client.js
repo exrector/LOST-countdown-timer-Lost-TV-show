@@ -73,7 +73,7 @@
     }
     function close() { if (!opened) return; recordStop(true); emit('lost-muse-record', { on: false, cancel: true }); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); transcript.hidden = true; footer.hidden = true; notice.hidden = true; input.value = ''; input.readOnly = originalReadOnly; input.disabled = originalDisabled; input.placeholder = originalPlaceholder; if (originalMaxLength >= 0) input.maxLength = originalMaxLength; else input.removeAttribute('maxlength'); document.body.classList.remove('lost-muse-active'); resetCommand(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
     function setMicrophone(value) {
-        if (!value || typeof value !== 'object') return; microphone = Object.assign({}, microphone, value);
+        if (!value || typeof value !== 'object') return; microphone = Object.assign({}, microphone, value); window.__LOST_MUSE_MIC = microphone;
         if(value.finished || value.error){held=false;}
         if(typeof value.error==='string')noticeText=value.error; if (value.draftReady) noticeText='';
         if (microphone.recording && (!held || !opened || priority)) { microphone.recording = false; emit('lost-muse-record', { on: false, cancel: true }); }
