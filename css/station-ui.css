@@ -80,3 +80,10 @@ body.console-page .service-line .vpn-line b{font-weight:normal;color:var(--stati
 @media(max-width:650px){body.console-page .service-line{font-size:10px;gap:12px;margin-left:20px;margin-right:20px}body.console-page .service-line .ups-line{gap:5px}}
 
 body.console-page .service-line .ups-line[hidden]{display:none}
+
+body.console-page .service-line .vpn-line.connected{color:var(--station-ink)}
+body.console-page .service-line .vpn-line.disconnected{color:#ff7970}
+body.console-page .service-line .vpn-line[hidden]{display:none}
+body.console-page .station-explanation{white-space:pre-line;padding:6px 10px;color:var(--station-muted);font:var(--station-help)/1.4 var(--station-font);border-bottom:1px solid var(--station-line);max-height:100px;overflow:auto}
+body.console-page .station-editor{padding:10px;min-width:0}
+body.console-page .station-editor input{box-sizing:border-box;width:100%;font:var(--station-text)/1.4 var(--station-font);background:var(--station-surface);color:var(--station-ink);border:1px solid var(--station-line);padding:6px;outline:1px solid var(--station-ink)}

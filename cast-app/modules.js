@@ -5,13 +5,15 @@ const os = require('os');
 const { promisify } = require('util');
 const runDefault = promisify(require('child_process').execFile);
 
-function normalizeModules(value) { return { ups: value?.ups !== false, muse: value?.muse === true }; }
+function normalizeModules(value) { return { ups: value?.ups !== false, muse: value?.muse === true, ...(typeof value?.vpn === 'boolean' ? {vpn:value.vpn} : {}) }; }
 function createModules({ saved, persist, apply, publish = () => {}, installed = { muse: false } }) {
     const desired = normalizeModules(saved);
     if (!installed.muse) desired.muse = false;
+    if (installed.vpn) desired.vpn = saved?.vpn !== false; else delete desired.vpn;
     const states = { ups: { status: apply ? 'starting' : desired.ups ? 'ready' : 'disabled', error: null },
         muse: { status: installed.muse ? 'disabled' : 'not_installed', installed: !!installed.muse, error: null } };
     const queues = { ups: Promise.resolve(), muse: Promise.resolve() }, revisions = { ups: 0, muse: 0 };
+    if (installed.vpn) { states.vpn = {status:'starting',installed:true,error:null}; queues.vpn=Promise.resolve(); revisions.vpn=0; }
     const snapshot = () => Object.fromEntries(Object.keys(desired).map(id => [id, { ...states[id], enabled: desired[id] }]));
     function lifecycle(id = 'ups') {
         const current = ++revisions[id], enabled = desired[id];
@@ -30,7 +32,7 @@ function createModules({ saved, persist, apply, publish = () => {}, installed = 
     }
     return {
         desired: () => ({ ...desired }), snapshot,
-        initialize() { return Promise.all([lifecycle('ups'), ...(installed.muse ? [lifecycle('muse')] : [])]); },
+        initialize() { return Promise.all([lifecycle('ups'), ...(installed.muse ? [lifecycle('muse')] : []), ...(installed.vpn ? [lifecycle('vpn')] : [])]); },
         reconcileUPS() { return desired.ups ? lifecycle('ups') : Promise.resolve(); },
         set(id, enabled) {
             if (!Object.hasOwn(desired, id) || (id === 'muse' && !installed.muse) || typeof enabled !== 'boolean') return false;
@@ -39,6 +41,7 @@ function createModules({ saved, persist, apply, publish = () => {}, installed = 
             if (!persist()) { desired[id] = previous; states[id] = { ...states[id], status: 'error', error: 'Не удалось сохранить состояние модулей' }; publish(snapshot()); return false; }
             lifecycle(id); return true;
         },
+        updateVPN(status) { if (installed.vpn && desired.vpn && status.enabled !== false) { states.vpn = {...states.vpn,...status,status:['connected','disconnected'].includes(status.status)?'ready':status.status}; publish(snapshot()); } },
         updateMuse(status) { if (desired.muse && status.enabled !== false) { states.muse = { ...states.muse, ...status }; publish(snapshot()); } },
         updateUPS(status) { if (desired.ups && !['starting', 'stopping', 'error', 'not_installed'].includes(states.ups.status)) { states.ups = { ...states.ups, ...status }; publish(snapshot()); } },
     };

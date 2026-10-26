@@ -33,11 +33,13 @@ function start(port = 8765, opts = {}) {
     const stage = opts.stage || { width: 1560, height: 720 };
     const upsGateway = createUPSGateway({ port: opts.upsPort || 8766, origin: 'http://localhost:' + port });
     const museGateway=createMuseGateway({port:()=>server.address()?.port || port, getModule:()=>moduleManager.snapshot().muse, getChat:opts.getMuseChat, sendMessage:opts.sendMuseMessage,sendVoice:opts.sendMuseVoice, preview:opts.musePreview===true});
+    const vpnGateway = opts.vpnRuntime ? require('../vpn/gateway.cjs').createVPNGateway({vpn:opts.vpnRuntime,port:()=>server.address()?.port || port}) : ()=>false;
     const server = http.createServer((req, res) => {
         syncClock();
         const url = new URL(req.url, 'http://x');
         let p = decodeURIComponent(url.pathname);
         if (museGateway(req,res,p)) return;
+        if (vpnGateway(req,res,p)) return;
         if (p === '/') p = '/index.html';
         if ((p === '/__ups' || p.startsWith('/__ups/')) && !moduleManager.desired().ups) {
             req.resume(); res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -348,7 +350,7 @@ function start(port = 8765, opts = {}) {
         server.once('close', () => clearTimeout(clockTimer));
         const ip = lanIp();
         console.log(`LOST server: http://${ip}:${port}/index.html  |  console: http://localhost:${port}/console.html`);
-        resolve({ server, port, ip, getModules: moduleManager.snapshot, updateUPS: moduleManager.updateUPS, updateMuse: moduleManager.updateMuse, reconcileUPS: moduleManager.reconcileUPS, getMode: () => clock.mode, saveState, getTimer: () => { const c = syncClock(); return { mode: c.mode, left: c.left, paused: c.paused }; } });
+        resolve({ server, port, ip, getModules: moduleManager.snapshot, updateVPN: moduleManager.updateVPN, updateUPS: moduleManager.updateUPS, updateMuse: moduleManager.updateMuse, reconcileUPS: moduleManager.reconcileUPS, getMode: () => clock.mode, saveState, getTimer: () => { const c = syncClock(); return { mode: c.mode, left: c.left, paused: c.paused }; } });
     }); });
 }
 
