@@ -254,18 +254,18 @@ function start(port = 8765, opts = {}) {
     const shortcutRunner = {
         list() { refreshShortcuts(); return shortcutNames.slice(); },
         find(text) { refreshShortcuts(); const want = String(text || '').trim().toLowerCase(); return shortcutNames.find(n => n.toLowerCase() === want) || null; },
-        // done(текст) — итог команды для экрана терминала; отправителю iMessage итог уходит сообщением.
-        run(name, channel, sender, done) {
+        // Итог команды одной строкой, когда она завершится: вывод, «готово» или «ошибка: …».
+        run(name, channel) {
             console.log('[пульт] запускаю команду «' + name + '» (' + channel + ')');
-            // ввод закрываем сразу: при открытом stdin `shortcuts run` ждёт входные данные для команды и висит
-            const child = execFile('shortcuts', ['run', name], { timeout: 120000 }, (e, out) => {
-                const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
-                console.log('[пульт] команда «' + name + '»: ' + res);
-                if (sender && imessage) imessage.reply(sender, 'Команда «' + name + '»: ' + res.slice(0, 500));
-                if (done) done(res);
+            return new Promise(resolve => {
+                // ввод закрываем сразу: при открытом stdin `shortcuts run` ждёт входные данные для команды и висит
+                const child = execFile('shortcuts', ['run', name], { timeout: 120000 }, (e, out) => {
+                    const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
+                    console.log('[пульт] команда «' + name + '»: ' + res);
+                    resolve(res);
+                });
+                child.stdin.end();
             });
-            child.stdin.end();
-            return 'Запускаю команду «' + name + '».';
         },
     };
     remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner });
@@ -301,7 +301,7 @@ function start(port = 8765, opts = {}) {
                     const answer = text => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: '__shortcut_result', id: data.id, text })); };
                     const name = shortcutRunner.find(data.name);
                     if (!name) answer('ошибка: команды «' + String(data.name || '').slice(0, 100) + '» нет в «Командах» Mac mini');
-                    else shortcutRunner.run(name, 'терминал', null, answer);
+                    else shortcutRunner.run(name, 'терминал').then(answer);
                     return;
                 }
                 if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }

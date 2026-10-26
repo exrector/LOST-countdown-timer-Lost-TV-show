@@ -27,14 +27,16 @@ function remote(over = {}) {
     const names = ['Громкость 50', 'VPN SWITCH'];
     const r = createRemote({ saved: over.saved, persist: () => over.persist !== false, actions,
         shortcuts: { list: () => names, find: t => names.find(n => n.toLowerCase() === String(t).trim().toLowerCase()) || null,
-            run: name => { calls.push(['shortcut', name]); return 'Запускаю команду «' + name + '».'; } } });
+            run: name => { calls.push(['shortcut', name]); return Promise.resolve('готово'); } } });
     return { r, calls };
 }
 
-test('a message runs a LOST command by its words or a Mac mini command by its exact name', () => {
+test('a message runs a LOST command by its words or a Mac mini command by its exact name', async () => {
     const { r, calls } = remote();
     assert.equal(r.run('Пауза', 'imessage', '+7'), '');
-    assert.match(r.run('vpn switch', 'imessage', '+7'), /Запускаю команду «VPN SWITCH»/);
+    const shortcut = r.run('vpn switch', 'imessage', '+7');
+    assert.deepEqual(await shortcut, { text: 'Команда «VPN SWITCH»: готово', bare: true });
+    assert.equal(await compose(shortcut, () => 'СОСТОЯНИЕ'), 'Команда «VPN SWITCH»: готово', 'one message: the result only, no «Запускаю», no status');
     assert.equal(r.run('4 8 15 16 23 42', 'imessage'), 'Код отправлен.');
     assert.equal(r.run('привет', 'imessage'), 'Не понял «привет». Список команд — «help».');
     assert.deepEqual(calls, [['pause', 'Пауза'], ['shortcut', 'VPN SWITCH'], ['code', 'imessage']]);

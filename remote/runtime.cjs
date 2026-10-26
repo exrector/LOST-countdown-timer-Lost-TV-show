@@ -21,12 +21,13 @@ function createRemote({ saved, persist = () => true, actions, shortcuts = { find
             '• КОД: 4 8 15 16 23 42 — в последние 4 минуты цикла',
             names.length ? 'Команды Mac mini (точное название):\n' + names.map(n => '• ' + n).join('\n') : 'Команд Mac mini нет.'].join('\n');
     }
-    // Ответ отправителю; '' — только состояние станции, { text, bare } — только текст.
+    // Ответ отправителю; '' — только состояние станции, { text, bare } — только текст; может прийти Promise.
     function run(text, channel, sender) {
         const said = String(text || '').trim(), found = match(said, settings.words);
         if (found && found.id === 'code') return actions.code(found.code, channel);
         const name = shortcuts.find(said);
-        if (name) return shortcuts.run(name, channel, sender);
+        // Команда Mac mini: один ответ, когда она завершится, — итог или ошибка, без состояния станции.
+        if (name) return Promise.resolve(shortcuts.run(name, channel)).then(res => ({ text: 'Команда «' + name + '»: ' + String(res).slice(0, 500), bare: true }));
         if (!found) return 'Не понял «' + said + '». Список команд — «' + settings.words.help[0] + '».';
         if (found.id === 'help') return { text: help(), bare: true };
         return actions[found.id](channel, said);
