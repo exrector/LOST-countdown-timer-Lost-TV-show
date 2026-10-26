@@ -555,11 +555,29 @@
             // поля по краям одинаковые: слева три клетки, справа пробел + курсор + пробел — фраза ровно по центру
             var inner = PAUSE_NOTE.length + 6, bar = function (l, r) { return l + new Array(inner + 1).join('\u2550') + r; };
             var cur = document.createElement('span'); cur.className = 'cur'; cur.textContent = '\u2588';
+            var probe = document.createElement('span'); probe.style.cssText = 'display:inline-block;width:0;height:0';
+            win.appendChild(probe); // по нему fit() находит базовую линию первой строки
             win.appendChild(document.createTextNode(bar('\u2554', '\u2557') + '\n\u2551   ' + PAUSE_NOTE + ' '));
             win.appendChild(cur);
             win.appendChild(document.createTextNode(' \u2551\n' + bar('\u255a', '\u255d')));
             box.appendChild(win); document.body.appendChild(box);
             fit();
+        }
+        // Краска знака: где на самом деле лежат штрихи относительно начала знака и базовой линии.
+        // TextMetrics в WebKit на знаках рамки врёт, поэтому знак рисуется на холсте и пиксели считаются.
+        function ink(ch, fs) {
+            var cv = fit.cv || (fit.cv = document.createElement('canvas'));
+            var w = Math.ceil(fs * 2), h = Math.ceil(fs * 3), x0 = Math.round(fs / 2), y0 = Math.round(fs * 2);
+            cv.width = w; cv.height = h;
+            var g = cv.getContext('2d');
+            g.font = fs + 'px "Courier New", Courier, monospace'; g.textBaseline = 'alphabetic'; g.fillStyle = '#000';
+            g.fillText(ch, x0, y0);
+            var d = g.getImageData(0, 0, w, h).data, l = w, r = -1, t = h, b = -1;
+            for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+                if (d[(y * w + x) * 4 + 3] < 128) continue;
+                if (x < l) l = x; if (x > r) r = x; if (y < t) t = y; if (y > b) b = y;
+            }
+            return r < 0 ? null : { left: l - x0, right: r + 1 - x0, ascent: y0 - t, descent: b + 1 - y0 };
         }
         // ширина строки известна в знаках, у Courier знак равен 0.6em (+0.06em разрядки) —
         // значит размер шрифта считается прямо из ширины экрана, без потолка в пикселях
@@ -567,21 +585,24 @@
             if (!box) return;
             var win = box.firstChild;
             var chars = PAUSE_NOTE.length + 8; // ║ + три клетки + текст + пробел + курсор + пробел + ║
-            var ADV = 0.66, LH = 1.45; // знак Courier = 0.6em + 0.06em разрядки; межстрочное — как в CSS выше
+            var ADV = 0.66; // знак Courier = 0.6em + 0.06em разрядки
             var fs = PAUSE_WIDTH * window.innerWidth / (chars * ADV);
             win.style.fontSize = fs + 'px';
-            // Замер краски: сколько пустого места у знака рамки сверху, снизу и сбоку внутри его ячейки.
-            // Ровно на столько и срезается чёрное поле, иначе оно торчит из-под красной окантовки.
+            // Чёрное поле срезается ровно до внешнего края штрихов рамки. Отступы хранятся в em:
+            // при смене размера они верны без нового замера, а спрятанная плашка (display:none) замер пропускает.
             try {
-                var g = (fit.cv || (fit.cv = document.createElement('canvas'))).getContext('2d');
-                g.font = fs + 'px "Courier New", Courier, monospace';
-                var h = g.measureText('\u2550'), v = g.measureText('\u2551');
-                var base = (LH * fs - (h.fontBoundingBoxAscent + h.fontBoundingBoxDescent)) / 2 + h.fontBoundingBoxAscent;
-                win.style.setProperty('--pz-top', (base - h.actualBoundingBoxAscent) + 'px');
-                win.style.setProperty('--pz-bottom', (LH * fs - base - h.actualBoundingBoxDescent) + 'px');
-                win.style.setProperty('--pz-left', (-v.actualBoundingBoxLeft) + 'px');
-                // справа к знаку добавляется ещё и разрядка — её тоже срезаем
-                win.style.setProperty('--pz-right', (ADV * fs - v.actualBoundingBoxRight) + 'px');
+                var rect = win.getBoundingClientRect();
+                if (!rect.width || !rect.height) return;
+                var h = ink('\u2550', fs), v = ink('\u2551', fs); if (!h || !v) return;
+                // базовая линия первой строки — по пустому inline-block в её начале, а не по метрикам шрифта
+                var base = win.firstChild.getBoundingClientRect().bottom - rect.top, line = rect.height / 3;
+                var em = function (px) { return Math.max(0, px) / fs + 'em'; };
+                win.style.setProperty('--pz-top', em(base - h.ascent));
+                win.style.setProperty('--pz-bottom', em(rect.height - (base + 2 * line + h.descent)));
+                win.style.setProperty('--pz-left', em(v.left));
+                // справа к последнему знаку добавлена разрядка — она тоже срезается
+                win.style.setProperty('--pz-right', em(rect.width - (rect.width / chars * (chars - 1) + v.right)));
+                fit.done = true;
             } catch (e) { /* старый браузер — поле просто будет по строке */ }
         }
         var want = false;
@@ -589,8 +610,10 @@
             want = !!on;
             if (!document.body) return; // состояние могло прийти раньше, чем появилась страница — покажем на DOMContentLoaded
             if (!box) build();
-            fit(); // экран мог смениться, пока плашка была скрыта
             box.classList.toggle('on', want);
+            fit(); // экран мог смениться, пока плашка была скрыта
+            // плашку могло скрыть открытое меню: замер — когда она станет видна
+            if (want && !fit.done) setTimeout(function () { if (want) show(true); }, 500);
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { show(want); });
 

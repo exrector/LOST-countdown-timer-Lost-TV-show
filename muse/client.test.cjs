@@ -89,10 +89,21 @@ test('Right returns from AI to developer menu even with a draft, without sending
  f.win.addEventListener('keydown',e=>{if(e.key==='ArrowRight')menu=true;});f.key('keydown','ArrowRight');
  assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(menu,true);assert.equal(f.commands.includes('send'),false);
 });
-test('conversation stays below the original form and newest exchange retains user/reply order',()=>{
+test('conversation stays below the original form and the newest message is on top',()=>{
  const f=fixture();const form=f.surface.querySelector('.muse-compose'),history=f.surface.querySelector('.muse-transcript');
  assert.ok(f.surface.children.indexOf(form)<f.surface.children.indexOf(history));
  f.win.LostMuse.open();f.win.LostMuse.receive({chat:{phase:'idle',messages:[{role:'user',text:'old'},{role:'assistant',text:'old reply'},{role:'user',text:'new'},{role:'assistant',text:'new reply'}]}});
- assert.deepEqual(history.children.map(row=>row.children[1].textContent),['new','new reply','old','old reply']);
+ assert.deepEqual(history.children.map(row=>row.children[1].textContent),['new reply','new','old reply','old']);
  assert.equal(history.scrollTop,0);
+});
+test('M and P reach the station menu outside tools, including the final eight minutes',()=>{
+ const f=fixture();const reached=[];f.win.addEventListener('keydown',e=>reached.push(e.code));
+ f.key('keydown','a','KeyA');f.key('keydown','m','KeyM');f.key('keydown','p','KeyP');f.key('keydown','ь','KeyM');
+ assert.deepEqual(reached,['KeyM','KeyP','KeyM']);
+ f.win.dispatchEvent({type:'lost-muse-code-priority',detail:{active:true}});f.key('keydown','p','KeyP');f.key('keydown','x','KeyX');
+ assert.deepEqual(reached,['KeyM','KeyP','KeyM','KeyP']);
+});
+test('inside AI M and P are ordinary text',()=>{
+ const f=fixture();f.win.LostMuse.open();const reached=[];f.win.addEventListener('keydown',e=>reached.push(e.code));
+ f.key('keydown','m','KeyM');f.key('keydown','p','KeyP');assert.deepEqual(reached,[]);
 });

@@ -35,9 +35,8 @@
         var messages = Array.isArray((snapshot.chat || {}).messages) ? snapshot.chat.messages.slice(-100) : [];
         var key = JSON.stringify(messages); if (key === transcript._messagesKey) return; transcript._messagesKey = key;
         var previous = transcript.scrollTop; transcript.replaceChildren();
-        // Keep each exchange in reading order, with the newest exchange next to the fixed input.
-        var turns = []; messages.forEach(function (m) { if (m.role === 'user' || !turns.length) turns.push([]); turns[turns.length - 1].push(m); });
-        messages = [].concat.apply([], turns.reverse());
+        // Newest message first, right under the fixed input: a reply pushes the question down.
+        messages.reverse();
         messages.forEach(function (m) { var role = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'system', row = node('article', 'muse-message muse-message-' + role), label = node('div', 'muse-message-role', role === 'user' ? '>:' : role === 'assistant' ? 'muse:' : ''), body = node('div', 'muse-message-text', typeof m.text === 'string' ? m.text.slice(0, 40000) : ''); if (m.pending) body.classList.add('muse-message-pending'); row.appendChild(label); row.appendChild(body); transcript.appendChild(row); });
         transcript.scrollTop = previous < 48 ? 0 : previous;
     }
