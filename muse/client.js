@@ -3,7 +3,7 @@
     if (!document.body || !document.body.classList.contains('console-page')) return;
     var opened = false, priority = false, snapshot = { module: (window.__LOST_MODULES || {}).muse || { enabled: false, installed: false, status: 'not_installed' }, chat: { phase: 'idle', messages: [] } };
     var microphone = { available: false, supported: false, recording: false, level: 0, elapsed: 0 };
-    var held = false, posting = false, polling = false, pollTimer = null, readController = null, epoch = 0, noticeText = '', consumedEnter = false;
+    var held = false, posting = false, polling = false, pollTimer = null, readController = null, epoch = 0, noticeText = '', consumedEnter = false, queued = false;
     var statuses = { ready: 'НА СВЯЗИ', connecting: 'СОЕДИНЕНИЕ', starting: 'ЗАПУСК', reconnecting: 'ПЕРЕПОДКЛЮЧЕНИЕ', disabled: 'ВЫКЛЮЧЕН', not_installed: 'НЕ УСТАНОВЛЕН', unavailable: 'НЕТ СВЯЗИ', error: 'ОШИБКА', revoked: 'ПАРА ОТОЗВАНА', stopping: 'ОСТАНОВКА' };
     var phases = { idle: 'ГОТОВ К РАЗГОВОРУ', sending: 'ОТПРАВЛЯЮ', waiting: 'ОЖИДАЮ ОТВЕТ', thinking: 'ОЖИДАЮ ОТВЕТ', streaming: 'MUSE ОТВЕЧАЕТ', replying: 'MUSE ОТВЕЧАЕТ', responding: 'MUSE ОТВЕЧАЕТ', recording: 'СЛУШАЮ' };
     function node(tag, className, text) { var e = document.createElement(tag); if (className) e.className = className; if (text !== undefined) e.textContent = text; return e; }
@@ -20,15 +20,17 @@
     function emit(name, detail) { window.dispatchEvent(new CustomEvent(name, { detail: detail })); }
     function moduleInfo() { return snapshot.module || {}; }
     function phase() { return (snapshot.chat || {}).phase || 'idle'; }
-    function busy() { return posting || held || microphone.recording || microphone.uploading || microphone.requesting || ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) !== -1; }
+    // Muse ещё отвечает: новое сообщение он не примет, но записать и набрать следующее можно — оно ждёт в очереди.
+    function replying() { return ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) !== -1; }
+    function busy() { return posting || held || microphone.recording || microphone.uploading || microphone.requesting || replying(); }
     function connected() { var m = moduleInfo(); return m.installed !== false && m.enabled === true && m.status === 'ready'; }
-    function canRecord() { return opened && !priority && connected() && microphone.available === true && microphone.supported === true && !posting && !microphone.uploading && !microphone.requesting && ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) === -1; }
+    function canRecord() { return opened && !priority && connected() && microphone.available === true && microphone.supported === true && !posting && !microphone.uploading && !microphone.requesting; }
     function resetCommand() { if (window.LostConsoleInput) window.LostConsoleInput.reset(); }
     function tellMicUnavailable() { noticeText = microphone.error || (microphone.available ? 'ГОЛОСОВОЙ АДАПТЕР ЕЩЁ НЕ ПОДКЛЮЧЁН. ПОКА ДОСТУПЕН ТЕКСТ.' : 'МИКРОФОН НЕ ПОДКЛЮЧЁН. ПОКА ДОСТУПЕН ТЕКСТ.'); render(); }
     function recordStart() {
         if (held || microphone.recording) return;
         if (!canRecord()) { if (!microphone.available || !microphone.supported) tellMicUnavailable(); else { noticeText = 'ДОЖДИТЕСЬ ГОТОВНОСТИ MUSE'; render(); } return; }
-        held = true; noticeText = 'ВКЛЮЧАЮ МИКРОФОН…'; render(); emit('lost-muse-record', { on: true });
+        held = true; queued = false; noticeText = 'ВКЛЮЧАЮ МИКРОФОН…'; render(); emit('lost-muse-record', { on: true });
     }
     function recordStop(cancel) { if (!held && !microphone.recording) return; held = false; microphone.recording = false; microphone.level = 0; noticeText = cancel ? 'Запись отменена' : 'Завершаю запись…'; emit('lost-muse-record', { on: false, cancel: !!cancel }); render(); }
     // The journal is an enhancement, never a reason to disable the assistant if
@@ -79,20 +81,22 @@
         var hint = 'RESET — удерживать для записи · Enter — отправить · → — меню · Esc — назад';
         if (snapshot.preview) hint = 'Тест интерфейса · ' + hint;
         if (microphone.recording) hint = 'Запись ' + elapsed + ' с · Отпустите RESET, затем Enter · Esc — отменить';
-        else if (microphone.draftReady) hint = 'Запись ' + elapsed + ' с готова · Enter — отправить · RESET — перезаписать · Esc — отменить';
+        else if (queued) hint = 'Отправлю, когда Muse закончит ответ · Esc — не отправлять';
+        else if (microphone.draftReady) hint = 'Запись ' + elapsed + ' с готова · Enter — отправить' + (replying() ? ' после ответа' : '') + ' · RESET — перезаписать · Esc — отменить';
         else if (microphone.uploading || posting) hint = 'Отправляю…';
         else if (microphone.requesting) hint = 'Разрешите микрофон в macOS';
         else if (!active) hint = m.enabled === false ? 'mUse выключен · Меню → Модули' : (statuses[m.status] || 'Нет связи с Muse');
         else if (['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(currentPhase) !== -1) hint = currentPhase === 'replying' ? 'Muse отвечает…' : 'Ожидаю ответ…';
         footer.textContent = hint;
-        input.disabled = !active || busy(); input.placeholder = microphone.draftReady ? 'Голосовая запись готова' : '';
+        input.disabled = !active || posting || microphone.uploading || microphone.requesting; input.placeholder = microphone.draftReady ? 'Голосовая запись готова' : '';
         input.readOnly = microphone.draftReady === true;
         emit('lost-console-command-change', {});
         notice.textContent = noticeText || (snapshot.chat || {}).error || m.error || ''; notice.hidden = !notice.textContent;
         renderMessages();
         if (!input.disabled && (document.activeElement === document.body || document.activeElement === panel)) input.focus();
     }
-    function receive(value) { if (!value || typeof value !== 'object') return; if (value.module) snapshot.module = value.module; if (value.chat) snapshot.chat = value.chat; if (typeof value.preview === 'boolean') snapshot.preview = value.preview; if (value.microphone) setMicrophone(value.microphone); if (held && !connected()) recordStop(true); render(); }
+    function receive(value) { if (!value || typeof value !== 'object') return; if (value.module) snapshot.module = value.module; if (value.chat) snapshot.chat = value.chat; if (typeof value.preview === 'boolean') snapshot.preview = value.preview; if (value.microphone) setMicrophone(value.microphone); if (held && !connected()) recordStop(true); render(); flush(); }
+    function flush() { if (queued && opened && connected() && !busy()) { queued = false; submit(); } }
     async function poll() {
         if (!opened || polling) return; polling = true; var current = epoch; readController = new AbortController(); var ownController = readController, timeout = setTimeout(function () { ownController.abort(); }, 5000);
         try { var response = await fetch('/__muse/state', { cache: 'no-store', signal: ownController.signal }); if (!response.ok) throw new Error('state'); var value = await response.json(); if (current === epoch && opened) { if (noticeText === 'СОСТОЯНИЕ MUSE НЕДОСТУПНО') noticeText = ''; receive(value); } }
@@ -104,16 +108,18 @@
         if (!canOpen() || menuOpen()) return false; var ups = document.querySelector('.ups-panel'); if (ups && !ups.hidden) return false;
         originalDisabled = input.disabled; originalReadOnly = input.readOnly; resetCommand(); input.value = ''; input.maxLength = 4000; opened = true; epoch++; transcript.hidden = false; transcript.scrollTop = 0; footer.hidden = false; document.body.classList.add('lost-muse-active'); emit('lost-muse-open', {}); render(); poll(); pollTimer = setInterval(poll, 1000); if (!input.disabled) input.focus(); else transcript.focus(); return true;
     }
-    function close() { if (!opened) return; recordStop(true); emit('lost-muse-record', { on: false, cancel: true }); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); transcript.hidden = true; footer.hidden = true; notice.hidden = true; input.value = ''; input.readOnly = originalReadOnly; input.disabled = originalDisabled; input.placeholder = originalPlaceholder; if (originalMaxLength >= 0) input.maxLength = originalMaxLength; else input.removeAttribute('maxlength'); document.body.classList.remove('lost-muse-active'); resetCommand(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
+    function close() { if (!opened) return; queued = false; recordStop(true); emit('lost-muse-record', { on: false, cancel: true }); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); transcript.hidden = true; footer.hidden = true; notice.hidden = true; input.value = ''; input.readOnly = originalReadOnly; input.disabled = originalDisabled; input.placeholder = originalPlaceholder; if (originalMaxLength >= 0) input.maxLength = originalMaxLength; else input.removeAttribute('maxlength'); document.body.classList.remove('lost-muse-active'); resetCommand(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
     function setMicrophone(value) {
         if (!value || typeof value !== 'object') return; microphone = Object.assign({}, microphone, value); window.__LOST_MUSE_MIC = microphone;
         if(value.finished || value.error){held=false;}
         if(typeof value.error==='string')noticeText=value.error; if (value.draftReady) noticeText='';
         if (microphone.recording && (!held || !opened || priority)) { microphone.recording = false; emit('lost-muse-record', { on: false, cancel: true }); }
-        if (held && (!microphone.available || !microphone.supported)) recordStop(true); render();
+        if (held && (!microphone.available || !microphone.supported)) recordStop(true); render(); flush();
     }
     async function submit(e) {
-        if (e) e.preventDefault(); if (microphone.draftReady && connected() && !busy()) { noticeText = ''; emit('lost-muse-send-voice', {}); return; } var text = input.value.trim(); if (!text || !connected() || busy()) return;
+        if (e) e.preventDefault();
+        if (connected() && replying() && !posting && !held && !microphone.recording && !microphone.uploading && (microphone.draftReady || input.value.trim())) { queued = true; noticeText = ''; render(); return; }
+        if (microphone.draftReady && connected() && !busy()) { noticeText = ''; emit('lost-muse-send-voice', {}); return; } var text = input.value.trim(); if (!text || !connected() || busy()) return;
         posting = true; noticeText = ''; render(); var controller = new AbortController(), timeout = setTimeout(function () { controller.abort(); }, 30000);
         try { var response = await fetch('/__muse/message', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-LOST-Muse': '1' }, body: JSON.stringify({ message: text }), signal: controller.signal }); var value = await response.json(); if (!response.ok || value.ok === false) throw new Error('send'); if (input.value.trim() === text) input.value = ''; if (value.chat || value.module) receive(value); poll(); }
         catch (_) { noticeText = 'НЕ УДАЛОСЬ ПОДТВЕРДИТЬ ОТПРАВКУ. ПРОВЕРЬТЕ ИСТОРИЮ ПЕРЕД ПОВТОРОМ.'; }
@@ -131,7 +137,7 @@
             e.stopImmediatePropagation();
             if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) close(); return; }
             if (e.code === 'ControlLeft') { e.preventDefault(); if (!e.repeat) recordStart(); return; }
-            if (e.key === 'Escape') { e.preventDefault(); if (!e.repeat) { if (held || microphone.recording) recordStop(true); else if (microphone.draftReady) { noticeText = 'Запись отменена'; emit('lost-muse-record', { on: false, cancel: true }); } else close(); } return; }
+            if (e.key === 'Escape') { e.preventDefault(); if (!e.repeat) { if (queued) { queued = false; noticeText = 'Отправка отменена'; render(); } else if (held || microphone.recording) recordStop(true); else if (microphone.draftReady) { noticeText = 'Запись отменена'; emit('lost-muse-record', { on: false, cancel: true }); } else close(); } return; }
             if (e.key === 'Enter' && (e.target === input || microphone.draftReady)) { consumedEnter = true; e.preventDefault(); if (!e.repeat && !e.isComposing) submit(); return; }
             if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.target === transcript || e.target === panel || (e.target === input && !input.value))) { e.preventDefault(); transcript.scrollBy(0, e.key === 'ArrowUp' ? -55 : 55); return; }
             return;
