@@ -69,8 +69,8 @@ test('gateway answers only the station itself and only reads', async () => {
 test('screen: own station first, unknown machines named, offline shows last contact, blocked signal', () => {
     const screen = Flame.format({ installed: true, enabled: true, status: 'ready', stations: parseStatus(status(), map).stations });
     const lines = screen.split('\n');
-    assert.equal(lines[0], 'DEPARTMENT OF HEURISTICS AND RESEARCH ON MATERIAL APPLICATIONS'); assert.match(lines[1], /^STATION 4 · THE FLAME/); assert.match(screen, /ONLINE 3 OF 4/);
-    assert.match(lines[5], /^3  THE SWAN\s+SWAN\s+ONLINE\s+THIS STATION$/);
+    assert.equal(lines[0], 'DHARMA INITIATIVE · COMMUNICATIONS'); assert.doesNotMatch(screen, /DHARMA(?! INITIATIVE)/); assert.match(screen, /ONLINE 3 OF 4/);
+    assert.match(lines[4], /^3  THE SWAN\s+SWAN\s+ONLINE\s+THIS STATION$/);
     assert.match(screen, /UNKNOWN STATION\s+STRANGER\s+ONLINE/);
     assert.match(screen, /THE BEACON\s+PHONE\s+OFFLINE LAST SEEN \d\d\.10 \d\d:\d\d/);
     assert.ok(lines.every(l => l.length <= 78), 'rows fit the 820px panel');
