@@ -56,13 +56,12 @@ function start(port = 8765, opts = {}) {
         }
         if (p === '/__ping') { res.writeHead(200); return res.end('ok'); }
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
-        // Модуль Siri — «Команды» iPhone по адресу станции, только из домашней сети (не из tailnet и не снаружи).
-        // /__sleep?on=1|0 — пауза/старт («Фокус: Сон»); /__cmd?text=Пауза — тот же разбор, что у iMessage.
+        // Тот же пульт по адресу станции для «Команд» iPhone дома: /__sleep?on=1|0 — пауза/старт («Фокус: Сон»),
+        // /__cmd?text=Пауза — тот же разбор, что у iMessage. Только домашняя сеть: не tailnet и не интернет.
         if (p === '/__sleep' || p === '/__cmd') {
-            if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: команды Siri принимаются только из домашней сети'); }
-            if (moduleManager.desired().siri !== true) { req.resume(); res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: модуль Siri выключен'); }
+            if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: команды по адресу станции принимаются только из домашней сети'); }
             const text = p === '/__sleep' ? (url.searchParams.get('on') === '1' ? 'пауза' : 'старт') : url.searchParams.get('text') || '';
-            const answer = remote.run(text, 'siri');
+            const answer = remote.run(text, 'сеть');
             setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(answer ? answer + ' ' + statusText() : statusText()); }, p === '/__sleep' ? 0 : 1500);
             return;
         }
@@ -175,8 +174,7 @@ function start(port = 8765, opts = {}) {
     function statusText() {
         const t = timerInfo(), L = t.left;
         const left = L == null ? '?' : L > 240 ? Math.ceil(L / 60) + ' мин' : Math.floor(L / 60) + ':' + String(L % 60).padStart(2, '0');
-        const snd = { speakers: 'динамики', monitor: 'монитор', off: 'выкл' }[audioMode] || audioMode;
-        return `LOST: ${t.paused ? 'пауза' : 'идёт'}, осталось ${left}${t.open ? ' — можно вводить код' : ''}. Звук: ${snd}.`;
+        return `LOST: ${t.paused ? 'пауза' : 'идёт'}, осталось ${left}${t.open ? ' — можно вводить код' : ''}.`;
     }
 
     // ===== Журнал станции «Лебедь» — как распечатка в сериале =====
@@ -227,10 +225,6 @@ function start(port = 8765, opts = {}) {
         },
         journal: () => 'Журнал станции:\n' + (journalTail(6) || '(пусто)') + '\n',
         status: () => '',
-        'sound-off': () => { setAudio('off'); return ''; },
-        speakers: () => { setAudio('speakers'); return ''; },
-        monitor: () => { setAudio('monitor'); return ''; },
-        sound: () => { setAudio({ speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers'); return ''; },
         resume: (channel, said) => { setSleep(false, channel + ' «' + said + '»'); return ''; },
         pause: (channel, said) => { setSleep(true, channel + ' «' + said + '»'); return ''; },
     };
@@ -259,7 +253,7 @@ function start(port = 8765, opts = {}) {
             return 'Запускаю команду «' + name + '».';
         },
     };
-    remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner, active: channel => moduleManager.desired()[channel] === true });
+    remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner });
     const remoteMsg = () => JSON.stringify({ type: '__remote', remote: remote.snapshot(), senders: imessage ? imessage.senders().length : 0, address: lanIp() });
     function publishRemote() { const m = remoteMsg(); for (const ws of peers.console) if (ws.readyState === 1) ws.send(m); }
     const imessage = createIMessage({ senders: opts.sleepFrom || [], run: remote.run, status: statusText, active: () => moduleManager.desired().imessage === true });
@@ -284,7 +278,7 @@ function start(port = 8765, opts = {}) {
                 if (data.type === '__audio') { if (['speakers','monitor','off'].includes(data.mode)) setAudio(data.mode); return; }
                 if (data.type === '__alive') { events.emit('client-alive', { ...data, role }); if (role === 'tv') events.emit('tv-alive', data); return; }
                 if (data.type === '__log') { console.log('[' + role + ' log]', data.msg); return; }
-                if (data?.type === '__remote_set') { if (role === 'console') { if (!(data.channel === 'siri-command' ? remote.setShortcut(data.key, data.enabled) : remote.set(data.channel, data.key, data.enabled))) ws.send(JSON.stringify({ type: '__module_error', id: data.channel, error: 'invalid_remote_request' })); publishRemote(); } return; }
+                if (data?.type === '__remote_set') { if (role === 'console') { if (!remote.setWords(data.id, data.words)) ws.send(JSON.stringify({ type: '__module_error', id: 'imessage', error: 'invalid_remote_request' })); publishRemote(); } return; }
                 if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }
                 if (!data || typeof data !== 'object') return;
                 if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {

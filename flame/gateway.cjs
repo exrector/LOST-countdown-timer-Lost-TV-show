@@ -1,5 +1,5 @@
 'use strict';
-// Состояние «Пламени» — только для самой станции (loopback и свой Host), только чтение.
+// Состояние информера «СТАНЦИИ» — только для самой станции (loopback и свой Host), только чтение.
 function createFlameGateway({ flame, port }) {
     const reply = (res, code, data) => { if (res.destroyed || res.writableEnded) return; res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); };
     return function handle(req, res, route) {

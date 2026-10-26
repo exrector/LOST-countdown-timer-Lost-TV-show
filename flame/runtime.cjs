@@ -1,5 +1,5 @@
 'use strict';
-// «Пламя» — связь со станциями DHARMA INITIATIVE. Узлы tailnet читаются локальным `tailscale status --json`:
+// «СТАНЦИИ» — информер Лебедя обо всех станциях DHARMA INITIATIVE. Узлы tailnet читаются локальным `tailscale status --json`:
 // только чтение, без ключей API. В LOST попадают имя устройства, ОС, связь и время последнего контакта — не адреса.
 // Какая машина какой станцией называется, лежит вне репозитория: ~/.config/lost/flame.json.
 const fs = require('node:fs');
