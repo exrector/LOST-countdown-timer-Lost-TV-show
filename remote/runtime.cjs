@@ -14,14 +14,21 @@ function normalizeSettings(value) {
 }
 function createRemote({ saved, persist = () => true, actions, shortcuts = { find: () => null, run: () => '', list: () => [] } }) {
     let settings = normalizeSettings(saved);
-    const help = () => 'Команды: ' + COMMANDS.map(c => settings.words[c.id].join('/')).join(', ') + ', код 4 8 15 16 23 42 — или точное название команды из «Команд» Mac mini.';
-    // Ответ отправителю; '' — только состояние станции.
+    // Справка: команды LOST с их словами, код и команды Mac mini по точному названию.
+    function help() {
+        const names = (typeof shortcuts.list === 'function' && shortcuts.list()) || [];
+        return ['LOST — команды пульта:', ...COMMANDS.map(c => '• ' + c.label + ': ' + settings.words[c.id].join(', ')),
+            '• КОД: 4 8 15 16 23 42 — в последние 4 минуты цикла',
+            names.length ? 'Команды Mac mini (точное название):\n' + names.map(n => '• ' + n).join('\n') : 'Команд Mac mini нет.'].join('\n');
+    }
+    // Ответ отправителю; '' — только состояние станции, { text, bare } — только текст.
     function run(text, channel, sender) {
         const said = String(text || '').trim(), found = match(said, settings.words);
         if (found && found.id === 'code') return actions.code(found.code, channel);
         const name = shortcuts.find(said);
         if (name) return shortcuts.run(name, channel, sender);
-        if (!found) return 'Не понял «' + said + '». ' + help();
+        if (!found) return 'Не понял «' + said + '». Список команд — «' + settings.words.help[0] + '».';
+        if (found.id === 'help') return { text: help(), bare: true };
         return actions[found.id](channel, said);
     }
     // Новые слова команды из меню; пустая строка отклоняется, прежние слова остаются.
