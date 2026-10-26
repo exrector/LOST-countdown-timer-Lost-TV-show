@@ -10,12 +10,12 @@
 
  document.body.classList.add('lost-ups-ready');
  var panel=el('section','ups-panel');panel.hidden=true;panel.setAttribute('role','dialog');panel.setAttribute('aria-label','Энергоконтур');panel.setAttribute('aria-modal','true');
- var title=el('div','ups-title');title.appendChild(el('span','','LOST:\\МЕНЮ\\ЭНЕРГОКОНТУР'));var close=button('ESC НАЗАД',leave);title.appendChild(close);panel.appendChild(title);
+ var title=el('div','ups-title');title.appendChild(el('span','','LOST:\\МЕНЮ\\ЭНЕРГОКОНТУР'));var close=button('← НАЗАД',leave);title.appendChild(close);panel.appendChild(title);
  var tabs=el('div','ups-tabs');panel.appendChild(tabs);
  [['all','ОБЗОР'],['battery','РЕЗЕРВ'],['line','ЛИНИЯ'],['device','УСТРОЙСТВО'],['raw','ВСЕ ДАННЫЕ']].forEach(function(t){var b=button(t[1],function(){if(pending)return;tab=t[0];editing=false;renderPanel();});b.dataset.tab=t[0];tabs.appendChild(b);});
  var content=el('div','ups-content');panel.appendChild(content);
  var notice=el('div','ups-notice');notice.setAttribute('role','status');panel.appendChild(notice);
- panel.appendChild(el('div','ups-footer','← → — РАЗДЕЛЫ   ↑ ↓ — ПОКАЗАНИЯ   ENTER — ИЗМЕНИТЬ   ESC — НАЗАД'));
+ panel.appendChild(el('div','ups-footer','↑↓ ВЫБОР  → ОТКРЫТЬ/ИЗМЕНИТЬ  ENTER ПОДТВЕРДИТЬ  ← НАЗАД'));
  (document.querySelector('.console-container') || document.body).appendChild(panel);
  function button(text,fn){var b=el('button','',text);b.type='button';b.addEventListener('click',fn);return b;}
  function fresh(){return enabled&& window.LostUPSTelemetry.fresh(state,lastResponse,Date.now());}
@@ -90,7 +90,7 @@
  }
  function focusReturn(){if(panel.hidden)return;var target=Array.from(content.querySelectorAll("[data-row],[data-edit]")).find(function(n){return n.dataset.row===returnRow||n.dataset.edit===returnRow;});(target||tabs.querySelector("[aria-selected=true]")).focus();}
  function editor(f){
-  editing=true;returnRow=f.key;var box=el('form','ups-editor');box.appendChild(el('p','ups-muted','СТРЕЛКИ — ЗНАЧЕНИЕ / ЦИФРЫ — ВВОД / ENTER — СОХРАНИТЬ / ESC — ОТМЕНА'));box.appendChild(el('p','',f.label+' — сейчас '+f.value+(f.unit?' '+f.unit:'')));box.appendChild(el('p','ups-muted',f.key));
+  editing=true;returnRow=f.key;var box=el('form','ups-editor');box.appendChild(el('p','ups-muted','↑↓ — ЗНАЧЕНИЕ / ЦИФРЫ — ВВОД / ENTER — СОХРАНИТЬ / ← — ОТМЕНА'));box.appendChild(el('p','',f.label+' — сейчас '+f.value+(f.unit?' '+f.unit:'')));box.appendChild(el('p','ups-muted',f.key));
   var input;if(f.limits.enum){input=el('select');f.limits.enum.filter(function(x){return !f.metadata.enum.length||f.metadata.enum.indexOf(x)>=0;}).forEach(function(x){var o=el('option','',x);o.value=x;input.appendChild(o);});}else{input=el('input');input.type='number';input.min=f.limits.min;input.max=f.limits.max;input.step=1;box.appendChild(el('p','ups-muted','Диапазон: '+input.min+'–'+input.max+(f.unit?' '+f.unit:'')));}
   input.value=f.value;input.required=true;input.setAttribute('aria-label',f.label);box.appendChild(input);
   var apply=button('ПРИМЕНИТЬ',function(){submitEditor(box);});apply.dataset.write='1';box.appendChild(apply);box.appendChild(button('ОТМЕНА',function(){editing=false;renderPanel();focusReturn();}));
@@ -106,8 +106,11 @@
   if(type==='keydown'&&(e.key==='Enter'||e.key==='Escape')){e.preventDefault();var now=Date.now();if(e.repeat||(lastMenuKey===e.key&&now-lastMenuAt<250))return;lastMenuKey=e.key;lastMenuAt=now;}
   if(type==='keydown'&&editing&&!pending){
    var control=document.activeElement,box=control&&control.closest&&control.closest('.ups-editor');
-   if(box&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].indexOf(e.key)>=0){
-    e.preventDefault();var delta=e.key==='ArrowUp'||e.key==='ArrowRight'?1:-1;
+   // Общее правило меню: в правке ↑↓ меняют значение, ← отменяет, Enter сохраняет.
+   if(box&&e.key==='ArrowLeft'){e.preventDefault();leave();return;}
+   if(box&&e.key==='ArrowRight'){e.preventDefault();return;}
+   if(box&&(e.key==='ArrowUp'||e.key==='ArrowDown')){
+    e.preventDefault();var delta=e.key==='ArrowUp'?1:-1;
     if(control.tagName==='INPUT'&&control.type==='number'){
      var value=Number(control.value),min=Number(control.min),max=Number(control.max),step=Number(control.step)||1;
      if(!Number.isFinite(value))value=min;
@@ -121,22 +124,30 @@
    }
    if(box&&e.key==='Enter'&&(control.tagName==='INPUT'||control.tagName==='SELECT')){e.preventDefault();submitEditor(box);return;}
   }
+  // Общее правило меню станции, как в остальных разделах:
+  //   разделы (вкладки): ↑↓ — выбор, → — внутрь, ← — выйти из панели;
+  //   показания: ↑↓ — выбор, → — изменить значение, ← — к разделам; Enter — только подтверждение.
   if(type==='keydown'&&!editing&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter'].indexOf(e.key)>=0){
-   var active=document.activeElement,row=active&&active.closest&&active.closest('tr[data-row],button[data-edit="__beeper"]');
-   if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
-    e.preventDefault();var buttons=Array.from(tabs.children),selected=buttons.findIndex(function(b){return b.dataset.tab===tab;});
-    var next=buttons[(selected+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length];next.click();next.focus();return;
+   e.preventDefault();
+   var active=document.activeElement,onTabs=tabs.contains(active),row=active&&active.closest&&active.closest('tr[data-row],button[data-edit="__beeper"]');
+   var rows=Array.from(content.querySelectorAll('tr[data-row],button[data-edit="__beeper"]'));
+   if(onTabs||!row){
+    if(e.key==='ArrowUp'||e.key==='ArrowDown'){var buttons=Array.from(tabs.children),selected=buttons.findIndex(function(b){return b.dataset.tab===tab;});
+     var next=buttons[(selected+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length];next.click();next.focus();return;}
+    if(e.key==='ArrowRight'&&rows.length){rows[0].focus({preventScroll:true});rows[0].scrollIntoView({block:'nearest'});return;}
+    if(e.key==='ArrowLeft'){leave();return;}
+    return;
    }
    if(e.key==='ArrowUp'||e.key==='ArrowDown'){
-    e.preventDefault();var rows=Array.from(content.querySelectorAll('tr[data-row],button[data-edit="__beeper"]')),index=rows.indexOf(row);
-    var nextIndex=index<0?(e.key==='ArrowDown'?0:rows.length-1):index+(e.key==='ArrowDown'?1:-1);
-    if(nextIndex<0){tabs.querySelector('[aria-selected=true]').focus();return;}
-    if(rows.length){var target=rows[Math.min(nextIndex,rows.length-1)];target.focus({preventScroll:true});target.scrollIntoView({block:'nearest'});}return;
+    var nextIndex=Math.max(0,Math.min(rows.length-1,rows.indexOf(row)+(e.key==='ArrowDown'?1:-1)));
+    rows[nextIndex].focus({preventScroll:true});rows[nextIndex].scrollIntoView({block:'nearest'});return;
    }
-   if(e.key==='Enter'&&row){e.preventDefault();var edit=row.tagName==='BUTTON'?row:row.querySelector('button:not(:disabled)');if(edit)edit.click();return;}
+   if(e.key==='ArrowRight'){var edit=row.tagName==='BUTTON'?row:row.querySelector('button:not(:disabled)');if(edit)edit.click();return;}
+   if(e.key==='ArrowLeft'){tabs.querySelector('[aria-selected=true]').focus();return;}
+   return;
   }
   if(type==='keydown'&&!pending&&e.key==='Enter'&&document.activeElement.tagName==='BUTTON'&&!document.activeElement.disabled&&panel.contains(document.activeElement)){document.activeElement.click();return;}
-  if(type==='keydown'&&e.key==='Escape'){e.preventDefault();leave();}
+  if(type==='keydown'&&e.key==='Escape'){e.preventDefault();if(!editing&&!tabs.contains(document.activeElement))tabs.querySelector('[aria-selected=true]').focus();else leave();}
   if(type==='keydown'&&e.key==='Tab'){var all=Array.from(panel.querySelectorAll('button,input,select')).filter(function(n){return !n.disabled&&n.getClientRects().length;});if(!all.length){e.preventDefault();return;}var i=all.indexOf(document.activeElement);if(i<0||(e.shiftKey&&i<=0)||(!e.shiftKey&&i===all.length-1)){e.preventDefault();all[e.shiftKey?all.length-1:0].focus();}}
  },true);});
  setEnabled(!(window.__LOST_MODULES&&window.__LOST_MODULES.ups&&window.__LOST_MODULES.ups.enabled===false));
