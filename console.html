@@ -26,6 +26,7 @@
                 // Listen for messages from main window
                 window.addEventListener('message', (event) => {
                     if (event.data.type === 'enableConsole') {
+                        if (document.body.classList.contains('lost-muse-active')) return;
                         consoleInput.disabled = !event.data.enabled;
                         if (event.data.enabled) {
                             if (!document.hidden) consoleInput.focus();
