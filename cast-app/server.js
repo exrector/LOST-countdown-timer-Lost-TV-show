@@ -230,8 +230,8 @@ function start(port = 8765, opts = {}) {
     };
     // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
     let shortcutNames = [], shortcutsAt = 0, shortcutsRefreshing = false;
-    function refreshShortcuts() {
-        if (shortcutsRefreshing || Date.now() - shortcutsAt < 60000) return;
+    function refreshShortcuts(now) {
+        if (shortcutsRefreshing || !now && Date.now() - shortcutsAt < 60000) return;
         shortcutsRefreshing = true; shortcutsAt = Date.now();
         execFile('shortcuts', ['list'], { encoding: 'utf8', timeout: 10000 }, (error, output) => {
             shortcutsRefreshing = false;
@@ -241,13 +241,15 @@ function start(port = 8765, opts = {}) {
     const shortcutRunner = {
         list() { refreshShortcuts(); return shortcutNames.slice(); },
         find(text) { refreshShortcuts(); const want = String(text || '').trim().toLowerCase(); return shortcutNames.find(n => n.toLowerCase() === want) || null; },
-        run(name, channel, sender) {
+        // done(текст) — итог команды для экрана терминала; отправителю iMessage итог уходит сообщением.
+        run(name, channel, sender, done) {
             console.log('[пульт] запускаю команду «' + name + '» (' + channel + ')');
             // ввод закрываем сразу: при открытом stdin `shortcuts run` ждёт входные данные для команды и висит
             const child = execFile('shortcuts', ['run', name], { timeout: 120000 }, (e, out) => {
                 const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
                 console.log('[пульт] команда «' + name + '»: ' + res);
                 if (sender && imessage) imessage.reply(sender, 'Команда «' + name + '»: ' + res.slice(0, 500));
+                if (done) done(res);
             });
             child.stdin.end();
             return 'Запускаю команду «' + name + '».';
@@ -279,6 +281,16 @@ function start(port = 8765, opts = {}) {
                 if (data.type === '__alive') { events.emit('client-alive', { ...data, role }); if (role === 'tv') events.emit('tv-alive', data); return; }
                 if (data.type === '__log') { console.log('[' + role + ' log]', data.msg); return; }
                 if (data?.type === '__remote_set') { if (role === 'console') { if (!remote.setWords(data.id, data.words)) ws.send(JSON.stringify({ type: '__module_error', id: 'imessage', error: 'invalid_remote_request' })); publishRemote(); } return; }
+                // Клавиша K в терминале: список команд Mac mini обновляется при открытии, Enter запускает выбранную.
+                if (data?.type === '__shortcuts_refresh') { if (role === 'console') refreshShortcuts(true); return; }
+                if (data?.type === '__shortcut_run') {
+                    if (role !== 'console') return;
+                    const answer = text => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: '__shortcut_result', id: data.id, text })); };
+                    const name = shortcutRunner.find(data.name);
+                    if (!name) answer('ошибка: команды «' + String(data.name || '').slice(0, 100) + '» нет в «Командах» Mac mini');
+                    else shortcutRunner.run(name, 'терминал', null, answer);
+                    return;
+                }
                 if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }
                 if (!data || typeof data !== 'object') return;
                 if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {

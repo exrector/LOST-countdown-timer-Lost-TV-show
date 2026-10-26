@@ -1,34 +1,25 @@
 (function () {
  'use strict';
+ // Энергоконтур: строка показаний внизу терминала и ветка «ЭНЕРГОКОНТУР» общего меню станции.
+ // Управление — как во всём меню: ↑↓ выбор, → открыть/изменить, Enter подтвердить, ← назад.
  if (!document.body.classList.contains('console-page')) return;
  var enabled=true,pollTimer=null,lineTimer=null,polling=false,epoch=0,activeReads=[];
- var API='/__ups', state=null, lastResponse=0, pending=false, tab='all', editing=false, returnFocus=null, returnRow=null, lastError='';
+ var API='/__ups', state=null, lastResponse=0, pending=false, lastError='';
  function el(tag,cls,text) { var e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e; }
  var line=el('div','ups-line stale');line.setAttribute('aria-label','Телеметрия энергоконтура');
  var services=document.querySelector('.service-line');if(!services){services=el('div','service-line');document.body.appendChild(services);}
  services.appendChild(line);
-
  document.body.classList.add('lost-ups-ready');
- var panel=el('section','ups-panel');panel.hidden=true;panel.setAttribute('role','dialog');panel.setAttribute('aria-label','Энергоконтур');panel.setAttribute('aria-modal','true');
- var title=el('div','ups-title');title.appendChild(el('span','','LOST:\\МЕНЮ\\ЭНЕРГОКОНТУР'));var close=button('← НАЗАД',leave);title.appendChild(close);panel.appendChild(title);
- var tabs=el('div','ups-tabs');panel.appendChild(tabs);
- [['all','ОБЗОР'],['battery','РЕЗЕРВ'],['line','ЛИНИЯ'],['device','УСТРОЙСТВО'],['raw','ВСЕ ДАННЫЕ']].forEach(function(t){var b=button(t[1],function(){if(pending)return;tab=t[0];editing=false;renderPanel();});b.dataset.tab=t[0];tabs.appendChild(b);});
- var content=el('div','ups-content');panel.appendChild(content);
- var notice=el('div','ups-notice');notice.setAttribute('role','status');panel.appendChild(notice);
- panel.appendChild(el('div','ups-footer','↑↓ ВЫБОР  → ОТКРЫТЬ/ИЗМЕНИТЬ  ENTER ПОДТВЕРДИТЬ  ← НАЗАД'));
- (document.querySelector('.console-container') || document.body).appendChild(panel);
- function button(text,fn){var b=el('button','',text);b.type='button';b.addEventListener('click',fn);return b;}
- function fresh(){return enabled&& window.LostUPSTelemetry.fresh(state,lastResponse,Date.now());}
+
+ function fresh(){return enabled&&window.LostUPSTelemetry.fresh(state,lastResponse,Date.now());}
+ function changed(){window.dispatchEvent(new CustomEvent('lost-ups-update'));}
  function renderLine(){
   if(!enabled)return;
   var view=window.LostUPSTelemetry.view(state,lastResponse,Date.now()),ok=view.fresh;
   line.className='ups-line '+view.kind;line.replaceChildren();
   view.cells.forEach(function(p,i){if(i)line.appendChild(el('i','','·'));var cell=el('span','',p[0]+': ');cell.appendChild(el('b','',p[1]));line.appendChild(cell);});
-  var health=panel.querySelector('.ups-status');if(health)health.textContent=statusText();
-  Array.from(panel.querySelectorAll('[data-write]')).forEach(function(b){b.disabled=pending||!ok||!state.canEdit;});
   line.title=ok?'Энергоконтур: данные '+new Date(state.updatedAt).toLocaleTimeString():'TELEMETRY LOST — '+(lastError||'актуальные показания недоступны');
  }
- function message(text,error){notice.textContent=text;notice.className='ups-notice'+(error?' ups-error':'');}
  async function request(route,body){
   if(!enabled)throw new Error('Модуль UPS выключен');
   // AbortSignal.timeout is absent in the WebKit shipped on our Monterey Mac.
@@ -38,117 +29,71 @@
    var data=await res.json();if(!res.ok)throw new Error(data.error||'Ошибка связи');return data;
   }finally{clearTimeout(timer);var index=activeReads.indexOf(controller);if(index>=0)activeReads.splice(index,1);}
  }
- function submitEditor(form){
-  if(typeof form.requestSubmit==='function')form.requestSubmit();
-  else if(form.reportValidity())form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
- }
  async function poll(){
   if(!enabled||polling)return;polling=true;var generation=epoch;
   try{var next=await request('/state');if(!enabled||generation!==epoch)return;state=next;lastResponse=Date.now();lastError='';}
   catch(e){if(!enabled||generation!==epoch)return;lastError=e.name==='AbortError'?'Истекло время ожидания службы ИБП':e.message;}
   finally{polling=false;}
-  if(!enabled||generation!==epoch)return;renderLine();if(!panel.hidden&&!editing&&!pending)renderPanel();
+  if(!enabled||generation!==epoch)return;renderLine();changed();
  }
  function setEnabled(on){
   if(enabled===on&&pollTimer!==null)return;
   enabled=on;epoch++;clearInterval(pollTimer);clearInterval(lineTimer);pollTimer=null;lineTimer=null;
   activeReads.slice().forEach(function(controller){controller.abort();});
-  state=null;lastResponse=0;lastError='';line.hidden=!on;document.body.classList.add('lost-ups-ready');
-  if(!on){var wasOpen=!panel.hidden;panel.hidden=true;document.body.classList.remove('station-panel-open');editing=false;if(wasOpen)window.dispatchEvent(new Event('lost-ups-close'));return;}
+  state=null;lastResponse=0;lastError='';line.hidden=!on;
+  if(!on){changed();return;}
   renderLine();poll();pollTimer=setInterval(poll,5000);lineTimer=setInterval(renderLine,1000);
  }
  window.addEventListener('lost-modules',function(e){setEnabled(!(e.detail&&e.detail.ups&&e.detail.ups.enabled===false));});
 
- function leave(){if(pending)return;if(editing){editing=false;renderPanel();focusReturn();}else hide();}
- function hide(){if(pending)return;panel.hidden=true;document.body.classList.remove('station-panel-open');editing=false;if(returnFocus&&returnFocus.focus)returnFocus.focus();window.dispatchEvent(new Event('lost-ups-close'));}
- function open(){if(!enabled||!panel.hidden)return;returnFocus=document.activeElement;window.dispatchEvent(new Event('lost-ups-open'));panel.hidden=false;document.body.classList.add('station-panel-open');editing=false;message('');renderPanel();tabs.querySelector('[aria-selected=true]').focus();}
- window.LostUPS={openMenu:open,status:function(){return {enabled:enabled,busy:pending,polling:pollTimer!==null,fresh:fresh(),online:!!(state&&state.online),fields:state&&state.fields?state.fields.length:0,error:lastError};}};
- function statusText(){var v=state&&state.vars||{};return fresh()?'CPS / '+(v['ups.model']||v['device.model']||'UPS')+' · '+state.connection.host+':'+state.connection.port+' · '+new Date(state.updatedAt).toLocaleTimeString():'TELEMETRY LOST — '+(lastError||'нет актуальных данных. Последние значения ниже справочные.');}
- function renderPanel(){
-  if(!enabled)return;
-  var old=content.scrollTop,focused=document.activeElement,focusKind=focused&&focused.dataset&&(focused.dataset.edit?'edit':'row'),focusKey=focused&&focused.dataset&&focused.dataset[focusKind];
-  Array.from(tabs.children).forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===tab));});content.replaceChildren();
-  var ok=fresh(),v=state&&state.vars||{};
-  content.appendChild(el('p','ups-status',statusText()));
-  if(!state){content.appendChild(el('p','','Ожидание службы энергоконтура…'));return;}
-  var fields=state.fields||[];
-  if(tab==='all'){
-   var keys=['ups.status','battery.charge','battery.runtime','ups.load','input.voltage','output.voltage','battery.voltage','ups.beeper.status','ups.test.result'];fields=keys.map(function(k){return fields.find(function(f){return f.key===k;});}).filter(Boolean);
-  } else if(tab!=='raw')fields=fields.filter(function(f){return f.group===tab;});
-  var table=el('table','ups-table');var body=el('tbody');table.appendChild(body);
-  fields.forEach(function(f){var row=el('tr');row.tabIndex=0;row.dataset.row=f.key;var name=el('td','',f.label);name.appendChild(el('small','ups-key',f.key));row.appendChild(name);row.appendChild(el('td','',String(f.value)+(f.unit?' '+f.unit:'')));var action=el('td');
-   if(f.editable){var edit=button('ИЗМЕНИТЬ',function(){editor(f);});edit.dataset.edit=f.key;edit.dataset.write='1';edit.disabled=!ok||!state.canEdit||pending;action.appendChild(edit);}else action.appendChild(el('span','ups-muted','ЧТЕНИЕ'));
-   row.appendChild(action);body.appendChild(row);
-  });content.appendChild(table);
-  if(tab==='all'){
-   var beeper=button(v['ups.beeper.status']==='disabled'?'ВКЛЮЧИТЬ СИГНАЛ UPS':'ВЫКЛЮЧИТЬ СИГНАЛ UPS',function(){confirmBeeper(v['ups.beeper.status']==='disabled');});beeper.dataset.edit='__beeper';beeper.dataset.write='1';beeper.disabled=!ok||!state.canEdit||pending;content.appendChild(beeper);
-   content.appendChild(el('p','ups-muted','ENDURANCE — оценка ИБП при текущей нагрузке. Номинальная мощность — характеристика устройства, а не текущее потребление.'));
-   content.appendChild(el('p','ups-muted','Автовыключение Mac: '+(state.guard&&state.guard.installed&&state.policy.enabled?'ВКЛЮЧЕНО':'НЕ ВКЛЮЧЕНО')+'.'));
-  }
-  if(tab==='raw')content.appendChild(el('p','ups-muted','Всего показаний: '+fields.length+'. Доступные настройки меняются только через подтверждение; служебные параметры драйвера показаны для чтения.'));
-  content.scrollTop=old;if(focusKey){var target=Array.from(content.querySelectorAll('[data-'+focusKind+']')).find(function(b){return b.dataset[focusKind]===focusKey;});if(target)target.focus({preventScroll:true});}
+ // Передача в ИБП. Возвращает экран результата для меню; его текст меняется, когда ИБП ответит.
+ function send(route,body,result){
+  if(pending){result.text='ДРУГАЯ ПЕРЕДАЧА ЕЩЁ ИДЁТ. ЗНАЧЕНИЕ НЕ ОТПРАВЛЕНО.';return result;}
+  if(!fresh()||!state.canEdit){result.text='НЕТ АКТУАЛЬНОЙ СВЯЗИ С ИБП ИЛИ ПРАВКА ЗАПРЕЩЕНА. ЗНАЧЕНИЕ НЕ ОТПРАВЛЕНО.';return result;}
+  pending=true;result.text='ПЕРЕДАЧА ПАРАМЕТРА…';
+  request(route,body).then(function(next){state=next;lastResponse=Date.now();result.text='ПАРАМЕТР ПЕРЕДАН. ПОКАЗАНИЯ ОБНОВЛЕНЫ.';})
+   .catch(function(e){result.text='ОШИБКА: '+e.message+'\nЗНАЧЕНИЕ НЕ ИЗМЕНЕНО.';})
+   .then(function(){pending=false;renderLine();changed();});
+  return result;
  }
- function focusReturn(){if(panel.hidden)return;var target=Array.from(content.querySelectorAll("[data-row],[data-edit]")).find(function(n){return n.dataset.row===returnRow||n.dataset.edit===returnRow;});(target||tabs.querySelector("[aria-selected=true]")).focus();}
- function editor(f){
-  editing=true;returnRow=f.key;var box=el('form','ups-editor');box.appendChild(el('p','ups-muted','↑↓ — ЗНАЧЕНИЕ / ЦИФРЫ — ВВОД / ENTER — СОХРАНИТЬ / ← — ОТМЕНА'));box.appendChild(el('p','',f.label+' — сейчас '+f.value+(f.unit?' '+f.unit:'')));box.appendChild(el('p','ups-muted',f.key));
-  var input;if(f.limits.enum){input=el('select');f.limits.enum.filter(function(x){return !f.metadata.enum.length||f.metadata.enum.indexOf(x)>=0;}).forEach(function(x){var o=el('option','',x);o.value=x;input.appendChild(o);});}else{input=el('input');input.type='number';input.min=f.limits.min;input.max=f.limits.max;input.step=1;box.appendChild(el('p','ups-muted','Диапазон: '+input.min+'–'+input.max+(f.unit?' '+f.unit:'')));}
-  input.value=f.value;input.required=true;input.setAttribute('aria-label',f.label);box.appendChild(input);
-  var apply=button('ПРИМЕНИТЬ',function(){submitEditor(box);});apply.dataset.write='1';box.appendChild(apply);box.appendChild(button('ОТМЕНА',function(){editing=false;renderPanel();focusReturn();}));
-  box.addEventListener('submit',function(e){e.preventDefault();if(!box.reportValidity())return;mutate('/variable',{name:f.key,value:input.value,expected:f.value});});content.prepend(box);content.scrollTop=0;input.focus();if(input.select)input.select();
+ function field(key){return state&&state.fields?state.fields.filter(function(f){return f.key===key;})[0]:null;}
+ function shown(f){return f?String(f.value)+(f.unit?' '+f.unit:''):'—';}
+ function statusText(){var v=state&&state.vars||{};return fresh()?'CPS / '+(v['ups.model']||v['device.model']||'UPS')+' · '+state.connection.host+':'+state.connection.port+' · '+new Date(state.updatedAt).toLocaleTimeString():'TELEMETRY LOST — '+(lastError||'нет актуальных данных; значения ниже справочные.');}
+ var OVERVIEW=['ups.status','battery.charge','battery.runtime','ups.load','input.voltage','output.voltage','battery.voltage','ups.beeper.status','ups.test.result'];
+ // Показание — строка «НАЗВАНИЕ: значение». Число правится полем (→, Enter передаёт), вариант — списком (Enter подтверждает).
+ function rows(keys){
+  return keys.map(function(key){
+   var f=field(key); if(!f)return null;
+   var label=function(){var now=field(key);return (now?now.label:key).toUpperCase()+': '+shown(now);};
+   if(!f.editable)return {label:label};
+   if(f.limits&&f.limits.enum){
+    var options=f.limits.enum.filter(function(x){return !f.metadata||!f.metadata.enum||!f.metadata.enum.length||f.metadata.enum.indexOf(x)>=0;});
+    return {label:label,pathLabel:f.label.toUpperCase(),description:f.label+' ('+key+'). Выбранный вариант Enter передаёт в ИБП.',dir:options.map(function(x){
+     return {label:x.toUpperCase(),confirm:true,current:function(){var now=field(key);return !!now&&String(now.value)===x;},
+      run:function(){var now=field(key);return send('/variable',{name:key,value:x,expected:now?now.value:f.value},{label:f.label.toUpperCase(),view:true,text:''});}};
+    })};
+   }
+   return {label:label,pathLabel:f.label.toUpperCase(),editor:true,confirmLabel:'ПЕРЕДАТЬ В ИБП',draft:String(f.value),
+    description:f.label+' ('+key+'): сейчас '+shown(f)+'. Диапазон '+f.limits.min+'–'+f.limits.max+(f.unit?' '+f.unit:'')+'.',
+    prepare:function(value){
+     var raw=String(value).trim(),n=Number(raw),result={label:f.label.toUpperCase(),view:true,text:''};
+     if(!/^\d+$/.test(raw)||n<f.limits.min||n>f.limits.max){result.text='НЕДОПУСТИМОЕ ЗНАЧЕНИЕ «'+raw+'». ДИАПАЗОН '+f.limits.min+'–'+f.limits.max+'. ЗНАЧЕНИЕ НЕ ОТПРАВЛЕНО.';return result;}
+     var now=field(key);return send('/variable',{name:key,value:String(n),expected:now?now.value:f.value},result);
+    }};
+  }).filter(Boolean);
  }
- function confirmBeeper(enabled){editing=true;returnRow='__beeper';var box=el('div','ups-editor');box.appendChild(el('p','',enabled?'Включить звуковой сигнал ИБП?':'Выключить звуковой сигнал ИБП, включая предупреждения об отключении сети?'));box.appendChild(button('ПОДТВЕРДИТЬ',function(){mutate('/beeper',{enabled:enabled});}));box.appendChild(button('ОТМЕНА',function(){editing=false;renderPanel();focusReturn();}));box.querySelector('button').dataset.write='1';content.prepend(box);content.scrollTop=0;box.querySelector('button').focus();}
- async function mutate(route,body){if(pending)return;if(!fresh()){message('Нет актуальной связи с ИБП. Изменение не отправлено.',true);return;}pending=true;close.disabled=true;Array.from(tabs.children).forEach(function(b){b.disabled=true;});message('Передача параметра…');Array.from(content.querySelectorAll('button,input,select')).forEach(function(b){b.disabled=true;});try{state=await request(route,body);lastResponse=Date.now();editing=false;message('Параметр передан. Показания обновлены.');}catch(e){message(e.message,true);editing=false;}finally{pending=false;close.disabled=false;Array.from(tabs.children).forEach(function(b){b.disabled=false;});renderLine();renderPanel();focusReturn();}}
- var lastMenuKey='',lastMenuAt=0;
- ['keydown','keyup'].forEach(function(type){window.addEventListener(type,function(e){
-  if(!enabled||window.LostBootActive)return;
-  if(panel.hidden)return;
-  e.stopImmediatePropagation();
-  if(type==='keydown'&&(e.key==='Enter'||e.key==='Escape')){e.preventDefault();var now=Date.now();if(e.repeat||(lastMenuKey===e.key&&now-lastMenuAt<250))return;lastMenuKey=e.key;lastMenuAt=now;}
-  if(type==='keydown'&&editing&&!pending){
-   var control=document.activeElement,box=control&&control.closest&&control.closest('.ups-editor');
-   // Общее правило меню: в правке ↑↓ меняют значение, ← отменяет, Enter сохраняет.
-   if(box&&e.key==='ArrowLeft'){e.preventDefault();leave();return;}
-   if(box&&e.key==='ArrowRight'){e.preventDefault();return;}
-   if(box&&(e.key==='ArrowUp'||e.key==='ArrowDown')){
-    e.preventDefault();var delta=e.key==='ArrowUp'?1:-1;
-    if(control.tagName==='INPUT'&&control.type==='number'){
-     var value=Number(control.value),min=Number(control.min),max=Number(control.max),step=Number(control.step)||1;
-     if(!Number.isFinite(value))value=min;
-     control.value=String(Math.max(min,Math.min(max,value+delta*step)));control.select();
-    }else if(control.tagName==='SELECT'){
-     control.selectedIndex=(control.selectedIndex+delta+control.options.length)%control.options.length;
-    }else{
-     var controls=Array.from(box.querySelectorAll('input,select,button')).filter(function(n){return !n.disabled;});
-     var ci=controls.indexOf(control);controls[(ci+delta+controls.length)%controls.length].focus();
-    }return;
-   }
-   if(box&&e.key==='Enter'&&(control.tagName==='INPUT'||control.tagName==='SELECT')){e.preventDefault();submitEditor(box);return;}
-  }
-  // Общее правило меню станции, как в остальных разделах:
-  //   разделы (вкладки): ↑↓ — выбор, → — внутрь, ← — выйти из панели;
-  //   показания: ↑↓ — выбор, → — изменить значение, ← — к разделам; Enter — только подтверждение.
-  if(type==='keydown'&&!editing&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter'].indexOf(e.key)>=0){
-   e.preventDefault();
-   var active=document.activeElement,onTabs=tabs.contains(active),row=active&&active.closest&&active.closest('tr[data-row],button[data-edit="__beeper"]');
-   var rows=Array.from(content.querySelectorAll('tr[data-row],button[data-edit="__beeper"]'));
-   if(onTabs||!row){
-    if(e.key==='ArrowUp'||e.key==='ArrowDown'){var buttons=Array.from(tabs.children),selected=buttons.findIndex(function(b){return b.dataset.tab===tab;});
-     var next=buttons[(selected+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length];next.click();next.focus();return;}
-    if(e.key==='ArrowRight'&&rows.length){rows[0].focus({preventScroll:true});rows[0].scrollIntoView({block:'nearest'});return;}
-    if(e.key==='ArrowLeft'){leave();return;}
-    return;
-   }
-   if(e.key==='ArrowUp'||e.key==='ArrowDown'){
-    var nextIndex=Math.max(0,Math.min(rows.length-1,rows.indexOf(row)+(e.key==='ArrowDown'?1:-1)));
-    rows[nextIndex].focus({preventScroll:true});rows[nextIndex].scrollIntoView({block:'nearest'});return;
-   }
-   if(e.key==='ArrowRight'){var edit=row.tagName==='BUTTON'?row:row.querySelector('button:not(:disabled)');if(edit)edit.click();return;}
-   if(e.key==='ArrowLeft'){tabs.querySelector('[aria-selected=true]').focus();return;}
-   return;
-  }
-  if(type==='keydown'&&!pending&&e.key==='Enter'&&document.activeElement.tagName==='BUTTON'&&!document.activeElement.disabled&&panel.contains(document.activeElement)){document.activeElement.click();return;}
-  if(type==='keydown'&&e.key==='Escape'){e.preventDefault();if(!editing&&!tabs.contains(document.activeElement))tabs.querySelector('[aria-selected=true]').focus();else leave();}
-  if(type==='keydown'&&e.key==='Tab'){var all=Array.from(panel.querySelectorAll('button,input,select')).filter(function(n){return !n.disabled&&n.getClientRects().length;});if(!all.length){e.preventDefault();return;}var i=all.indexOf(document.activeElement);if(i<0||(e.shiftKey&&i<=0)||(!e.shiftKey&&i===all.length-1)){e.preventDefault();all[e.shiftKey?all.length-1:0].focus();}}
- },true);});
+ function section(label,keys){return {label:label,dir:[],onEnter:function(){this.dir=rows(typeof keys==='function'?keys():keys);if(!this.dir.length)this.dir=[{label:'НЕТ ПОКАЗАНИЙ',view:true,staticText:statusText()}];}};}
+ function group(name){return function(){return (state&&state.fields||[]).filter(function(f){return f.group===name;}).map(function(f){return f.key;});};}
+ function menu(){
+  var v=state&&state.vars||{};
+  return {description:statusText(),dir:[
+   section('ОБЗОР',OVERVIEW),section('РЕЗЕРВ',group('battery')),section('ЛИНИЯ',group('line')),section('УСТРОЙСТВО',group('device')),
+   section('ВСЕ ДАННЫЕ',function(){return (state&&state.fields||[]).map(function(f){return f.key;});}),
+   {label:function(){var now=state&&state.vars||{};return 'ЗВУКОВОЙ СИГНАЛ ИБП: '+(now['ups.beeper.status']==='disabled'?'ВЫКЛ':'ВКЛ');},confirm:true,
+    run:function(){var now=state&&state.vars||{},on=now['ups.beeper.status']==='disabled';return send('/beeper',{enabled:on},{label:'ЗВУКОВОЙ СИГНАЛ ИБП',view:true,text:''});}},
+   {label:'СПРАВКА',view:true,staticText:'ENDURANCE — оценка ИБП при текущей нагрузке. Номинальная мощность — характеристика устройства, а не текущее потребление.\n\nАвтовыключение Mac: '+(state&&state.guard&&state.guard.installed&&state.policy&&state.policy.enabled?'ВКЛЮЧЕНО':'НЕ ВКЛЮЧЕНО')+'.\nЗвуковой сигнал ИБП сейчас: '+(v['ups.beeper.status']||'—')+'.'}
+  ]};
+ }
+ window.LostUPS={menu:menu,status:function(){return {enabled:enabled,busy:pending,polling:pollTimer!==null,fresh:fresh(),online:!!(state&&state.online),fields:state&&state.fields?state.fields.length:0,error:lastError};}};
  setEnabled(!(window.__LOST_MODULES&&window.__LOST_MODULES.ups&&window.__LOST_MODULES.ups.enabled===false));
 })();
