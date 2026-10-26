@@ -326,10 +326,10 @@
         var ROOT = { label: 'МЕНЮ', dir: [
             { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, pathLabel: 'РЕЖИМ', key: 'D/L', dir: [
-                { label: 'LIVE', key: 'L', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
+                { label: 'LIVE', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
             ] },
             MODULES_DIR,
-            { label:function(){var m=moduleInfo('muse');return 'AI: '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?(MODULE_STATUS[m.status]||m.status):'ВЫКЛ');}, pathLabel:'AI', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostMuseMenu){var tree=window.LostMuseMenu.menu(function(){open(false);if(window.LostMuse)window.LostMuse.open();});own.dir=tree.dir;own.description=tree.description;} } },
+            { label:function(){var m=moduleInfo('muse');return 'AI: '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?(MODULE_STATUS[m.status]||m.status):'ВЫКЛ');}, pathLabel:'AI', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostMuseMenu){var tree=window.LostMuseMenu.menu(function(){if(!window.LostMuse||!window.LostMuse.canOpen()){ui.hint='AI НЕДОСТУПЕН: ТЕРМИНАЛ ОСТАВЛЕН ДЛЯ КОДА';render();return;}open(false);window.LostMuse.open();});own.dir=tree.dir;own.description=tree.description;} } },
             SHORTCUTS,
             { module:'imessage', label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { label: 'ЖУРНАЛ', view: true },
@@ -360,7 +360,7 @@
             var current=path[path.length-1];if(current.editor&&win._editorNode===current&&win.querySelector('.station-editor'))return;
             win._editorNode=current.editor?current:null;
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
-            var footer = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ← НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : ui.hint ? ui.hint :
+            var footer = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — ОТКРОЙТЕ РЕЖИМ СНОВА, ← НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : ui.hint ? ui.hint :
                 (list[sel] && list[sel].confirm ? '↑↓ ВЫБОР  ENTER ПОДТВЕРДИТЬ  ' : '↑↓ ВЫБОР  → ОТКРЫТЬ  ') + (path.length > base ? '← НАЗАД' : '← ЗАКРЫТЬ');
             // render() зовут при каждом обновлении таймера, модулей и пульта. Если на экране ничего не поменялось,
             // DOM не трогаем: иначе список и просмотр строятся заново и прокрутка прыгает.
@@ -381,7 +381,7 @@
                 var form=document.createElement('form');form.className='station-editor';
                 var field=document.createElement('input');field.type='text';field.autocomplete='off';field.spellcheck=false;field.maxLength=253;field.value=node.draft||'';field.placeholder=node.placeholder||'';field.setAttribute('aria-label',text(node.label));
                 field.addEventListener('input',function(){node.draft=field.value;});form.appendChild(field);
-                form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);if(next&&next.view)path.pop();path.push(next);sel=0;render();}});win.appendChild(form);
+                form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);if(!next)return;if(next.view){next.text=next.text||next.staticText||'';path.pop();}path.push(next);sel=0;render();}});win.appendChild(form);
                 var help=document.createElement('div');help.className='ft';help.textContent='ENTER — '+(node.confirmLabel||'ПРОВЕРИТЬ И ПОДТВЕРДИТЬ')+'   ← — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});field.select();return;
             }
             if (node.view) {
@@ -450,7 +450,7 @@
         function back() { ui.hint = ''; if (path.length > base) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
         function move(d) { ui.hint = ''; if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
-        window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words}); });
+        window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words,requestId:e.detail.requestId}); });
         window.addEventListener('lost-shortcut-run', function(e){ if(e.detail) send({type:'__shortcut_run',id:e.detail.id,name:e.detail.name}); });
         window.addEventListener('lost-remote', function(){ if(path[path.length-1]===SHORTCUTS&&window.LostRemote){var tree=window.LostRemote.shortcuts();SHORTCUTS.dir=tree.dir;SHORTCUTS.description=tree.description;} render(); });
         ui.render = render;
