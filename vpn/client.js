@@ -28,7 +28,7 @@
   var CHANGES='Изменит VPN на роутере для всех устройств за ним.';
   function read(label,action,value){return{label:label,view:true,command:{action:action,value:value}};}
   function info(label,text){return{label:label,view:true,staticText:text};}
-  function confirm(label,cli,action,value,warning){return{label:label,description:'adguardvpn-cli '+cli+'\n'+(warning||CHANGES),dir:[{label:'ОТМЕНА',cancel:true},{label:'ВЫПОЛНИТЬ',command:{action:action,value:value}}]};}
+  function confirm(label,cli,action,value,warning){return{label:label,description:'adguardvpn-cli '+cli+'\n'+(warning||CHANGES),dir:[{label:'ОТМЕНА',cancel:true},{label:'ВЫПОЛНИТЬ',confirm:true,command:{action:action,value:value}}]};}
   function entry(label,cli,build,warning,placeholder){return{label:label,editor:true,description:'adguardvpn-cli '+cli+'\n'+(warning||CHANGES),placeholder:placeholder||'',prepare:function(value){var cmd=build(value.trim());return confirm(label+': '+value.trim().toUpperCase(),cli.replace('…',value.trim()),cmd.action,cmd.value,warning);}};}
   var NAMES={on:'ВКЛ',off:'ВЫКЛ'};
   function choice(label,name,values,action,warning){return{label:label,description:'adguardvpn-cli config '+name+'\n'+(warning||CHANGES),dir:values.map(function(value){return confirm(NAMES[value]||value.toUpperCase(),'config '+name+' '+value,action||'setting',action?value:{name:name,value:value},warning);})};}

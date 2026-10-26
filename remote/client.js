@@ -11,7 +11,7 @@
     function command(id) { return state.remote && state.remote.commands.filter(function (c) { return c.id === id; })[0]; }
     function words(id) { var c = command(id); return c ? c.words.join(', ') : ''; }
     function editor(cmd) {
-        var node = { editor: true, label: function () { return cmd.label + ': ' + words(cmd.id); }, pathLabel: cmd.label, draft: words(cmd.id),
+        var node = { editor: true, confirmLabel: 'СОХРАНИТЬ', label: function () { return cmd.label + ': ' + words(cmd.id); }, pathLabel: cmd.label, draft: words(cmd.id),
             description: 'Слова через запятую. Сообщение, совпадающее со словом или содержащее его, выполняет команду «' + cmd.label + '». Enter — сохранить.',
             prepare: function (value) {
                 window.dispatchEvent(new CustomEvent('lost-remote-set', { detail: { id: cmd.id, words: value } }));

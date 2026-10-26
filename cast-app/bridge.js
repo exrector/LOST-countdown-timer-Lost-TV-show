@@ -292,8 +292,8 @@
             return { label: p[0], act: click('.lost-timer-dev-action-set[data-seconds="' + p[1] + '"]') }; }) };
         var SOUNDS_DIR = { label: 'ЗВУКИ', dir: SOUNDS.map(function (s) { return { label: s.toUpperCase(), act: click('.lost-timer-play-' + s) }; }) };
         var DEV = { label: 'DEV', current: function () { return ui.mode === 'dev'; }, onEnter: function () { if (ui.mode !== 'dev' || ui.modeError) mode('dev')(); }, dir: [TIMERS,
-            { label: 'СБРОС ТАЙМЕРА', act: click('.lost-timer-dev-action-reset') },
-            { label: 'ИЕРОГЛИФЫ', act: click('.lost-timer-dev-action-glyphs') },
+            { label: 'СБРОС ТАЙМЕРА', confirm: true, act: click('.lost-timer-dev-action-reset') },
+            { label: 'ИЕРОГЛИФЫ', confirm: true, act: click('.lost-timer-dev-action-glyphs') },
             SOUNDS_DIR] };
         var MODULE_STATUS={ready:'РАБОТАЕТ',starting:'ЗАПУСК',stopping:'ОСТАНОВКА',disabled:'ВЫКЛЮЧЕН',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН',degraded:'НЕТ СВЕЖИХ ДАННЫХ',unavailable:'НЕТ СВЯЗИ',connecting:'СОЕДИНЕНИЕ',reconnecting:'ПЕРЕПОДКЛЮЧЕНИЕ',revoked:'ПАРА ОТОЗВАНА'};
         function moduleInfo(id){return moduleState[id] || {enabled:false,status:'not_installed',installed:false};}
@@ -316,7 +316,7 @@
         var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','СТАНЦИИ'),moduleDirectory('imessage','ПУЛЬТ iMESSAGE')]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
-            { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
+            { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', confirm: true, act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
         ] };
         var ROOT = { label: 'МЕНЮ', dir: [
             { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
@@ -353,7 +353,8 @@
             var current=path[path.length-1];if(current.editor&&win._editorNode===current&&win.querySelector('.station-editor'))return;
             win._editorNode=current.editor?current:null;
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
-            var footer = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ESC НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : path.length > 1 ? '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ←/ESC НАЗАД' : '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ESC ЗАКРЫТЬ';
+            var footer = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ← НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : ui.hint ? ui.hint :
+                list[sel] && list[sel].confirm ? '↑↓ ВЫБОР  ENTER ПОДТВЕРДИТЬ  ← НАЗАД' : '↑↓ ВЫБОР  → ОТКРЫТЬ  ' + (path.length > 1 ? '← НАЗАД' : '← ЗАКРЫТЬ');
             // render() зовут при каждом обновлении таймера, модулей и пульта. Если на экране ничего не поменялось,
             // DOM не трогаем: иначе список и просмотр строятся заново и прокрутка прыгает.
             var sig = JSON.stringify([isOpen(), path.map(function (n) { return text(n.pathLabel || n.label); }), current.description || '',
@@ -374,12 +375,12 @@
                 var field=document.createElement('input');field.type='text';field.autocomplete='off';field.spellcheck=false;field.maxLength=253;field.value=node.draft||'';field.placeholder=node.placeholder||'';field.setAttribute('aria-label',text(node.label));
                 field.addEventListener('input',function(){node.draft=field.value;});form.appendChild(field);
                 form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);path.push(next);sel=0;render();}});win.appendChild(form);
-                var help=document.createElement('div');help.className='ft';help.textContent='ENTER — ПРОВЕРИТЬ И ПОДТВЕРДИТЬ   ESC — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});return;
+                var help=document.createElement('div');help.className='ft';help.textContent='ENTER — '+(node.confirmLabel||'ПРОВЕРИТЬ И ПОДТВЕРДИТЬ')+'   ESC — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});return;
             }
             if (node.view) {
                 var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
                 win.appendChild(pre); pre.scrollTop = keepScroll;
-                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '↑↓ ПРОКРУТКА  ←/ESC НАЗАД'; win.appendChild(f);
+                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '↑↓ ПРОКРУТКА  ← НАЗАД'; win.appendChild(f);
                 return;
             }
             var rows = document.createElement('div'); rows.className = 'list'; win.appendChild(rows);
@@ -389,7 +390,7 @@
                 var k = document.createElement('span'); k.className = 'k'; k.textContent = marker(it);
                 r.appendChild(l); r.appendChild(k);
                 r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
-                r.addEventListener('click', function () { sel = i; enter(); });
+                r.addEventListener('click', function () { sel = i; enter(list[i].confirm ? 'confirm' : 'open'); });
                 rows.appendChild(r);
             });
             var ft = document.createElement('div'); ft.className = 'ft'; ft.textContent = footer;
@@ -397,12 +398,16 @@
             rows.scrollTop = keepList;
             if (isOpen()) { var selected = rows.querySelector('.sel'); if (selected) selected.scrollIntoView({ block: 'nearest' }); }
         }
-        function marker(it) { return it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
+        function marker(it) { return it.confirm ? '[ENTER]' : it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
         function isOpen() { return box.classList.contains('open'); }
         function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; sel = 0; render(); } }
-        function enter(directoryOnly) {
+        // Единое управление меню: → открывает и выполняет обычное, ← / Esc — назад,
+        // Enter — только подтверждение необратимого (пункты confirm) и сохранение в полях правки.
+        function enter(mode) {
             var it = items()[sel]; if (!it) return;
-            if(directoryOnly&&!it.dir&&!it.panel&&!it.editor)return;
+            if (it.confirm) { if (mode !== 'confirm') { ui.hint = 'ENTER — ПОДТВЕРДИТЬ «' + text(it.label) + '»'; render(); return; } }
+            else if (mode === 'confirm') return;
+            ui.hint = '';
             if(it.cancel){back();return;}
             if(it.editor){path.push(it);render();return;}
             if(it.command){var result={label:it.label==='ВЫПОЛНИТЬ'?text(path[path.length-1].label):text(it.label),view:true,text:'ВЫПОЛНЯЕТСЯ…'};path.push(result);render();window.LostVPN.execute(it.command).then(function(output){result.text=output;render();});return;}
@@ -415,14 +420,13 @@
                 }).catch(function () { it.text = 'ДАННЫЕ НЕДОСТУПНЫ. ←/ESC НАЗАД; ОТКРОЙТЕ СНОВА ДЛЯ ПОВТОРА.'; render(); });
                 return;
             }
-            if (directoryOnly && !it.panel) return;
             // Wait for the timer to acknowledge DEV before invoking its controls.
             if (path.indexOf(DEV) !== -1 && (ui.mode !== 'dev' || ui.requestedMode)) return;
             if (it.act) it.act();
             setTimeout(render, 150);
         }
-        function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
-        function move(d) { if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
+        function back() { ui.hint = ''; if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
+        function move(d) { ui.hint = ''; if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
         window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words}); });
         window.addEventListener('lost-remote', function(){ render(); });
@@ -463,7 +467,7 @@
             KeyM: function () { open(!isOpen()); },
             Escape: function () { if (isOpen()) back(); },
             ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
-            ArrowRight: function () { if (isOpen()) enter(true); else open(true); },
+            ArrowRight: function () { if (isOpen()) enter('open'); else open(true); },
             ArrowLeft: function () { if (isOpen()) back(); }
         };
         // в журнал запуска (/tmp/lost-start.log): есть ли у окна терминала фокус клавиатуры
@@ -476,7 +480,7 @@
             if (e.metaKey || e.ctrlKey || e.altKey || window.LostBootActive) return;
             if(isOpen()&&path[path.length-1].editor){if(e.key==='Escape'){e.preventDefault();back();}else if(e.key==='Enter')swallowEnter=true;return;}
             var menuEnter = e.key === 'Enter' && isOpen();
-            var f = menuEnter ? function () { enter(false); } : KEYS[e.code];
+            var f = menuEnter ? function () { enter('confirm'); } : KEYS[e.code];
             if (!f) return;
             e.preventDefault();
             if (menuEnter) swallowEnter = true;
