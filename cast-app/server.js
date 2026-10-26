@@ -241,10 +241,11 @@ function start(port = 8765, opts = {}) {
         shortcutsRefreshing = true; shortcutsAt = Date.now();
         execFile('shortcuts', ['list'], { encoding: 'utf8', timeout: 10000 }, (error, output) => {
             shortcutsRefreshing = false;
-            if (!error) shortcutNames = output.split('\n').map(x => x.trim()).filter(Boolean);
+            if (!error) { const next = output.split('\n').map(x => x.trim()).filter(Boolean); const changed = next.join('\n') !== shortcutNames.join('\n'); shortcutNames = next; if (changed && remote) publishRemote(); }
         });
     }
     const shortcutRunner = {
+        list() { refreshShortcuts(); return shortcutNames.slice(); },
         find(text) { refreshShortcuts(); const want = String(text || '').trim().toLowerCase(); return shortcutNames.find(n => n.toLowerCase() === want) || null; },
         run(name, channel, sender) {
             console.log('[пульт] запускаю команду «' + name + '» (' + channel + ')');
@@ -283,7 +284,7 @@ function start(port = 8765, opts = {}) {
                 if (data.type === '__audio') { if (['speakers','monitor','off'].includes(data.mode)) setAudio(data.mode); return; }
                 if (data.type === '__alive') { events.emit('client-alive', { ...data, role }); if (role === 'tv') events.emit('tv-alive', data); return; }
                 if (data.type === '__log') { console.log('[' + role + ' log]', data.msg); return; }
-                if (data?.type === '__remote_set') { if (role === 'console') { if (!remote.set(data.channel, data.key, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.channel, error: 'invalid_remote_request' })); publishRemote(); } return; }
+                if (data?.type === '__remote_set') { if (role === 'console') { if (!(data.channel === 'siri-command' ? remote.setShortcut(data.key, data.enabled) : remote.set(data.channel, data.key, data.enabled))) ws.send(JSON.stringify({ type: '__module_error', id: data.channel, error: 'invalid_remote_request' })); publishRemote(); } return; }
                 if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }
                 if (!data || typeof data !== 'object') return;
                 if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {

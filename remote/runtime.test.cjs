@@ -61,7 +61,7 @@ test('settings persist and survive reload; failed save keeps the old value; garb
     assert.equal(failing.r.settings().siri.commands.pause, true);
     assert.equal(again.r.set('siri', 'quit', false), false);
     assert.equal(again.r.set('siri', 'pause', 'no'), false);
-    assert.deepEqual(Object.keys(normalizeSettings({ evil: {} })), ['imessage', 'siri']);
+    assert.deepEqual(Object.keys(normalizeSettings({ evil: {} })), ['imessage', 'siri', 'blocked']);
 });
 
 test('Siri accepts only the home network, never the tailnet or the internet', () => {
@@ -83,4 +83,18 @@ test('iMessage: only listed senders are queried; while the module is off message
     active = true; rows = ''; im.check();
     assert.equal(ran.length, 1);
     assert.equal(createIMessage({ senders: [] }).start(), false);
+});
+
+test('each Siri command on the Mac can be forbidden for the station; the list comes from the Mac', () => {
+    const calls = [];
+    const r = createRemote({ actions: {}, persist: () => true,
+        shortcuts: { list: () => ['Громкость 50', 'Свет'], find: t => ['Громкость 50', 'Свет'].find(n => n.toLowerCase() === t.toLowerCase()) || null, run: name => { calls.push(name); return 'Запускаю команду «' + name + '».'; } } });
+    assert.deepEqual(r.snapshot().siriCommands, [{ name: 'Громкость 50', enabled: true }, { name: 'Свет', enabled: true }]);
+    assert.equal(r.setShortcut('Свет', false), true);
+    assert.match(r.run('свет', 'imessage', '+7'), /«Свет» на станции запрещена/);
+    assert.match(r.run('Громкость 50', 'imessage', '+7'), /Запускаю/);
+    assert.deepEqual(calls, ['Громкость 50']);
+    const again = createRemote({ saved: r.settings(), actions: {}, shortcuts: { list: () => ['Свет'], find: () => null, run: () => '' } });
+    assert.deepEqual(again.snapshot().siriCommands, [{ name: 'Свет', enabled: false }]);
+    assert.equal(r.setShortcut('', true), false);
 });
