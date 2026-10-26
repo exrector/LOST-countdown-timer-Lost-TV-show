@@ -50,7 +50,8 @@ function createFlame({ tailscale, stationsFile = path.join(os.homedir(), '.confi
     async function read(own) {
         lastAttempt = now();
         try {
-            const result = await run(binary, ['status', '--json'], { timeout: 8000, maxBuffer: 1048576, encoding: 'utf8' });
+            // Без TAILSCALE_BE_CLI бинарник Tailscale.app из службы launchd пытается открыть окно приложения и падает.
+            const result = await run(binary, ['status', '--json'], { timeout: 8000, maxBuffer: 1048576, encoding: 'utf8', env: { ...process.env, TAILSCALE_BE_CLI: '1' } });
             const parsed = parseStatus(result.stdout, loadStations(stationsFile));
             if (own === generation) state = { ...parsed, status: parsed.backend === 'Running' ? 'ready' : 'unavailable', updatedAt: now(), error: parsed.backend === 'Running' ? null : 'Tailscale на станции: ' + (parsed.backend || 'нет состояния') };
         } catch (_) {
