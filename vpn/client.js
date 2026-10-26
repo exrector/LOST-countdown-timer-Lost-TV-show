@@ -8,8 +8,8 @@
   var known=state.updatedAt && Date.now()-state.updatedAt<90000;
   var status=known?state.status:'unavailable';
   line.className='vpn-line '+status;line.hidden=state.enabled===false;
-  // та же подпись, что у пункта VPN в меню; значение — в <b>, как у показаний UPS
-  line.textContent='VPN: ';var b=document.createElement('b');b.textContent=value(status);line.appendChild(b);
+  // нижняя строка — по-английски, как показания UPS и консоли мейнфреймов: VPN: CONNECTED: NEW YORK
+  line.textContent='VPN: ';var b=document.createElement('b');b.textContent=status==='connected'?'CONNECTED: '+String(state.location||'UNKNOWN').toUpperCase():status==='disconnected'?'DISCONNECTED':status==='connecting'?'CONNECTING':'NO DATA';line.appendChild(b);
   line.title=state.error||'AdGuard VPN на роутере';
  }
  async function poll(){if(polling||state.enabled===false)return;polling=true;var c=new AbortController(),timeout=setTimeout(function(){c.abort();},5000);

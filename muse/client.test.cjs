@@ -123,3 +123,7 @@ test('pause plate is not hidden on the terminal after leaving AI',()=>{
  const f=fixture();f.win.LostMuse.open();f.win.LostMuse.close();f.win.LostMuse.open();f.key('keydown','ArrowRight');
  assert.equal(f.body.classList.contains('lost-muse-active'),false);
 });
+test('AI always opens at the newest message, not at the old scroll position',()=>{
+ const f=fixture();const history=f.surface.querySelector('.muse-transcript');history.scrollTop=300;
+ f.win.LostMuse.open();assert.equal(history.scrollTop,0);
+});
