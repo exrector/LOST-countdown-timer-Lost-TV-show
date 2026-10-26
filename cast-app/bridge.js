@@ -352,7 +352,8 @@
 
         var box = document.createElement('div'); box.className = 'ctl';
         var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
-        var path = [ROOT], sel = 0;
+        // base — глубина, с которой ← закрывает меню: 1 — корень, 2 — меню открыто сразу на разделе (K).
+        var path = [ROOT], sel = 0, base = 1;
         function items() { var n = path[path.length - 1]; return n.view || n.editor ? [] : n.dir.filter(function (it) { return (!it.devOnly || ui.mode === 'dev') && (!it.module || moduleInfo(it.module).enabled); }); }
         function text(v) { return typeof v === 'function' ? v() : v; }
         function render() {
@@ -360,7 +361,7 @@
             win._editorNode=current.editor?current:null;
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
             var footer = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ← НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : ui.hint ? ui.hint :
-                list[sel] && list[sel].confirm ? '↑↓ ВЫБОР  ENTER ПОДТВЕРДИТЬ  ← НАЗАД' : '↑↓ ВЫБОР  → ОТКРЫТЬ  ' + (path.length > 1 ? '← НАЗАД' : '← ЗАКРЫТЬ');
+                (list[sel] && list[sel].confirm ? '↑↓ ВЫБОР  ENTER ПОДТВЕРДИТЬ  ' : '↑↓ ВЫБОР  → ОТКРЫТЬ  ') + (path.length > base ? '← НАЗАД' : '← ЗАКРЫТЬ');
             // render() зовут при каждом обновлении таймера, модулей и пульта. Если на экране ничего не поменялось,
             // DOM не трогаем: иначе список и просмотр строятся заново и прокрутка прыгает.
             var sig = JSON.stringify([isOpen(), path.map(function (n) { return text(n.pathLabel || n.label); }), current.description || '',
@@ -386,7 +387,7 @@
             if (node.view) {
                 var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
                 win.appendChild(pre); pre.scrollTop = keepScroll;
-                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '↑↓ ПРОКРУТКА  ← НАЗАД'; win.appendChild(f);
+                var f = document.createElement('div'); f.className = 'ft'; f.textContent = '↑↓ ПРОКРУТКА  ← НАЗАД' + (base > 1 ? '  ESC ЗАКРЫТЬ' : ''); win.appendChild(f);
                 return;
             }
             var rows = document.createElement('div'); rows.className = 'list'; win.appendChild(rows);
@@ -406,7 +407,7 @@
         }
         function marker(it) { return it.confirm ? (it.current && it.current() ? '<ВЫБРАНО>' : '[ENTER]') : it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
         function isOpen() { return box.classList.contains('open'); }
-        function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; sel = 0; render(); } }
+        function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; base = 1; sel = 0; render(); } }
         // Единое управление меню: → открывает и выполняет обычное, ← / Esc — назад,
         // Enter — только подтверждение необратимого (пункты confirm) и сохранение в полях правки.
         function enter(mode) {
@@ -433,7 +434,7 @@
             if (it.act) it.act();
             setTimeout(render, 150);
         }
-        function back() { ui.hint = ''; if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
+        function back() { ui.hint = ''; if (path.length > base) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
         function move(d) { ui.hint = ''; if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
         window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words}); });
@@ -451,7 +452,7 @@
         function modeDir() { return ROOT.dir.filter(function (n) { return n.dir && n.dir.indexOf(DEV) !== -1; })[0]; }
         function openShortcuts() {
             if (isOpen() && path[path.length - 1] === SHORTCUTS) return open(false);
-            open(true); path = [ROOT, SHORTCUTS]; sel = 0; SHORTCUTS.onEnter(); render();
+            open(true); path = [ROOT, SHORTCUTS]; base = 2; sel = 0; SHORTCUTS.onEnter(); render();
         }
         function openQuit() {
             if (isOpen() && path[path.length - 1] === QUIT) return QUIT.dir[1].act();
@@ -475,7 +476,8 @@
             KeyP: click('#pauseResume'), Pause: click('#pauseResume'),
             KeyM: function () { open(!isOpen()); },
             KeyK: openShortcuts,
-            Escape: function () { if (isOpen()) back(); },
+            // Меню, открытое клавишей K, — короткий заход за командой: Esc с любого уровня возвращает в терминал.
+            Escape: function () { if (isOpen()) { if (base > 1) open(false); else back(); } },
             ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
             ArrowRight: function () { if (isOpen()) enter('open'); else open(true); },
             ArrowLeft: function () { if (isOpen()) back(); }
