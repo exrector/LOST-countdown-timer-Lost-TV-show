@@ -1,0 +1,67 @@
+/* One station surface and one panel origin for every console tool. */
+:root{
+ --station-bg:#030906;--station-surface:#09120d;--station-ink:#33ff88;
+ --station-muted:#85918a;--station-line:#286440;--station-selection:#33ff88;
+ --station-font:"Courier New",Courier,monospace;
+ --station-text:17px;--station-heading:15px;--station-help:13px;
+ --station-inset:15px;--station-panel-top:52px;--station-panel-width:820px;
+ --station-border:2px double var(--station-ink);--station-shadow:0 0 8px rgba(51,255,136,.2);
+}
+body.console-page,body.timer-page{background:var(--station-bg);font-family:var(--station-font)}
+body.console-page .console-container{color:var(--station-ink);border-radius:0;box-shadow:var(--station-shadow)}
+body.console-page .timer-status{font:var(--station-help)/1.4 var(--station-font);color:var(--station-muted);text-shadow:none;letter-spacing:0}
+body.console-page .ctl,body.console-page .ups-panel{
+ position:absolute;inset:auto;left:var(--station-inset);top:var(--station-panel-top);margin:0;
+ width:min(var(--station-panel-width),calc(100% - 2 * var(--station-inset)));
+ max-width:calc(100% - 2 * var(--station-inset));max-height:calc(100% - var(--station-panel-top) - var(--station-inset));
+ z-index:5;box-sizing:border-box;font:var(--station-text)/1.4 var(--station-font);text-align:left;
+}
+body.console-page .ctl{display:none}
+body.console-page .ctl.open{display:flex}
+body.console-page .ctl .win,body.console-page .ups-panel{
+ min-width:0;border:var(--station-border);border-radius:0;background:var(--station-surface);
+ box-shadow:var(--station-shadow);color:var(--station-ink);text-shadow:none;
+}
+body.console-page .ctl .win{display:flex;width:100%;max-width:100%;max-height:100%;overflow:hidden}
+body.console-page .ups-panel{height:calc(100% - var(--station-panel-top) - var(--station-inset));display:flex;flex-direction:column}
+body.console-page .ups-panel[hidden]{display:none}
+body.console-page .ctl .ttl,body.console-page .ups-title{
+ display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 10px;min-height:24px;
+ border-bottom:1px solid var(--station-line);font:var(--station-heading)/1.4 var(--station-font);letter-spacing:0;opacity:1;
+}
+body.console-page .ctl .row{font-size:var(--station-text);padding:4px 10px;gap:18px;white-space:normal;overflow-wrap:anywhere}
+body.console-page .ctl .row .k{white-space:nowrap;color:var(--station-muted);opacity:1}
+body.console-page .ctl .row.sel,body.console-page .ups-panel button[aria-selected=true],body.console-page .ups-table tr:focus{
+ background:var(--station-selection);color:var(--station-surface);text-shadow:none;outline:none;
+}
+body.console-page .ctl .row.sel .k,body.console-page .ups-table tr:focus td{color:inherit;text-shadow:none}
+body.console-page .ctl .ft,body.console-page .ups-footer{
+ border-top:1px solid var(--station-line);padding:4px 10px;font:var(--station-help)/1.4 var(--station-font);color:var(--station-muted);opacity:1;
+}
+body.console-page .ctl .list,body.console-page .ctl .view,body.console-page .ups-content{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-color:var(--station-line) var(--station-surface)}
+body.console-page .ctl .view{width:100%;max-width:100%;font:var(--station-text)/1.4 var(--station-font);padding:8px 10px}
+body.console-page .ups-panel button,body.console-page .ups-panel input,body.console-page .ups-panel select{
+ font:var(--station-help)/1.4 var(--station-font);border:1px solid var(--station-line);background:var(--station-surface);color:var(--station-ink);padding:4px 7px;text-shadow:none;
+}
+body.console-page .ups-panel button[aria-selected=true],body.console-page .ups-panel :focus-visible{outline:1px solid var(--station-ink);outline-offset:-1px}
+body.console-page .ups-title button{border:0;padding:0;color:var(--station-muted)}
+body.console-page .ups-tabs{padding:6px 10px;gap:4px;border-bottom:1px solid var(--station-line)}
+body.console-page .ups-content{font-size:var(--station-text);padding:8px 10px}
+body.console-page .ups-editor{margin:0 0 12px;padding:8px;border:1px solid var(--station-line);background:var(--station-surface)}
+body.console-page .ups-key,body.console-page .ups-muted,body.console-page .ups-status{color:var(--station-muted);opacity:1}
+body.console-page .ups-key{font-size:var(--station-help)}
+body.console-page .ups-notice{font-size:var(--station-help);border-top:1px solid var(--station-line);padding:4px 10px}
+body.console-page .ups-notice:empty{display:none}
+body.console-page .muse-transcript{font:var(--station-text)/1.5 var(--station-font)}
+body.console-page .muse-hint,body.console-page .muse-notice{font:var(--station-help)/1.4 var(--station-font);color:var(--station-muted)}
+body.console-page .my-console,body.console-page .console-prompt{font-family:var(--station-font);color:var(--station-ink)}
+body.console-page .station-panel-open .pz,body.console-page.station-panel-open .pz{display:none}
+@media(max-width:650px){:root{--station-text:15px;--station-heading:13px;--station-help:11px;--station-inset:10px;--station-panel-top:46px}body.console-page .ups-table td{padding:5px 3px}body.console-page .ups-table td:last-child{width:65px}}
+
+/* Menu structure lives here rather than in generated inline styles. */
+body.console-page .ctl{min-height:0;overflow:hidden}
+body.console-page .ctl .win{flex-direction:column;min-height:0}
+body.console-page .ctl .list{flex:1}
+body.console-page .ctl .row{display:flex;justify-content:space-between;cursor:pointer}
+body.console-page .ctl .view{box-sizing:border-box;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+body.console-page .ups-panel{font-variant-numeric:tabular-nums}

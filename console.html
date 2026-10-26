@@ -27,26 +27,29 @@
                 window.addEventListener('message', (event) => {
                     if (event.data.type === 'enableConsole') {
                         if (document.body.classList.contains('lost-muse-active')) return;
-                        consoleInput.disabled = !event.data.enabled;
+                        consoleInput.disabled = false;
+                        consoleInput.readOnly = !event.data.enabled;
                         if (event.data.enabled) {
                             if (!document.hidden) consoleInput.focus();
                             updateCursorPosition();
                             timerStatus.textContent = `Оставшееся время для ввода кода: ${event.data.remainingTime} секунд`;
                         } else {
-                            consoleInput.value = '';
+                            if (window.LostConsoleInput) window.LostConsoleInput.refresh();
                             updateCursorPosition();
                             timerStatus.textContent = event.data.remainingTime > 240 ? 
-                                'Терминал не активирован' : 'Time expired!';
+                                'Ожидание ввода кода' : 'Время ввода истекло';
                         }
                     }
                 });
 
                 document.addEventListener('visibilitychange', () => { if (!document.hidden && !consoleInput.disabled) consoleInput.focus(); });
 
+                consoleInput.addEventListener('input', updateCursorPosition);
+                window.addEventListener('lost-console-command-change', updateCursorPosition);
                 // Handle input submission
                 consoleInput.addEventListener('keyup', (e) => {
                     updateCursorPosition();
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && !consoleInput.readOnly && !consoleInput.disabled) {
                         window.opener.postMessage({
                             type: 'numberSubmitted',
                             value: consoleInput.value
@@ -59,20 +62,22 @@
         </script>
         <link href="ups/client.css" rel="stylesheet" type="text/css">
         <link href="muse/client.css" rel="stylesheet" type="text/css">
+        <link href="css/station-ui.css" rel="stylesheet" type="text/css">
+        <script defer src="js/station-input.js"></script>
         <script defer src="muse/client.js"></script>
         <script defer src="ups/telemetry.js"></script>
         <script defer src="ups/client.js"></script>
     </head>
     <body class="console-page">
         <div class="timer-status">
-            Терминал не активирован
+            Ожидание ввода кода
         </div>
         <div class="console-container">
             <div class="console-prompt">
                 >:
             </div>
             <div class="console-input">
-                <input type="text" class="my-console" disabled /><span class="console-cursor"></span>
+                <input type="text" class="my-console" readonly autocomplete="off" spellcheck="false" /><span class="console-cursor"></span>
             </div>
         </div>
     </body>

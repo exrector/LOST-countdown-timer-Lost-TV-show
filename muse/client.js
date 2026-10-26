@@ -3,13 +3,13 @@
     if (!document.body || !document.body.classList.contains('console-page')) return;
     var opened = false, priority = false, snapshot = { module: (window.__LOST_MODULES || {}).muse || { enabled: false, installed: false, status: 'not_installed' }, chat: { phase: 'idle', messages: [] } };
     var microphone = { available: false, supported: false, recording: false, level: 0, elapsed: 0 };
-    var held = false, posting = false, polling = false, pollTimer = null, readController = null, epoch = 0, noticeText = '', ghostText = '', ghostTimer = null, swallowedEnter = false;
+    var held = false, posting = false, polling = false, pollTimer = null, readController = null, epoch = 0, noticeText = '', consumedEnter = false;
     var statuses = { ready: 'НА СВЯЗИ', connecting: 'СОЕДИНЕНИЕ', starting: 'ЗАПУСК', reconnecting: 'ПЕРЕПОДКЛЮЧЕНИЕ', disabled: 'ВЫКЛЮЧЕН', not_installed: 'НЕ УСТАНОВЛЕН', unavailable: 'НЕТ СВЯЗИ', error: 'ОШИБКА', revoked: 'ПАРА ОТОЗВАНА', stopping: 'ОСТАНОВКА' };
     var phases = { idle: 'ГОТОВ К РАЗГОВОРУ', sending: 'ОТПРАВЛЯЮ', waiting: 'ОЖИДАЮ ОТВЕТ', thinking: 'ОЖИДАЮ ОТВЕТ', streaming: 'MUSE ОТВЕЧАЕТ', replying: 'MUSE ОТВЕЧАЕТ', responding: 'MUSE ОТВЕЧАЕТ', recording: 'СЛУШАЮ' };
     function node(tag, className, text) { var e = document.createElement(tag); if (className) e.className = className; if (text !== undefined) e.textContent = text; return e; }
     // AI uses the same station surface, prompt and input as the numeric console.
     var panel = document.querySelector('.console-container'), input = panel.querySelector('.my-console');
-    var originalPlaceholder = input.placeholder, originalMaxLength = input.maxLength, originalDisabled = input.disabled;
+    var originalPlaceholder = input.placeholder, originalMaxLength = input.maxLength, originalDisabled = input.disabled, originalReadOnly = input.readOnly;
     var transcript = node('div', 'muse-transcript'); transcript.hidden = true;
     transcript.setAttribute('role', 'log'); transcript.setAttribute('aria-label', 'Разговор Muse'); transcript.setAttribute('aria-live', 'polite'); transcript.tabIndex = 0;
     var form = node('form', 'muse-compose');
@@ -23,8 +23,7 @@
     function busy() { return posting || held || microphone.recording || microphone.uploading || microphone.requesting || ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) !== -1; }
     function connected() { var m = moduleInfo(); return m.installed !== false && m.enabled === true && m.status === 'ready'; }
     function canRecord() { return opened && !priority && connected() && microphone.available === true && microphone.supported === true && !posting && !microphone.uploading && !microphone.requesting && ['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(phase()) === -1; }
-    function clearGhost() { clearTimeout(ghostTimer); ghostTimer = null; ghostText = ''; if (!opened && input.disabled) input.value = ''; }
-    function commandLetter(letter) { ghostText = ghostText === 'A' && letter === 'I' ? 'AI' : letter === 'A' ? 'A' : ''; input.value = ghostText; clearTimeout(ghostTimer); ghostTimer = setTimeout(clearGhost, 3000); }
+    function resetCommand() { if (window.LostConsoleInput) window.LostConsoleInput.reset(); }
     function tellMicUnavailable() { noticeText = microphone.error || (microphone.available ? 'ГОЛОСОВОЙ АДАПТЕР ЕЩЁ НЕ ПОДКЛЮЧЁН. ПОКА ДОСТУПЕН ТЕКСТ.' : 'МИКРОФОН НЕ ПОДКЛЮЧЁН. ПОКА ДОСТУПЕН ТЕКСТ.'); render(); }
     function recordStart() {
         if (held || microphone.recording) return;
@@ -67,9 +66,9 @@
     }
     function open() {
         if (opened || priority || window.LostBootActive || menuOpen()) return false; var ups = document.querySelector('.ups-panel'); if (ups && !ups.hidden) return false;
-        originalDisabled = input.disabled; clearGhost(); input.value = ''; input.maxLength = 4000; opened = true; epoch++; transcript.hidden = false; footer.hidden = false; document.body.classList.add('lost-muse-active'); emit('lost-muse-open', {}); render(); poll(); pollTimer = setInterval(poll, 1000); if (!input.disabled) input.focus(); else transcript.focus(); return true;
+        originalDisabled = input.disabled; originalReadOnly = input.readOnly; resetCommand(); input.value = ''; input.maxLength = 4000; opened = true; epoch++; transcript.hidden = false; footer.hidden = false; document.body.classList.add('lost-muse-active'); emit('lost-muse-open', {}); render(); poll(); pollTimer = setInterval(poll, 1000); if (!input.disabled) input.focus(); else transcript.focus(); return true;
     }
-    function close() { if (!opened) return; recordStop(true); emit('lost-muse-record', { on: false, cancel: true }); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); transcript.hidden = true; footer.hidden = true; notice.hidden = true; input.value = ''; input.readOnly = false; input.disabled = originalDisabled; input.placeholder = originalPlaceholder; input.maxLength = originalMaxLength; document.body.classList.remove('lost-muse-active'); clearGhost(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
+    function close() { if (!opened) return; recordStop(true); emit('lost-muse-record', { on: false, cancel: true }); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); transcript.hidden = true; footer.hidden = true; notice.hidden = true; input.value = ''; input.readOnly = originalReadOnly; input.disabled = originalDisabled; input.placeholder = originalPlaceholder; input.maxLength = originalMaxLength; document.body.classList.remove('lost-muse-active'); resetCommand(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
     function setMicrophone(value) {
         if (!value || typeof value !== 'object') return; microphone = Object.assign({}, microphone, value);
         if(value.finished || value.error){held=false;}
@@ -95,30 +94,26 @@
             if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) close(); return; }
             if (e.code === 'ControlLeft') { e.preventDefault(); if (!e.repeat) recordStart(); return; }
             if (e.key === 'Escape') { e.preventDefault(); if (!e.repeat) { if (held || microphone.recording) recordStop(true); else if (microphone.draftReady) { noticeText = 'Запись отменена'; emit('lost-muse-record', { on: false, cancel: true }); } else close(); } return; }
-            if (e.key === 'Enter' && (e.target === input || microphone.draftReady)) { e.preventDefault(); if (!e.repeat && !e.isComposing) submit(); return; }
+            if (e.key === 'Enter' && (e.target === input || microphone.draftReady)) { consumedEnter = true; e.preventDefault(); if (!e.repeat && !e.isComposing) submit(); return; }
             if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.target === transcript || e.target === panel || (e.target === input && !input.value))) { e.preventDefault(); transcript.scrollBy(0, e.key === 'ArrowUp' ? -55 : 55); return; }
             return;
         }
-        if (priority || e.ctrlKey || e.metaKey || e.altKey) { clearGhost(); return; }
+        if (priority) { resetCommand(); return; }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (e.code === 'F3') { block(e); if (!e.repeat) open(); return; }
-        var original = document.querySelector('.my-console'); if (menuOpen() || !original || !original.disabled) { clearGhost(); return; }
-        if (e.repeat) return;
-        if (e.key === 'Enter' && ghostText === 'AI') { block(e); swallowedEnter = true; clearGhost(); open(); return; }
-        if (e.code === 'KeyA' || e.code === 'KeyI') { block(e); commandLetter(e.code === 'KeyA' ? 'A' : 'I'); return; }
-        clearGhost();
     }, true);
     window.addEventListener('keyup', function (e) {
+        if (e.key === 'Enter' && consumedEnter) { consumedEnter = false; block(e); return; }
         if (e.code === 'ControlLeft' && (held || microphone.recording)) { block(e); recordStop(false); return; }
-        if (e.key === 'Enter' && swallowedEnter) { swallowedEnter = false; block(e); return; }
         if (opened && e.code !== 'F6') e.stopImmediatePropagation();
     }, true);
-    window.addEventListener('blur', function () { recordStop(true); clearGhost(); });
-    document.addEventListener('visibilitychange', function () { if (document.hidden) { recordStop(true); clearGhost(); } });
-    window.addEventListener('lost-muse-code-priority', function (e) { priority = !!(e.detail && e.detail.active); if (priority) { clearGhost(); close(); } });
-    window.addEventListener('lost-keyboard-lock', function (e) { if (!e.detail || e.detail.locked !== false) { recordStop(true); emit('lost-muse-record', { on:false, cancel:true }); clearGhost(); } });
+    window.addEventListener('blur', function () { recordStop(true); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) recordStop(true); });
+    window.addEventListener('lost-muse-code-priority', function (e) { priority = !!(e.detail && e.detail.active); if (priority) { resetCommand(); close(); } });
+    window.addEventListener('lost-keyboard-lock', function (e) { if (!e.detail || e.detail.locked !== false) { recordStop(true); emit('lost-muse-record', { on:false, cancel:true }); resetCommand(); } });
     window.addEventListener('lost-modules', function (e) { if (e.detail && e.detail.muse) receive({ module: e.detail.muse }); });
     window.addEventListener('lost-muse-microphone', function (e) { setMicrophone(e.detail); });
-    window.addEventListener('message', function (e) { if (e.data && e.data.type === 'enableConsole') { priority = !!e.data.enabled || !!(window.__LOST_CLOCK && window.__LOST_CLOCK.phase && window.__LOST_CLOCK.phase !== 'countdown'); if (priority) { clearGhost(); close(); } } });
+    window.addEventListener('message', function (e) { if (e.data && e.data.type === 'enableConsole') { priority = !!e.data.enabled || !!(window.__LOST_CLOCK && window.__LOST_CLOCK.phase && window.__LOST_CLOCK.phase !== 'countdown'); if (priority) { resetCommand(); close(); } } });
     var clock = window.__LOST_CLOCK; if (clock && clock.phase === 'countdown' && clock.left > 0 && clock.left <= 240) priority = true;
     window.addEventListener('lost-muse-record', function(e){
         if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:e.detail.on?'start':e.detail.cancel?'cancel':'stop'});
@@ -126,6 +121,7 @@
     window.addEventListener('lost-muse-send-voice', function(){if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'send'});});
     window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone){window.LostStation.microphone({op:'query'});window.LostStation.microphone({op:'authorize'});}});
     if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});
+    if (window.LostConsoleInput) window.LostConsoleInput.register('AI', open);
     window.LostMuse = { open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone };
     render();
 })();

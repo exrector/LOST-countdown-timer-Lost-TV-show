@@ -273,19 +273,7 @@
             '.timer-status{position:relative;filter:brightness(.83)}' +
             '.timer-status::before{content:"";position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none;' +
             'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}' +
-            // меню
-            '.ctl{flex-basis:100%;position:relative;z-index:2;margin-top:18px;display:none;font-family:"Courier New",Courier,monospace}' +
-            '.ctl.open{display:block}' +
-            '.ctl .win{display:inline-flex;flex-direction:column;min-width:min(440px,100%);max-width:100%;max-height:calc(100vh - 175px);border:2px double #33ff88;background:#09120d;' +
-            'box-shadow:0 0 8px rgba(51,255,136,.35);color:#33ff88;text-shadow:0 0 5px rgba(51,255,136,.6)}' +
-            '.ctl .list{overflow-y:auto;min-height:0;scrollbar-color:#286440 #09120d}' +
-            '.ctl .ttl{padding:3px 10px;border-bottom:1px solid #33ff88;font-size:15px;letter-spacing:1px;opacity:.85}' +
-            '.ctl .row{display:flex;justify-content:space-between;gap:24px;padding:3px 10px;font-size:17px;cursor:pointer;white-space:nowrap}' +
-            '.ctl .row .k{opacity:.6}' +
-            '.ctl .row.sel{background:#33ff88;color:#09120d;text-shadow:none}' +
-            '.ctl .row.sel .k{opacity:.8}' +
-            '.ctl .ft{padding:3px 10px;border-top:1px solid #33ff88;font-size:13px;opacity:.6}' +
-            '.ctl .view{box-sizing:border-box;overflow:auto;overflow-wrap:anywhere;min-height:0!important;margin:0;padding:6px 10px;font:15px/1.35 "Courier New",Courier,monospace;white-space:pre-wrap;width:80ch;max-width:100%;min-height:120px}';
+            '';
         document.head.appendChild(st);
 
         function click(sel) { return function () { send({ type: '__cmd', cmd: 'click', sel: sel }); }; }
@@ -325,7 +313,7 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. Голосовой модуль ещё не подключён.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             return result;
         }
@@ -387,7 +375,7 @@
             if (isOpen()) { var selected = rows.querySelector('.sel'); if (selected) selected.scrollIntoView({ block: 'nearest' }); }
         }
         function isOpen() { return box.classList.contains('open'); }
-        function open(on) { box.classList.toggle('open', on); if (on) { path = [ROOT]; sel = 0; render(); } }
+        function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; sel = 0; render(); } }
         function enter(directoryOnly) {
             var it = items()[sel]; if (!it) return;
             if (it.dir) { path.push(it); sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); if (it.onEnter) it.onEnter(); render(); return; }
@@ -424,11 +412,11 @@
             if (!isOpen()) { path = [ROOT]; sel = ROOT.dir.findIndex(function (n) { return n.panel; }); }
             box.classList.remove('open');
         });
-        window.addEventListener('lost-ups-close', function () { box.classList.add('open'); render(); });
+        window.addEventListener('lost-ups-close', function () { box.classList.add('open'); document.body.classList.add('station-panel-open'); render(); });
 
         var prompt = document.querySelector('.console-prompt');
         if (prompt) {
-            prompt.title = 'Меню (M)';
+            prompt.title = 'Меню (→)';
             prompt.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
             prompt.addEventListener('click', function () { open(!isOpen()); });
         }
@@ -439,7 +427,7 @@
         // Вне меню доступны пауза и вход в меню. Буквы не запускают режимы/звук/выход;
         // они зарезервированы под явную команду AI и будущий ввод ассистента.
         var KEYS = {
-            KeyP: click('#pauseResume'),
+            KeyP: click('#pauseResume'), Pause: click('#pauseResume'),
             KeyM: function () { open(!isOpen()); },
             Escape: function () { if (isOpen()) back(); },
             ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
