@@ -1,8 +1,9 @@
 'use strict';
 // Пульт LOST по iMessage. Станция читает входящие сообщения от разрешённых номеров и выполняет:
-// код, команду из «Команд» Mac mini с таким же названием или команду LOST по её словам.
+// вопрос Kay («kay: …»), код, команду из «Команд» Mac mini с таким же названием или команду LOST по её словам.
 // Слова команд LOST хранятся в состоянии станции и правятся в меню строкой через запятую.
 const { COMMANDS, parseWords, match } = require('./commands.cjs');
+const { parseKay } = require('./kay.cjs');
 
 const LABEL = Object.fromEntries(COMMANDS.map(c => [c.id, c.label]));
 function normalizeSettings(value) {
@@ -12,18 +13,23 @@ function normalizeSettings(value) {
         return [c.id, own && own.length ? own : c.words.slice()];
     })) };
 }
-function createRemote({ saved, persist = () => true, actions, shortcuts = { find: () => null, run: () => '', list: () => [] } }) {
+function createRemote({ saved, persist = () => true, actions, shortcuts = { find: () => null, run: () => '', list: () => [] }, kay = null }) {
     let settings = normalizeSettings(saved);
     // Справка: команды LOST с их словами, код и команды Mac mini по точному названию.
     function help() {
         const names = (typeof shortcuts.list === 'function' && shortcuts.list()) || [];
         return ['LOST — команды пульта:', ...COMMANDS.map(c => '• ' + c.label + ': ' + settings.words[c.id].join(', ')),
             '• КОД: 4 8 15 16 23 42 — в последние 4 минуты цикла',
+            '• KAY: «kay: вопрос» или «кай: вопрос» — ответит Kay (AI), переписка видна в AI на станции',
             names.length ? 'Команды Mac mini (точное название):\n' + names.map(n => '• ' + n).join('\n') : 'Команд Mac mini нет.'].join('\n');
     }
     // Ответ отправителю; '' — только состояние станции, { text, bare } — только текст; может прийти Promise.
     function run(text, channel, sender) {
-        const said = String(text || '').trim(), found = match(said, settings.words);
+        const said = String(text || '').trim();
+        // «kay: …» — вопрос Kay; проверяется первым, чтобы слова команд внутри вопроса ничего не запускали.
+        const question = parseKay(said);
+        if (question) return Promise.resolve(kay ? kay.ask(question, channel) : 'Kay не подключён.').then(text => ({ text, bare: true }));
+        const found = match(said, settings.words);
         if (found && found.id === 'code') return actions.code(found.code, channel);
         const name = shortcuts.find(said);
         // Команда Mac mini: один ответ, когда она завершится, — итог или ошибка, без состояния станции.

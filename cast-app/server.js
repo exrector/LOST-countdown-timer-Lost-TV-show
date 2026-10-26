@@ -13,6 +13,7 @@ const { createModules } = require('./modules');
 const { createRemote, isHomeNetwork } = require('../remote/runtime.cjs');
 const { createIMessage, compose } = require('../remote/imessage.cjs');
 const { formatStatus } = require('../remote/status.cjs');
+const { createKay } = require('../remote/kay.cjs');
 const { createUPSGateway } = require('./ups-gateway');
 const { createMuseGateway } = require('../muse/gateway.cjs');
 
@@ -268,7 +269,9 @@ function start(port = 8765, opts = {}) {
             });
         },
     };
-    remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner });
+    // Kay — тот же чат Muse, что и AI в терминале.
+    const kay = createKay({ send: opts.sendMuseMessage, chat: opts.getMuseChat, ready: () => { const m = moduleManager.snapshot().muse; return !!m && m.enabled !== false && m.status === 'ready'; } });
+    remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner, kay });
     const remoteMsg = () => JSON.stringify({ type: '__remote', remote: remote.snapshot(), senders: imessage ? imessage.senders().length : 0, address: lanIp() });
     function publishRemote() { const m = remoteMsg(); for (const ws of peers.console) if (ws.readyState === 1) ws.send(m); }
     const imessage = createIMessage({ senders: opts.sleepFrom || [], run: remote.run, status: statusText, active: () => moduleManager.desired().imessage === true });
