@@ -8,7 +8,8 @@
   var known=state.updatedAt && Date.now()-state.updatedAt<90000;
   var status=known?state.status:'unavailable';
   line.className='vpn-line '+status;line.hidden=state.enabled===false;
-  line.textContent=title(); // та же подпись, что у пункта VPN в меню
+  // та же подпись, что у пункта VPN в меню; значение — в <b>, как у показаний UPS
+  line.textContent='VPN: ';var b=document.createElement('b');b.textContent=value(status);line.appendChild(b);
   line.title=state.error||'AdGuard VPN на роутере';
  }
  async function poll(){if(polling||state.enabled===false)return;polling=true;var c=new AbortController(),timeout=setTimeout(function(){c.abort();},5000);
@@ -71,8 +72,9 @@
  // Подпись пункта в корне меню — как «ЗВУК: ДИНАМИКИ»: раздел и текущее состояние.
  function title(){
   var known=state.updatedAt && Date.now()-state.updatedAt<90000, status=known?state.status:'unavailable';
-  return 'VPN: '+(status==='connected'?String(state.location||'ПОДКЛЮЧЁН').toUpperCase():status==='disconnected'?'ОТКЛЮЧЁН':status==='connecting'?'ПОДКЛЮЧЕНИЕ':'НЕТ ДАННЫХ');
+  return 'VPN: '+value(status);
  }
+ function value(status){return status==='connected'?String(state.location||'ПОДКЛЮЧЁН').toUpperCase():status==='disconnected'?'ОТКЛЮЧЁН':status==='connecting'?'ПОДКЛЮЧЕНИЕ':'НЕТ ДАННЫХ';}
  window.LostVPN={menu:menu,title:title,execute:execute,status:function(){return state;}};
  window.addEventListener('lost-modules',function(e){var m=e.detail&&e.detail.vpn;if(m){state.enabled=m.enabled;paint();if(m.enabled)poll();}});
  paint();poll();timer=setInterval(poll,5000);window.addEventListener('pagehide',function(){clearInterval(timer);});

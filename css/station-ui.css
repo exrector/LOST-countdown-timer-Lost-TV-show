@@ -9,7 +9,7 @@
 }
 body.console-page,body.timer-page{background:var(--station-bg);font-family:var(--station-font)}
 body.console-page .console-container{color:var(--station-ink);border-radius:0;box-shadow:var(--station-shadow)}
-body.console-page .timer-status{font:var(--station-help)/1.4 var(--station-font);color:var(--station-muted);text-shadow:none;letter-spacing:0}
+/* .timer-status keeps its original look from css/lost-timer.css: green, 20px, glow. */
 body.console-page .ctl,body.console-page .ups-panel{
  position:absolute;inset:auto;left:var(--station-inset);top:var(--station-panel-top);margin:0;
  width:min(var(--station-panel-width),calc(100% - 2 * var(--station-inset)));
@@ -76,13 +76,15 @@ body.console-page.lost-muse-active .muse-transcript{padding-top:0}
 body.console-page .service-line{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:28px;margin:9px 24px 0;color:var(--station-muted);font:13px/1.2 var(--station-font);white-space:nowrap}
 body.console-page .service-line .ups-line{display:flex;flex:0 1 auto;gap:10px;margin:0;height:auto;font:inherit;letter-spacing:0}
 body.console-page .service-line .vpn-line{margin-left:auto;flex-shrink:0;text-align:right}
-body.console-page .service-line .vpn-line b{font-weight:normal;color:var(--station-muted)}
+/* VPN reads like the UPS readings beside it: muted caption, brighter value, same glow and state colours. */
+body.console-page .service-line .vpn-line{color:#60aa7d;text-shadow:0 0 5px rgba(51,255,136,.15)}
+body.console-page .service-line .vpn-line b{font-weight:normal;color:#8dd9a9}
 @media(max-width:650px){body.console-page .service-line{font-size:10px;gap:12px;margin-left:20px;margin-right:20px}body.console-page .service-line .ups-line{gap:5px}}
 
 body.console-page .service-line .ups-line[hidden]{display:none}
 
-body.console-page .service-line .vpn-line.connected{color:var(--station-ink)}
-body.console-page .service-line .vpn-line.disconnected{color:#ff7970}
+body.console-page .service-line .vpn-line.disconnected,body.console-page .service-line .vpn-line.disconnected b{color:#ff7970}
+body.console-page .service-line .vpn-line.unavailable,body.console-page .service-line .vpn-line.unavailable b{color:#85958a}
 body.console-page .service-line .vpn-line[hidden]{display:none}
 body.console-page .station-explanation{white-space:pre-line;padding:6px 10px;color:var(--station-muted);font:var(--station-help)/1.4 var(--station-font);border-bottom:1px solid var(--station-line);max-height:100px;overflow:auto}
 body.console-page .station-editor{padding:10px;min-width:0}
