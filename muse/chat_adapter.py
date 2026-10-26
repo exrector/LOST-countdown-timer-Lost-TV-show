@@ -1,4 +1,4 @@
-"""Private local chat projection for the unmodified Muse transport SDK.
+"""Private local chat projection with independent control and chat transports.
 
 No credentials or raw chat events are copied into diagnostics. The chat history
 belongs to the explicit LOST side chat, not to the user's main Muse chat.
@@ -12,6 +12,7 @@ import io
 import struct
 import wave
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 import hashlib
 import json
 import os
@@ -308,8 +309,8 @@ def _voice_note(encoded):
         raise ValueError('invalid_audio') from None
 
 
-def install(root: Path, session_id: str):
-    """Install the side-chat projection before the SDK's cli.main()."""
+def install(root: Path, session_id: str, separate_chat=False):
+    """Install the dedicated LOST side-chat projection before cli.main()."""
     if not isinstance(session_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,64}', session_id):
         raise ValueError('Invalid local side-chat session id')
     from musegadget import service
@@ -332,17 +333,75 @@ def install(root: Path, session_id: str):
 
     BaseSession, BaseService = service.LinkSession, service.Service
 
+    class HttpSession(BaseSession):
+        """Chat HTTP only: never register a second device/control stream."""
+        async def _open_control_stream(self):
+            self._stream_id = 0  # HTTP request ids start at 1.
+            self.http_ready.set()
+
+        def _handle(self, message):
+            return None  # This connection never executes device commands.
+
     class ChatSession(BaseSession):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._http_args = (args, kwargs)
+            self._chat_channel = None
+
+        @asynccontextmanager
+        async def _chat_transport(self):
+            if not separate_chat:
+                yield self
+                return
+            args, kwargs = self._http_args
+            channel = HttpSession(*args, **kwargs)
+            channel.http_ready = asyncio.Event()
+            stop = asyncio.Event()
+            running = asyncio.create_task(channel.run(stop))
+            ready = asyncio.create_task(channel.http_ready.wait())
+            try:
+                done, _ = await asyncio.wait({running, ready}, return_when=asyncio.FIRST_COMPLETED)
+                if running in done:
+                    outcome = running.result()
+                    # Re-fetch a leased bearer through the owning Service if
+                    # chat auth expired while the control socket stayed alive.
+                    if getattr(outcome, 'value', None) in ('auth_rejected', 'forbidden'):
+                        await self._ws.close()
+                    raise ConnectionError('Chat HTTP connection ended')
+                self._chat_channel = channel
+                yield channel
+            finally:
+                self._chat_channel = None
+                ready.cancel()
+                stop.set()
+                running.cancel()
+                await asyncio.gather(ready, running, return_exceptions=True)
+
         async def _chat_observe(self):
             await self.registered.wait()
             delay = 2
             while self.registered.is_set():
-                state.new_subscription()
                 try:
-                    async for event in self.subscribe_chat(session_id):
-                        state.connected(True)
-                        delay = 2
-                        state.event(event)
+                    async with self._chat_transport() as channel:
+                        while self.registered.is_set():
+                            state.new_subscription()
+                            try:
+                                async for event in channel.subscribe_chat(session_id):
+                                    state.connected(True)
+                                    delay = 2
+                                    state.event(event)
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception as exc:
+                                diagnostic('subscribe', exc=exc)
+                                if not getattr(channel, '_running', True):
+                                    raise
+                            # Keep HTTP usable for the first POST even when a
+                            # dedicated chat does not exist yet (subscribe 404).
+                            state.available = False
+                            state.changed()
+                            await asyncio.sleep(delay)
+                            delay = min(delay * 2, 15)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -359,7 +418,8 @@ def install(root: Path, session_id: str):
             while True:
                 # subscribe_chat sets the event once HTTP 2xx is acknowledged,
                 # even if no chat event has arrived yet.
-                if self.chat_subscribed.is_set() and not state.available:
+                channel = self if not separate_chat else self._chat_channel
+                if channel is not None and channel.chat_subscribed.is_set() and not state.available:
                     state.connected(True)
                 state.tick()
                 await asyncio.sleep(0.2)
@@ -398,14 +458,17 @@ def install(root: Path, session_id: str):
             session = self._current
             if session is None or not session.registered.is_set():
                 return {'ok': False, 'error': 'not_connected'}
+            sender = session if not separate_chat else session._chat_channel
+            if sender is None:
+                return {'ok': False, 'error': 'not_connected'}
             if state.busy:
                 return {'ok': False, 'error': 'busy'}
             state.begin(message.strip())
             try:
                 if voice:
-                    reply = await session.send_voice(audio, session_id, output_modality='text')
+                    reply = await sender.send_voice(audio, session_id, output_modality='text')
                 else:
-                    reply = await session.send_chat(message.strip(), session_id, output_modality='text')
+                    reply = await sender.send_chat(message.strip(), session_id, output_modality='text')
                 if not isinstance(reply, dict) or reply.get('ok') is not True or not session.registered.is_set():
                     diagnostic('send_rejected', reply=reply)
                     raise ValueError('Rejected')
