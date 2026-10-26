@@ -15,6 +15,9 @@ body.lost-muse-active .my-console::placeholder{color:#747c77;text-shadow:none}
 .muse-message-user .muse-message-role{color:#33ff88}
 .muse-message-text{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .muse-message-pending::after{content:" ▌";opacity:.65}
+.muse-audit{font-size:13px;line-height:1.5;color:#879b8e;text-shadow:none;margin-bottom:4px}
+.muse-audit .muse-message-role{color:#879b8e}
+.muse-audit-error,.muse-audit-error .muse-message-role{color:#d87569}
 .muse-hint,.muse-notice{flex-shrink:0;font:13px/1.5 "Courier New",Courier,monospace;color:#858b87;text-shadow:none;padding:3px 0;white-space:pre-wrap}
 .muse-notice{color:#a1a7a3}
 @media(max-width:650px){.muse-transcript{font-size:17px}.muse-hint,.muse-notice{font-size:11px}.muse-message{grid-template-columns:5ch minmax(0,1fr)}}

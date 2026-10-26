@@ -2,6 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn}=require('node:child_process');
 const net=require('node:net');
+const {readAudit}=require('./command-audit.cjs');
 function createMuse({root,home=path.join(os.homedir(),'Library/Application Support/LOST Muse')}){
  const python=path.join(home,'venv/bin/python'),script=path.join(root,'muse/runtime.py');
  let child=null,retry=null,desired=false,closing=false,last={status:'disabled',error:null};
@@ -40,8 +41,9 @@ function createMuse({root,home=path.join(os.homedir(),'Library/Application Suppo
   });
  }
  function chat(){
-  try{const p=path.join(home,'chat.json');if(fs.statSync(p).size>524288)throw Error();const d=JSON.parse(fs.readFileSync(p,'utf8'));return {phase:d.phase||'idle',messages:Array.isArray(d.messages)?d.messages:[],error:d.error||null,available:d.available===true};}
-  catch(_){return {phase:'idle',messages:[],available:false,error:null};}
+  const audit=readAudit(path.join(home,'logs/commands.jsonl'));
+  try{const p=path.join(home,'chat.json');if(fs.statSync(p).size>524288)throw Error();const d=JSON.parse(fs.readFileSync(p,'utf8'));return {phase:d.phase||'idle',messages:Array.isArray(d.messages)?d.messages:[],error:d.error||null,available:d.available===true,audit};}
+  catch(_){return {phase:'idle',messages:[],available:false,error:null,audit};}
  }
  function requestChat(payload){
   if(!desired||read().status!=='ready')return Promise.resolve({ok:false,error:'not_connected'});

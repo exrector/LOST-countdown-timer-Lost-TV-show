@@ -3,10 +3,19 @@
 (function () {
     'use strict';
     if (!document.body || !document.body.classList.contains('console-page')) return;
-    var state = { remote: null, senders: 0 }, runs = {}, nextRun = 1;
+    var state = { remote: null, senders: 0 }, runs = {}, nextRun = 1, saves = Object.create(null), nextSave = 1;
     window.addEventListener('message', function (e) {
         if (!e.data) return;
         if (e.data.type === '__shortcut_result') { var shown = runs[e.data.id]; if (!shown) return; delete runs[e.data.id]; shown.text = result(e.data.text); window.dispatchEvent(new CustomEvent('lost-remote')); return; }
+        if (e.data.type === '__remote_set_result') {
+            var save = saves[e.data.requestId]; if (!save || e.data.id !== save.command) return;
+            var valid = e.data.ok === true && Array.isArray(e.data.words) && e.data.words.length > 0 && e.data.words.length <= 40 && e.data.words.every(function (word) { return typeof word === 'string' && word.length > 0 && word.length <= 60; });
+            if (!valid && e.data.ok !== false) return;
+            delete saves[e.data.requestId]; clearTimeout(save.timer);
+            save.shown.label = valid ? 'СОХРАНЕНО' : 'ОШИБКА';
+            save.shown.text = valid ? save.label + ': ' + e.data.words.join(', ') : 'НЕ УДАЛОСЬ СОХРАНИТЬ СЛОВА. Прежние слова остаются.';
+            window.dispatchEvent(new CustomEvent('lost-remote')); return;
+        }
         if (e.data.type !== '__remote') return;
         state = { remote: e.data.remote, senders: e.data.senders || 0 };
         window.dispatchEvent(new CustomEvent('lost-remote'));
@@ -18,9 +27,19 @@
         var node = { editor: true, confirmLabel: 'СОХРАНИТЬ', label: function () { return cmd.label + ': ' + words(cmd.id); }, pathLabel: cmd.label, draft: words(cmd.id),
             description: 'Слова через запятую. Сообщение, совпадающее со словом или содержащее его, выполняет команду «' + cmd.label + '». Enter — сохранить.',
             prepare: function (value) {
-                window.dispatchEvent(new CustomEvent('lost-remote-set', { detail: { id: cmd.id, words: value } }));
+                var shown = { label: 'СОХРАНЕНИЕ', view: true, text: 'СОХРАНЕНИЕ…' };
+                if (typeof value !== 'string' || value.length > 2000 || !value.split(',').some(function (word) { return word.trim() && word.trim().replace(/\s+/g, ' ').length <= 60; })) {
+                    shown.label = 'ОШИБКА'; shown.text = 'Введите непустые слова через запятую. Прежние слова остаются.'; return shown;
+                }
+                var requestId = 'remote-set-' + nextSave++;
+                saves[requestId] = { shown: shown, command: cmd.id, label: cmd.label, timer: setTimeout(function () {
+                    if (!saves[requestId]) return; delete saves[requestId];
+                    shown.label = 'НЕ ПОДТВЕРЖДЕНО'; shown.text = 'СОХРАНЕНИЕ НЕ ПОДТВЕРЖДЕНО. Проверьте слова в меню перед повтором.';
+                    window.dispatchEvent(new CustomEvent('lost-remote'));
+                }, 8000) };
+                window.dispatchEvent(new CustomEvent('lost-remote-set', { detail: { id: cmd.id, words: value, requestId: requestId } }));
                 node.draft = value;
-                return { label: 'СОХРАНЕНО', view: true, staticText: cmd.label + ': ' + value + '\n\nПустая строка не сохраняется — прежние слова остаются.' };
+                return shown;
             } };
         return node;
     }

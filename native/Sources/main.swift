@@ -302,6 +302,13 @@ final class StationApp: NSObject, NSApplicationDelegate {
         watchdog = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(watchdog!, forMode: .common)
         tick()
+        // Ask once on the first managed launch, before the voice UI is opened.
+        // Existing grants and denials remain untouched.
+        if !preview && AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            DispatchQueue.main.async { [weak self] in
+                self?.microphone.command(["op": "authorize"])
+            }
+        }
         if diagnostics {
             snapshotTimer = Timer(timeInterval: 10, repeats: true) { [weak self] _ in self?.snapshot() }
             RunLoop.main.add(snapshotTimer!, forMode: .common)

@@ -296,7 +296,15 @@ function start(port = 8765, opts = {}) {
                 if (data.type === '__audio') { if (['speakers','monitor','off'].includes(data.mode)) setAudio(data.mode); return; }
                 if (data.type === '__alive') { events.emit('client-alive', { ...data, role }); if (role === 'tv') events.emit('tv-alive', data); return; }
                 if (data.type === '__log') { console.log('[' + role + ' log]', data.msg); return; }
-                if (data?.type === '__remote_set') { if (role === 'console') { if (!remote.setWords(data.id, data.words)) ws.send(JSON.stringify({ type: '__module_error', id: 'imessage', error: 'invalid_remote_request' })); publishRemote(); } return; }
+                if (data?.type === '__remote_set') {
+                    if (role !== 'console' || typeof data.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(data.requestId)) return;
+                    const valid = typeof data.id === 'string' && typeof data.words === 'string' && data.words.length <= 2000 && data.words.split(',').some(w => w.trim() && w.trim().replace(/\s+/g, ' ').length <= 60);
+                    const ok = valid && remote.setWords(data.id, data.words);
+                    const command = ok ? remote.snapshot().commands.find(c => c.id === data.id) : null;
+                    const words = command ? command.words : undefined;
+                    ws.send(JSON.stringify({ type: '__remote_set_result', requestId: data.requestId, id: data.id, ok: !!words, ...(words ? { words } : { error: 'save_failed' }) }));
+                    publishRemote(); return;
+                }
                 // Клавиша K в терминале: список команд Mac mini обновляется при открытии, Enter запускает выбранную.
                 if (data?.type === '__shortcuts_refresh') { if (role === 'console') refreshShortcuts(true); return; }
                 if (data?.type === '__shortcut_run') {

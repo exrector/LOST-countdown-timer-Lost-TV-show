@@ -31,14 +31,46 @@
         held = true; noticeText = 'ВКЛЮЧАЮ МИКРОФОН…'; render(); emit('lost-muse-record', { on: true });
     }
     function recordStop(cancel) { if (!held && !microphone.recording) return; held = false; microphone.recording = false; microphone.level = 0; noticeText = cancel ? 'Запись отменена' : 'Завершаю запись…'; emit('lost-muse-record', { on: false, cancel: !!cancel }); render(); }
+    // The journal is an enhancement, never a reason to disable the assistant if
+    // an older cached page happens to miss timeline.js during an update.
+    var timelineApi = window.LostMuseTimeline || { Timeline: function () { this.update = function (messages) {
+        return (Array.isArray(messages) ? messages.slice(-100) : []).map(function (m, index) { return { kind:'message', id:'message:'+(m.id || 'legacy-'+index), role:m.role === 'user' ? 'user' : 'assistant', text:typeof m.text === 'string' ? m.text.slice(0,40000) : '', pending:m.pending === true }; }).reverse();
+    }; }, describe: function () { return { label:'', text:'', failed:false }; } };
+    var timeline = new timelineApi.Timeline();
     function renderMessages() {
-        var messages = Array.isArray((snapshot.chat || {}).messages) ? snapshot.chat.messages.slice(-100) : [];
-        var key = JSON.stringify(messages); if (key === transcript._messagesKey) return; transcript._messagesKey = key;
-        var previous = transcript.scrollTop; transcript.replaceChildren();
-        // Newest message first, right under the fixed input: a reply pushes the question down.
-        messages.reverse();
-        messages.forEach(function (m) { var role = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'system', row = node('article', 'muse-message muse-message-' + role), label = node('div', 'muse-message-role', role === 'user' ? '>:' : role === 'assistant' ? 'muse:' : ''), body = node('div', 'muse-message-text', typeof m.text === 'string' ? m.text.slice(0, 40000) : ''); if (m.pending) body.classList.add('muse-message-pending'); row.appendChild(label); row.appendChild(body); transcript.appendChild(row); });
-        transcript.scrollTop = previous < 48 ? 0 : previous;
+        var chat = snapshot.chat || {}, rows = timeline.update(chat.messages, (chat.audit || {}).events);
+        var key = JSON.stringify(rows); if (key === transcript._messagesKey) return; transcript._messagesKey = key;
+        var previous = transcript.scrollTop, anchor = null, anchorOffset = 0;
+        var bounds = function (element) { return element && typeof element.getBoundingClientRect === 'function' ? element.getBoundingClientRect() : { top:0, bottom:0 }; };
+        var top = bounds(transcript).top;
+        if (previous >= 48) Array.prototype.some.call(transcript.children, function (child) {
+            var rect = bounds(child); if (rect.bottom > top) { anchor = child.dataset.timelineId; anchorOffset = rect.top - top; return true; } return false;
+        });
+        var old = transcript._rows || Object.create(null), current = Object.create(null);
+        rows.forEach(function (m, index) {
+            var row = old[m.id];
+            if (!row) { row = node('article'); row.dataset = row.dataset || {}; row.dataset.timelineId = m.id; row._label = node('div', 'muse-message-role'); row._body = node('div', 'muse-message-text'); row.appendChild(row._label); row.appendChild(row._body); }
+            current[m.id] = row;
+            if (m.kind === 'audit') {
+                var detail = timelineApi.describe(m);
+                row.className = 'muse-message muse-audit' + (detail.failed ? ' muse-audit-error' : '');
+                row._label.textContent = detail.label; row._body.textContent = detail.text;
+            } else {
+                row.className = 'muse-message muse-message-' + m.role;
+                row._label.textContent = m.role === 'user' ? '>:' : 'muse:';
+                if (row._body.textContent !== m.text) row._body.textContent = m.text;
+            }
+            row._body.classList.toggle('muse-message-pending', m.pending === true);
+            if (transcript.children[index] !== row) {
+                if (typeof transcript.insertBefore === 'function') transcript.insertBefore(row, transcript.children[index] || null);
+                else transcript.appendChild(row);
+            }
+        });
+        Object.keys(old).forEach(function (id) { if (!current[id]) old[id].remove(); });
+        transcript._rows = current;
+        if (previous < 48) transcript.scrollTop = 0;
+        else if (anchor && current[anchor]) transcript.scrollTop += bounds(current[anchor]).top - bounds(transcript).top - anchorOffset;
+        else transcript.scrollTop = previous;
     }
     function render() {
         if (!opened) return;
@@ -67,8 +99,9 @@
         catch (e) { if (current === epoch && opened) { noticeText = 'СОСТОЯНИЕ MUSE НЕДОСТУПНО'; snapshot.module = Object.assign({}, snapshot.module, { status: 'unavailable' }); render(); } }
         finally { clearTimeout(timeout); if (readController === ownController) readController = null; polling = false; }
     }
+    function canOpen() { return !opened && !priority && !window.LostBootActive; }
     function open() {
-        if (opened || priority || window.LostBootActive || menuOpen()) return false; var ups = document.querySelector('.ups-panel'); if (ups && !ups.hidden) return false;
+        if (!canOpen() || menuOpen()) return false; var ups = document.querySelector('.ups-panel'); if (ups && !ups.hidden) return false;
         originalDisabled = input.disabled; originalReadOnly = input.readOnly; resetCommand(); input.value = ''; input.maxLength = 4000; opened = true; epoch++; transcript.hidden = false; transcript.scrollTop = 0; footer.hidden = false; document.body.classList.add('lost-muse-active'); emit('lost-muse-open', {}); render(); poll(); pollTimer = setInterval(poll, 1000); if (!input.disabled) input.focus(); else transcript.focus(); return true;
     }
     function close() { if (!opened) return; recordStop(true); emit('lost-muse-record', { on: false, cancel: true }); opened = false; epoch++; clearInterval(pollTimer); pollTimer = null; if (readController) readController.abort(); transcript.hidden = true; footer.hidden = true; notice.hidden = true; input.value = ''; input.readOnly = originalReadOnly; input.disabled = originalDisabled; input.placeholder = originalPlaceholder; if (originalMaxLength >= 0) input.maxLength = originalMaxLength; else input.removeAttribute('maxlength'); document.body.classList.remove('lost-muse-active'); resetCommand(); emit('lost-muse-close', {}); var original = document.querySelector('.my-console'); if (original && !original.disabled && !document.hidden) original.focus(); }
@@ -127,6 +160,7 @@
     window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone){window.LostStation.microphone({op:'query'});window.LostStation.microphone({op:'authorize'});}});
     if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});
     if (window.LostConsoleInput) window.LostConsoleInput.register('AI', open);
-    window.LostMuse = { open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone };
+    window.LostMuse = { canOpen: canOpen, open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone,
+        commandHistory: function () { var a = (snapshot.chat || {}).audit || {}; return { shown: Array.isArray(a.events) ? a.events.length : 0, limit: a.limit || 120, maxBytes: a.maxBytes || 262144, truncated: a.truncated === true, available: a.available !== false }; } };
     render();
 })();

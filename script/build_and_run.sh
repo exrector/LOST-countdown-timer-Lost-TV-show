@@ -5,6 +5,9 @@ MODE="${1:-run}"
 TARGET_ARCH="${LOST_BUILD_ARCH:-$(uname -m)}"
 BUNDLE="$ROOT/native/dist/LOST.app"
 case "$MODE" in run|--debug|--logs|--telemetry|--verify|--build-only|--preview) ;; *) echo 'usage: build_and_run.sh [--preview|--build-only|--debug|--logs|--telemetry|--verify]' >&2; exit 2 ;; esac
+# Never merge a new build into an older bundle: stale AppleDouble files break
+# the code-signing resource seal after transfer to the Intel station.
+rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$ROOT/native/.module-cache"
 xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation "$ROOT/native/Sources/main.swift" "$ROOT/native/Sources/StationMicrophone.swift" -o "$BUNDLE/Contents/MacOS/LOSTNative"
 if [ -f "$ROOT/native/Resources/LOST.icns" ]; then
@@ -20,7 +23,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>LOST</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>LOST.icns</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>1.1</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>NSMicrophoneUsageDescription</key><string>LOST записывает голосовое сообщение для Muse только пока вы удерживаете RESET в режиме AI.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>

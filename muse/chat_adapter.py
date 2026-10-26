@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import time
 import uuid
+from command_audit import CommandAudit, audited_invoke, timeline_now
 
 MAX_MESSAGES = 24
 MAX_TEXT = 16000
@@ -67,8 +68,12 @@ class ChatState:
             data = json.loads(self.path.read_text(encoding='utf-8'))
             for message in data.get('messages', [])[-MAX_MESSAGES:]:
                 if isinstance(message, dict) and message.get('role') in ('user', 'assistant') and isinstance(message.get('text'), str):
-                    self.messages.append({'id': str(message.get('id') or uuid.uuid4().hex)[:128],
-                                          'role': message['role'], 'text': message['text'][:MAX_TEXT]})
+                    row = {'id': str(message.get('id') or uuid.uuid4().hex)[:128],
+                           'role': message['role'], 'text': message['text'][:MAX_TEXT]}
+                    created = message.get('createdAt')
+                    if isinstance(created, (int, float)) and not isinstance(created, bool) and 0 < created < 9e15:
+                        row['createdAt'] = created
+                    self.messages.append(row)
             if data.get('phase') in ('sending', 'waiting', 'replying'):
                 self.phase, self.error = 'error', 'Предыдущий запрос прерван перезапуском'
         except (OSError, ValueError, TypeError, AttributeError):
@@ -127,7 +132,7 @@ class ChatState:
         self._deadline = self.clock() + WAIT_SECONDS
         self._last_activity = self.clock()
         self._user_id = 'local-' + uuid.uuid4().hex
-        self.messages.append({'id': self._user_id, 'role': 'user', 'text': message, 'pending': True})
+        self.messages.append({'id': self._user_id, 'role': 'user', 'text': message, 'pending': True, 'createdAt': timeline_now()})
         self.changed()
 
     def accept(self, reply):
@@ -256,7 +261,7 @@ class ChatState:
         if message and not message.get('pending') and kind in ('delta.message_start', 'delta.text_append'):
             return
         if message is None:
-            message = {'id': ident, 'role': 'assistant', 'text': '', 'pending': True}
+            message = {'id': ident, 'role': 'assistant', 'text': '', 'pending': True, 'createdAt': timeline_now()}
             self.messages.append(message)
         self._turn_messages.add(ident)
         if not message.get('pending') and kind == 'message.assistant' and p.get('display_text_ready') is False:
@@ -316,6 +321,7 @@ def install(root: Path, session_id: str, separate_chat=False):
     from musegadget import service
     service.MAX_LOCAL_REQUEST = 3 * 1024 * 1024
     state = ChatState(root)
+    audit = CommandAudit(Path(root) / 'logs' / 'commands.jsonl')
     def diagnostic(stage, exc=None, reply=None):
         detail = {'stage': stage, 'time': int(time.time()), 'exception': type(exc).__name__ if exc else None}
         if exc is not None and isinstance(getattr(exc, 'status', None), int): detail['status'] = exc.status
@@ -347,6 +353,11 @@ def install(root: Path, session_id: str, separate_chat=False):
             super().__init__(*args, **kwargs)
             self._http_args = (args, kwargs)
             self._chat_channel = None
+            self._audit_session = uuid.uuid4().hex
+
+        async def _invoke(self, message):
+            if not await audited_invoke(self, message, audit, self._audit_session):
+                return await super()._invoke(message)
 
         @asynccontextmanager
         async def _chat_transport(self):
