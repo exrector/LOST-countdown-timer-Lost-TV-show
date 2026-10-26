@@ -19,8 +19,10 @@
                     const ctx = canvas.getContext('2d');
                     const style = window.getComputedStyle(consoleInput);
                     ctx.font = style.fontSize + ' ' + style.fontFamily;
-                    const textWidth = ctx.measureText(consoleInput.value).width;
-                    cursor.style.left = textWidth + 'px';
+                    const at = consoleInput.selectionStart === null ? consoleInput.value.length : consoleInput.selectionStart;
+                    const textWidth = ctx.measureText(consoleInput.value.slice(0, at)).width;
+                    const right = Math.max(0, consoleInput.clientWidth - cursor.offsetWidth);
+                    cursor.style.left = Math.max(0, Math.min(right, textWidth - consoleInput.scrollLeft)) + 'px';
                 }
                 
                 // Listen for messages from main window
@@ -44,7 +46,9 @@
 
                 document.addEventListener('visibilitychange', () => { if (!document.hidden && !consoleInput.disabled) consoleInput.focus(); });
 
-                consoleInput.addEventListener('input', updateCursorPosition);
+                ['input', 'select', 'click', 'scroll'].forEach(name => consoleInput.addEventListener(name, updateCursorPosition));
+                document.addEventListener('selectionchange', updateCursorPosition);
+                window.addEventListener('resize', updateCursorPosition);
                 window.addEventListener('lost-console-command-change', updateCursorPosition);
                 // Handle input submission
                 consoleInput.addEventListener('keyup', (e) => {

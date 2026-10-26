@@ -5,7 +5,10 @@
  var API='/__ups', state=null, lastResponse=0, pending=false, tab='all', editing=false, returnFocus=null, returnRow=null, lastError='';
  function el(tag,cls,text) { var e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e; }
  var line=el('div','ups-line stale');line.setAttribute('aria-label','Телеметрия энергоконтура');
- document.body.appendChild(line);document.body.classList.add('lost-ups-ready');
+ var services=document.querySelector('.service-line');if(!services){services=el('div','service-line');document.body.appendChild(services);}
+ services.appendChild(line);
+ var vpn=el('div','vpn-line','VPN: ');vpn.setAttribute('aria-label','VPN роутера');vpn.appendChild(el('b','','НЕТ ДАННЫХ'));vpn.title='AdGuard VPN на роутере: источник телеметрии ещё не подключён';services.appendChild(vpn);
+ document.body.classList.add('lost-ups-ready');
  var panel=el('section','ups-panel');panel.hidden=true;panel.setAttribute('role','dialog');panel.setAttribute('aria-label','Энергоконтур');panel.setAttribute('aria-modal','true');
  var title=el('div','ups-title');title.appendChild(el('span','','LOST:\\МЕНЮ\\ЭНЕРГОКОНТУР'));var close=button('ESC НАЗАД',leave);title.appendChild(close);panel.appendChild(title);
  var tabs=el('div','ups-tabs');panel.appendChild(tabs);
@@ -50,7 +53,7 @@
   if(enabled===on&&pollTimer!==null)return;
   enabled=on;epoch++;clearInterval(pollTimer);clearInterval(lineTimer);pollTimer=null;lineTimer=null;
   activeReads.slice().forEach(function(controller){controller.abort();});
-  state=null;lastResponse=0;lastError='';line.hidden=!on;document.body.classList.toggle('lost-ups-ready',on);
+  state=null;lastResponse=0;lastError='';line.hidden=!on;document.body.classList.add('lost-ups-ready');
   if(!on){var wasOpen=!panel.hidden;panel.hidden=true;document.body.classList.remove('station-panel-open');editing=false;if(wasOpen)window.dispatchEvent(new Event('lost-ups-close'));return;}
   renderLine();poll();pollTimer=setInterval(poll,5000);lineTimer=setInterval(renderLine,1000);
  }

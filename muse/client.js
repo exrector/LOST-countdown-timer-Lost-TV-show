@@ -14,7 +14,7 @@
     transcript.setAttribute('role', 'log'); transcript.setAttribute('aria-label', 'Разговор Muse'); transcript.setAttribute('aria-live', 'polite'); transcript.tabIndex = 0;
     var form = node('form', 'muse-compose');
     form.appendChild(panel.querySelector('.console-prompt')); form.appendChild(panel.querySelector('.console-input'));
-    panel.appendChild(transcript); panel.appendChild(form);
+    panel.appendChild(form); panel.appendChild(transcript);
     var notice = node('div', 'muse-notice'); notice.hidden = true; notice.setAttribute('role', 'status'); panel.appendChild(notice);
     var footer = node('div', 'muse-hint'); footer.hidden = true; panel.appendChild(footer);
     function emit(name, detail) { window.dispatchEvent(new CustomEvent(name, { detail: detail })); }
@@ -34,15 +34,18 @@
     function renderMessages() {
         var messages = Array.isArray((snapshot.chat || {}).messages) ? snapshot.chat.messages.slice(-100) : [];
         var key = JSON.stringify(messages); if (key === transcript._messagesKey) return; transcript._messagesKey = key;
-        var bottom = transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop < 48, previous = transcript.scrollTop; transcript.replaceChildren();
+        var previous = transcript.scrollTop; transcript.replaceChildren();
+        // Keep each exchange in reading order, with the newest exchange next to the fixed input.
+        var turns = []; messages.forEach(function (m) { if (m.role === 'user' || !turns.length) turns.push([]); turns[turns.length - 1].push(m); });
+        messages = [].concat.apply([], turns.reverse());
         messages.forEach(function (m) { var role = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'system', row = node('article', 'muse-message muse-message-' + role), label = node('div', 'muse-message-role', role === 'user' ? '>:' : role === 'assistant' ? 'muse:' : ''), body = node('div', 'muse-message-text', typeof m.text === 'string' ? m.text.slice(0, 40000) : ''); if (m.pending) body.classList.add('muse-message-pending'); row.appendChild(label); row.appendChild(body); transcript.appendChild(row); });
-        transcript.scrollTop = bottom ? transcript.scrollHeight : previous;
+        transcript.scrollTop = previous < 48 ? 0 : previous;
     }
     function render() {
         if (!opened) return;
         var active = connected(), m = moduleInfo(), currentPhase = phase();
         var elapsed = Math.max(0, Math.floor(Number(microphone.elapsed) || 0));
-        var hint = 'RESET — удерживать для записи · Enter — отправить · Esc — назад';
+        var hint = 'RESET — удерживать для записи · Enter — отправить · → — меню · Esc — назад';
         if (snapshot.preview) hint = 'Тест интерфейса · ' + hint;
         if (microphone.recording) hint = 'Запись ' + elapsed + ' с · Отпустите RESET, затем Enter · Esc — отменить';
         else if (microphone.draftReady) hint = 'Запись ' + elapsed + ' с готова · Enter — отправить · RESET — перезаписать · Esc — отменить';
@@ -53,6 +56,7 @@
         footer.textContent = hint;
         input.disabled = !active || busy(); input.placeholder = microphone.draftReady ? 'Голосовая запись готова' : '';
         input.readOnly = microphone.draftReady === true;
+        emit('lost-console-command-change', {});
         notice.textContent = noticeText || (snapshot.chat || {}).error || m.error || ''; notice.hidden = !notice.textContent;
         renderMessages();
         if (!input.disabled && (document.activeElement === document.body || document.activeElement === panel)) input.focus();
@@ -90,6 +94,8 @@
         if (window.LostBootActive) return;
         if (e.code === 'F6') return;
         if (opened) {
+            if (e.key === 'ArrowRight' && !e.metaKey && !e.ctrlKey && !e.altKey) { close(); return; }
+            if (e.code === 'Pause') return;
             e.stopImmediatePropagation();
             if (e.code === 'F3') { e.preventDefault(); if (!e.repeat) close(); return; }
             if (e.code === 'ControlLeft') { e.preventDefault(); if (!e.repeat) recordStart(); return; }
@@ -113,8 +119,8 @@
     window.addEventListener('lost-keyboard-lock', function (e) { if (!e.detail || e.detail.locked !== false) { recordStop(true); emit('lost-muse-record', { on:false, cancel:true }); resetCommand(); } });
     window.addEventListener('lost-modules', function (e) { if (e.detail && e.detail.muse) receive({ module: e.detail.muse }); });
     window.addEventListener('lost-muse-microphone', function (e) { setMicrophone(e.detail); });
-    window.addEventListener('message', function (e) { if (e.data && e.data.type === 'enableConsole') { priority = !!e.data.enabled || !!(window.__LOST_CLOCK && window.__LOST_CLOCK.phase && window.__LOST_CLOCK.phase !== 'countdown'); if (priority) { resetCommand(); close(); } } });
-    var clock = window.__LOST_CLOCK; if (clock && clock.phase === 'countdown' && clock.left > 0 && clock.left <= 240) priority = true;
+    window.addEventListener('message', function (e) { if (e.data && e.data.type === 'enableConsole') { priority = !!e.data.enabled || (Number(e.data.remainingTime) > 0 && Number(e.data.remainingTime) <= 480) || !!(window.__LOST_CLOCK && window.__LOST_CLOCK.phase && window.__LOST_CLOCK.phase !== 'countdown'); if (priority) { resetCommand(); close(); } } });
+    var clock = window.__LOST_CLOCK; if (clock && clock.phase === 'countdown' && clock.left > 0 && clock.left <= 480) priority = true;
     window.addEventListener('lost-muse-record', function(e){
         if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:e.detail.on?'start':e.detail.cancel?'cancel':'stop'});
     });

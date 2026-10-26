@@ -67,3 +67,32 @@ test('AI Enter release is swallowed if the code window opens while sending',()=>
  f.win.dispatchEvent({type:'message',data:{type:'enableConsole',enabled:true,remainingTime:240}});
  let leaked=false;f.win.addEventListener('keyup',()=>{leaked=true;});f.key('keyup','Enter');assert.equal(leaked,false);
 });
+
+
+test('last eight minutes close AI and discard audio; four-minute numeric gate stays separate',()=>{
+ const f=fixture();f.win.LostMuse.open();f.key('keydown','Control','ControlLeft');f.key('keyup','Control','ControlLeft');
+ f.win.__LOST_CLOCK={phase:'countdown',left:480};
+ f.dispatch({type:'lost-muse-code-priority',detail:{active:true}});
+ f.dispatch({type:'message',data:{type:'enableConsole',enabled:false,remainingTime:480}});
+ assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(f.commands.at(-1),'cancel');assert.equal(f.commands.includes('send'),false);
+ assert.equal(f.win.LostConsoleInput.codeOpen(),false);assert.equal(f.input.readOnly,true);
+ f.key('keydown','a','KeyA');f.key('keydown','i','KeyI');f.key('keydown','Enter');f.key('keydown','F3','F3');
+ assert.equal(f.input.value,'');assert.equal(f.win.LostMuse.isOpen(),false);
+ let menu=false;f.win.addEventListener('keydown',e=>{if(e.key==='ArrowRight')menu=true;});f.key('keydown','ArrowRight');assert.equal(menu,true);
+ f.dispatch({type:'message',data:{type:'enableConsole',enabled:true,remainingTime:240}});assert.equal(f.win.LostConsoleInput.codeOpen(),true);
+ f.win.__LOST_CLOCK={phase:'countdown',left:6480};f.dispatch({type:'lost-muse-code-priority',detail:{active:false}});
+ f.dispatch({type:'message',data:{type:'enableConsole',enabled:false,remainingTime:6480}});
+ f.key('keydown','a','KeyA');f.key('keydown','i','KeyI');f.key('keydown','Enter');assert.equal(f.win.LostMuse.isOpen(),true);
+});
+test('Right returns from AI to developer menu even with a draft, without sending',()=>{
+ const f=fixture();f.win.LostMuse.open();f.input.value='draft';let menu=false;
+ f.win.addEventListener('keydown',e=>{if(e.key==='ArrowRight')menu=true;});f.key('keydown','ArrowRight');
+ assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(menu,true);assert.equal(f.commands.includes('send'),false);
+});
+test('conversation stays below the original form and newest exchange retains user/reply order',()=>{
+ const f=fixture();const form=f.surface.querySelector('.muse-compose'),history=f.surface.querySelector('.muse-transcript');
+ assert.ok(f.surface.children.indexOf(form)<f.surface.children.indexOf(history));
+ f.win.LostMuse.open();f.win.LostMuse.receive({chat:{phase:'idle',messages:[{role:'user',text:'old'},{role:'assistant',text:'old reply'},{role:'user',text:'new'},{role:'assistant',text:'new reply'}]}});
+ assert.deepEqual(history.children.map(row=>row.children[1].textContent),['new','new reply','old','old reply']);
+ assert.equal(history.scrollTop,0);
+});

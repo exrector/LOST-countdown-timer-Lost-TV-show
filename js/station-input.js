@@ -9,6 +9,7 @@
     if (!input) return;
     var commands = new HiddenCommands(), actions = Object.create(null), keyboardLocked = false, swallowedEnter = false;
     var clock = root.__LOST_CLOCK;
+    var priority = !!(clock && (clock.phase !== 'countdown' || clock.left > 0 && clock.left <= 480));
     var codeEnabled = !!(clock && clock.phase === 'countdown' && clock.left > 0 && clock.left <= 240);
     function insideTool() {
         var ups = document.querySelector('.ups-panel');
@@ -28,6 +29,7 @@
     function block(e) { e.preventDefault(); e.stopImmediatePropagation(); }
     root.addEventListener('keydown', function (e) {
         if (root.LostBootActive || insideTool() || codeEnabled || keyboardLocked) return;
+        if (priority) { if (e.key === 'Enter' || typeof e.key === 'string' && e.key.length === 1) block(e); return; }
         if (root.__LOST_CLOCK && root.__LOST_CLOCK.phase !== 'countdown') { reset(); return; }
         if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
         if (e.key === 'Enter') {
@@ -57,8 +59,11 @@
         if (!e.data || e.data.type !== 'enableConsole') return;
         var enabled = !!e.data.enabled;
         if (enabled !== codeEnabled) { commands.reset(); if (!insideTool()) input.value = ''; }
-        codeEnabled = enabled; render();
+        codeEnabled = enabled;
+        priority = enabled || Number(e.data.remainingTime) > 0 && Number(e.data.remainingTime) <= 480 || !!(root.__LOST_CLOCK && root.__LOST_CLOCK.phase !== 'countdown');
+        if (priority) commands.reset(); render();
     });
+    root.addEventListener('lost-muse-code-priority', function (e) { priority = !!(e.detail && e.detail.active); if (priority) reset(); });
     ['lost-menu-change', 'lost-ups-open', 'lost-ups-close', 'lost-muse-close'].forEach(function (name) {
         root.addEventListener(name, function () { commands.reset(); render(); });
     });
