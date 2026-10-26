@@ -28,6 +28,9 @@
     };
     function block(e) { e.preventDefault(); e.stopImmediatePropagation(); }
     root.addEventListener('keydown', function (e) {
+        // In an open panel stray letters must not reach the read-only field: WebKit answers them with the system beep.
+        if (insideTool() && !root.LostBootActive && e.target === input && !document.body.classList.contains('lost-muse-active') &&
+            typeof e.key === 'string' && e.key.length === 1 && !HiddenCommands.STATION_KEYS[e.code] && !e.ctrlKey && !e.metaKey && !e.altKey) { block(e); return; }
         if (root.LostBootActive || insideTool() || codeEnabled || keyboardLocked) return;
         // M (menu) and P (pause) belong to the station and always reach its handler.
         if (HiddenCommands.STATION_KEYS[e.code] && !e.ctrlKey && !e.metaKey && !e.altKey) { commands.interrupt(); return; }
