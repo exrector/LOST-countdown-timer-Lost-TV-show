@@ -9,7 +9,7 @@ function request(route){return new Promise((resolve,reject)=>{const r=http.get({
 (async()=>{
  try {const h=JSON.parse(await request('/__health'));if(h.components?.preview!==true)throw Error('Port 18765 belongs to another service');await request('/__quit');await sleep(500);}catch(e){if(!['ECONNREFUSED','ECONNRESET'].includes(e.code)&&e.message!=='socket hang up')throw e;}
  const appDir=path.join(workspace,'cast-app'),logs=path.join(require('node:os').homedir(),'Library/Logs/LOST Preview');fs.mkdirSync(appDir,{recursive:true});fs.mkdirSync(logs,{recursive:true});
- for(const folder of ['assets','css','js','ups','muse','vpn']){const dest=path.join(workspace,folder);if(!fs.existsSync(dest))fs.symlinkSync(path.join(root,folder),dest,'dir');}
+ for(const folder of ['assets','css','js','ups','muse','vpn','flame']){const dest=path.join(workspace,folder);if(!fs.existsSync(dest))fs.symlinkSync(path.join(root,folder),dest,'dir');}
  fs.copyFileSync(path.join(root,'index.html'),path.join(workspace,'index.html'));fs.copyFileSync(path.join(root,'console.html'),path.join(workspace,'console.html'));
  for(const file of ['server.js','clock.js','bridge.js','state-store.js','ups-gateway.js','modules.js'])fs.copyFileSync(path.join(root,'cast-app',file),path.join(appDir,file));
  for(const folder of ['node_modules','vendor']){const dest=path.join(appDir,folder);if(!fs.existsSync(dest))fs.symlinkSync(path.join(root,'cast-app',folder),dest,'dir');}
@@ -31,7 +31,10 @@ function request(route){return new Promise((resolve,reject)=>{const r=http.get({
   },600);return Promise.resolve({ok:true});
  }
  const {start,events}=require(path.join(appDir,'server.js'));
- const core=await start(port,{vpnRuntime:vpnFake,host:'127.0.0.1',audioDevice:false,liveInDev:true,upsPort:18766,stage:{width:1000,height:460},moduleInstalled:{vpn:!!vpnFake,muse:museDemo||museRuntime.installed()},musePreview:museDemo,getMuseChat:museDemo?()=>demoChat:museRuntime.chat,sendMuseMessage:museDemo?demoSend:museRuntime.sendMessage,sendMuseVoice:museDemo?undefined:museRuntime.sendVoice,applyModule:(id,on)=>id==='vpn'&&vpnFake?Promise.resolve(vpnFake.setEnabled(on)):id==='muse'&&!museDemo?museRuntime.apply(id,on):Promise.resolve({status:on?'ready':'disabled',installed:true}),getRuntimeStatus:()=>({preview:true})});
+ // «Пламя» в Preview — настоящий tailnet этого Mac; соответствия станциям — .preview/flame.json.
+ const flameRuntime=require(path.join(root,'flame/runtime.cjs')).createFlame({stationsFile:path.join(workspace,'flame.json')});
+ const core=await start(port,{flameRuntime,vpnRuntime:vpnFake,host:'127.0.0.1',audioDevice:false,liveInDev:true,upsPort:18766,stage:{width:1000,height:460},moduleInstalled:{flame:flameRuntime.snapshot().installed,vpn:!!vpnFake,muse:museDemo||museRuntime.installed()},musePreview:museDemo,getMuseChat:museDemo?()=>demoChat:museRuntime.chat,sendMuseMessage:museDemo?demoSend:museRuntime.sendMessage,sendMuseVoice:museDemo?undefined:museRuntime.sendVoice,applyModule:(id,on)=>id==='flame'?Promise.resolve({...flameRuntime.setEnabled(on),status:on?'starting':'disabled'}):id==='vpn'&&vpnFake?Promise.resolve(vpnFake.setEnabled(on)):id==='muse'&&!museDemo?museRuntime.apply(id,on):Promise.resolve({status:on?'ready':'disabled',installed:true}),getRuntimeStatus:()=>({preview:true})});
+ setInterval(()=>core.updateFlame(flameRuntime.snapshot()),2000).unref();
  const musePoll=setInterval(()=>core.updateMuse(museDemo?{enabled:true,installed:true,status:'ready'}:museRuntime.read()),2000);
  const log=fs.openSync(path.join(logs,'native.log'),'a');
  const child=require(path.join(root,'cast-app/native-host')).launchNative({bundle:dest,args:['--managed','--owner-pid',String(process.pid),'--url',`http://localhost:${port}`,'--preview','--status',path.join(logs,'native-status.json')],status:path.join(logs,'native-status.json'),stdio:['ignore',log,log]});
