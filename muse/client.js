@@ -59,7 +59,7 @@
                 row._label.textContent = detail.label; row._body.textContent = detail.text;
             } else {
                 row.className = 'muse-message muse-message-' + m.role;
-                row._label.textContent = m.role === 'user' ? '>:' : 'muse:';
+                row._label.textContent = m.role === 'user' ? 'STATION' : 'AI';
                 if (row._body.textContent !== m.text) row._body.textContent = m.text;
             }
             row._body.classList.toggle('muse-message-pending', m.pending === true);
