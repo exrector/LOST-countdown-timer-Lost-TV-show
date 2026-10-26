@@ -34,6 +34,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
     private var errorText: String?
     private var startedAt: Date?
     private var shouldSend = true
+    private var draft: Data?
     private let maxBytes = 2 * 1024 * 1024
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -81,7 +82,8 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         case "authorize": authorize()
         case "query": publish()
         case "start": start()
-        case "stop": stopAndSend()
+        case "stop": stopRecording()
+        case "send": sendDraft()
         case "cancel": cancel()
         default: break
         }
@@ -98,7 +100,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         let available = device != nil
         var value: [String: Any] = ["available": available, "supported": true, "recording": recording,
                                    "level": level, "elapsed": elapsed, "uploading": uploading,
-                                   "requesting": requesting, "finished": finished, "device": device?.localizedName ?? "", "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "permissionRequests": permissionRequests, "lastCommand": lastCommand]
+                                   "requesting": requesting, "finished": finished, "draftReady": draft != nil, "device": device?.localizedName ?? "", "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "permissionRequests": permissionRequests, "lastCommand": lastCommand]
         value["error"] = errorText ?? ""
         return value
     }
@@ -129,6 +131,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         guard !recording, !requesting, !uploading, recorder == nil else { publish(); return }
         generation += 1
         let current = generation
+        draft = nil
         finished = false; errorText = nil; elapsed = 0; level = 0; wantRecord = true
         guard endpoint != nil, origin != nil else { fail("Недоступен локальный мост голосового ввода"); return }
         guard let device = AVCaptureDevice.default(for: .audio) else { fail("Микрофон не подключён"); return }
@@ -180,7 +183,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         } catch { fail("Не удалось подготовить запись микрофона") }
     }
 
-    private func stopAndSend() {
+    private func stopRecording() {
         wantRecord = false
         if requesting {
             generation += 1; requesting = false; finished = true; publish(); return
@@ -200,7 +203,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
     }
 
     private func cancelCapture(error: String?) {
-        generation += 1; wantRecord = false; requesting = false; shouldSend = false
+        generation += 1; wantRecord = false; requesting = false; shouldSend = false; draft = nil
         meterTimer?.invalidate(); meterTimer = nil
         recorder?.delegate = nil; recorder?.stop(); recorder = nil
         uploadTask?.cancel(); uploadTask = nil
@@ -235,7 +238,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         capture.delegate = nil
         guard successful, shouldSend else { fail("Запись не завершена. Сообщение не отправлено"); return }
         guard elapsed >= 0.15 else { cleanup(); errorText = nil; publish(); return }
-        guard let url = fileURL, let endpoint = endpoint, let origin = origin else { fail("Запись недоступна"); return }
+        guard let url = fileURL else { fail("Запись недоступна"); return }
         do {
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size > 44, size <= maxBytes else { fail("Недопустимая длина голосовой записи"); return }
@@ -243,7 +246,15 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
             guard data.count == size, data.starts(with: Data("RIFF".utf8)), data.count >= 12,
                   data.subdata(in: 8..<12) == Data("WAVE".utf8) else { fail("Не удалось завершить WAV-запись"); return }
             cleanup()
-            uploading = true; errorText = nil; publish()
+            draft = data; errorText = nil; publish()
+        } catch { fail("Не удалось прочитать голосовую запись") }
+    }
+
+    private func sendDraft() {
+        guard !recording, !requesting, !uploading, let data = draft,
+              let endpoint = endpoint, let origin = origin else { publish(); return }
+        draft = nil
+        uploading = true; errorText = nil; publish()
             var request = URLRequest(url: endpoint)
             request.httpMethod = "POST"
             request.timeoutInterval = 70
@@ -264,6 +275,5 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
                 }
             }
             uploadTask?.resume()
-        } catch { fail("Не удалось прочитать голосовую запись") }
     }
 }

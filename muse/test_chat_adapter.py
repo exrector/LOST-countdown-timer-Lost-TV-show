@@ -78,6 +78,36 @@ class StateTests(unittest.TestCase):
         self.state.event(first)
         self.assertEqual(self.state.messages[-1]['text'], 'piece')
 
+    def test_voice_transcript_correlates_after_ack_and_ignores_foreign_notes(self):
+        self.state.begin('[Голосовое сообщение: 2.0 с]')
+        self.state.event(event('message.user', 1, ident='voice-note', display_text='Проверь питание\n[file:audio/wav voice.wav]'))
+        self.state.event(event('message.user', 2, ident='foreign', content='Не мой запрос'))
+        self.state.accept({'ok': True, 'response': {'message_id': 'voice-note'}})
+        self.assertEqual(len(self.state.messages), 1)
+        self.assertEqual(self.state.messages[0]['text'], 'Проверь питание')
+        self.state.event(event('message.user', 3, ident='voice-note', content='[Voice note]'))
+        self.assertEqual(self.state.messages[0]['text'], 'Проверь питание')
+        self.state.flush()
+        self.assertEqual(chat.ChatState(Path(self.tmp.name)).messages[0]['text'], 'Проверь питание')
+
+    def test_transcription_update_reuses_original_sequence_after_assistant(self):
+        self.state.begin('[Голосовое сообщение: 2.0 с]')
+        self.state.accept({'ok': True, 'response': {'result': {'message_id': 'voice-note'}}})
+        self.state.event(event('message.user', 1, ident='voice-note', display_text='[Voice note]'))
+        self.state.event(event('message.assistant', 2, parent='voice-note', display_text='Ответ'))
+        self.state.event(event('message.user', 1, ident='voice-note', display_text='Это моя диктовка\n[file:audio/wav voice.wav]'))
+        self.assertEqual(self.state.messages[0]['text'], 'Это моя диктовка')
+        self.assertEqual(self.state.messages[1]['text'], 'Ответ')
+
+    def test_late_transcript_updates_its_own_history_row(self):
+        self.state.begin('[Голосовое сообщение: 1.0 с]')
+        self.state.accept({'ok': True, 'response': {'message_id': 'first-note'}})
+        self.state.begin('Следующий запрос')
+        self.state.accept({'ok': True, 'response': {'message_id': 'second-note'}})
+        self.state.event(event('message.user', 1, ident='first-note', text='Первый голосовой запрос'))
+        self.assertEqual(self.state.messages[0]['text'], 'Первый голосовой запрос')
+        self.assertEqual(self.state.messages[1]['text'], 'Следующий запрос')
+
     def test_busy_and_timeout_and_restart_bounds(self):
         self.begin()
         self.state.event(event('message.assistant', 1, display_text='finished'))

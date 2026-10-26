@@ -1,40 +1,22 @@
-.muse-panel[hidden],.muse-preview[hidden],.muse-recorder[hidden],.muse-notice[hidden],.muse-command[hidden]{display:none!important}
-body.lost-muse-active>.console-container,body.lost-muse-active>.timer-status,body.lost-muse-active>.ups-line{visibility:hidden;pointer-events:none}
-.muse-panel{--muse-green:#33ff88;--muse-dark:#050d08;position:fixed;inset:18px 24px;z-index:50;display:flex;flex-direction:column;min-height:0;box-sizing:border-box;border:1px solid var(--muse-green);background:var(--muse-dark);color:var(--muse-green);font:15px/1.35 "Courier New",Courier,monospace;text-align:left;text-shadow:0 0 3px rgba(51,255,136,.2);box-shadow:0 0 18px rgba(51,255,136,.08);overflow:hidden}
-.muse-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 10px;border-bottom:1px solid var(--muse-green);flex-shrink:0}
-.muse-title{font-weight:bold;letter-spacing:1px;white-space:nowrap}
-.muse-connection{margin-left:auto;font-size:12px;white-space:nowrap}
-.muse-connection::before{content:"■ ";font-size:10px}
-.muse-offline .muse-connection{opacity:.6}
-.muse-preview{font-size:11px;border:1px solid currentColor;padding:1px 4px;letter-spacing:.3px}
-.muse-panel .muse-button{appearance:none;-webkit-appearance:none;border:1px solid #286c46;border-radius:0;padding:3px 7px;color:inherit;background:transparent;font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer;text-shadow:inherit}
-.muse-panel .muse-button:hover:not(:disabled),.muse-panel .muse-button:focus-visible{outline:1px solid var(--muse-green);outline-offset:2px;background:#123221}
-.muse-panel .muse-button:disabled{opacity:.4;cursor:default}
-.muse-state-line{display:flex;justify-content:space-between;gap:10px;padding:5px 10px;font-size:11px;letter-spacing:.25px;color:#85caa0;border-bottom:1px solid #163e28;flex-shrink:0}
-.muse-microphone{white-space:nowrap}
-.muse-transcript{min-height:0;flex:1;overflow:auto;padding:10px 14px;scrollbar-color:#286c46 var(--muse-dark);scrollbar-width:thin;overscroll-behavior:contain}
-.muse-transcript:focus-visible{outline:1px dashed #286c46;outline-offset:-4px}
-.muse-transcript::-webkit-scrollbar{width:7px}.muse-transcript::-webkit-scrollbar-thumb{background:#286c46}.muse-transcript::-webkit-scrollbar-track{background:transparent}
-.muse-empty{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100%;box-sizing:border-box;padding:16px;text-align:center;color:#79b38f;font-size:13px}
-.muse-empty-title{font-size:27px;letter-spacing:5px;color:var(--muse-green);margin-bottom:8px}
-.muse-empty p{margin:3px 0;max-width:58ch}
-.muse-message{display:grid;grid-template-columns:7ch minmax(0,1fr);gap:8px;margin:0 0 13px;max-width:100%}
-.muse-message-role{font-size:11px;opacity:.65;padding-top:3px;letter-spacing:1px}
-.muse-message-text{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;user-select:text;-webkit-user-select:text;font-size:16px;line-height:1.4}
-.muse-message-user .muse-message-text{color:#a0dcb6}.muse-message-system .muse-message-text{font-size:13px;color:#79b38f}
+/* AI shares the station terminal, prompt and input. */
+.muse-transcript[hidden],.muse-hint[hidden],.muse-notice[hidden]{display:none!important}
+.muse-compose{display:contents}
+body.lost-muse-active .console-container{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;align-content:normal}
+body.lost-muse-active .timer-status{visibility:hidden}
+body.lost-muse-active .ups-line{visibility:hidden}
+body.lost-muse-active .muse-compose{display:flex;align-items:center;flex-shrink:0;gap:5px;min-height:36px;margin:0}
+body.lost-muse-active .console-input{flex:1;min-width:0;margin-left:0}
+body.lost-muse-active .my-console{caret-color:#33ff88}
+body.lost-muse-active .console-cursor{display:none}
+body.lost-muse-active .my-console::placeholder{color:#747c77;text-shadow:none}
+.muse-transcript{flex:1;min-height:0;overflow:auto;padding:6px 0 12px;color:#33ff88;font:20px/1.5 "Courier New",Courier,monospace;scrollbar-width:thin;scrollbar-color:#53635a transparent;overscroll-behavior:contain}
+.muse-message{display:grid;grid-template-columns:6ch minmax(0,1fr);gap:0;margin:0 0 12px}
+.muse-message-role{color:#748078;text-shadow:none}
+.muse-message-user .muse-message-role{color:#33ff88}
+.muse-message-text{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .muse-message-pending::after{content:" ▌";opacity:.65}
-.muse-compose{display:flex;align-items:center;gap:9px;min-height:45px;border-top:1px solid #286c46;margin:0;padding:6px 10px;box-sizing:border-box;flex-shrink:0}
-.muse-input-label{font-size:23px;line-height:1}
-.muse-panel .muse-input{min-width:0;flex:1;width:auto;border:0;border-radius:0;padding:3px 0;outline:none;background:transparent;color:var(--muse-green);font:19px/1.4 "Courier New",Courier,monospace;box-shadow:none;caret-color:var(--muse-green)}
-.muse-panel .muse-input::placeholder{color:#578567;opacity:1}.muse-panel .muse-input:disabled{opacity:.45}
-.muse-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-top:1px solid #163e28;color:#85caa0;font-size:11px;flex-shrink:0}
-.muse-notice{padding:5px 10px;border-top:1px solid #286c46;color:#b4e9c4;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;flex-shrink:0}
-.muse-recorder{display:flex;align-items:center;gap:14px;padding:7px 10px;border-top:1px solid #286c46;flex-shrink:0;font-size:12px}
-.muse-recorder>span:first-child::before{content:"● ";animation:muse-record-pulse 1s steps(2,end) infinite}
-.muse-meter{display:block;position:relative;height:8px;border:1px solid #286c46;flex:1;overflow:hidden;background:repeating-linear-gradient(90deg,transparent 0,transparent 5px,#153b26 5px,#153b26 6px)}
-.muse-meter-level{display:block;width:0;height:100%;background:#33ff88;transition:width 80ms linear}.muse-duration{min-width:5ch}
-.muse-command{position:fixed;left:28px;bottom:30px;z-index:45;color:#33ff88;background:#050d08;border:1px solid #286c46;padding:4px 9px;font:18px/1.4 "Courier New",Courier,monospace;pointer-events:none}
-@keyframes muse-record-pulse{50%{opacity:.3}}
-@media(max-width:650px){.muse-panel{inset:10px}.muse-header{gap:7px;padding:5px 8px}.muse-title{font-size:14px}.muse-connection{font-size:10px}.muse-preview{order:5}.muse-state-line{font-size:10px;flex-wrap:wrap;gap:2px}.muse-transcript{padding:9px}.muse-message{grid-template-columns:5ch minmax(0,1fr);gap:5px}.muse-message-text{font-size:14px}.muse-panel .muse-input{font-size:16px}.muse-panel .muse-send{font-size:0}.muse-panel .muse-send::after{content:"ENTER";font-size:11px}.muse-footer{flex-wrap:wrap;gap:4px}.muse-command{left:14px;bottom:18px}}
-@media(max-height:390px){.muse-panel{inset:7px 14px}.muse-header{padding-top:3px;padding-bottom:3px}.muse-state-line{padding-top:3px;padding-bottom:3px}.muse-footer{padding-top:3px;padding-bottom:3px}.muse-compose{min-height:37px;padding-top:3px;padding-bottom:3px}.muse-empty{padding:5px}.muse-empty-title{font-size:20px;margin-bottom:3px}.muse-empty p{font-size:11px}.muse-message{margin-bottom:8px}}
-@media(prefers-reduced-motion:reduce){.muse-recorder>span:first-child::before{animation:none}.muse-meter-level{transition:none}}
+.muse-hint,.muse-notice{flex-shrink:0;font:13px/1.5 "Courier New",Courier,monospace;color:#858b87;text-shadow:none;padding:3px 0;white-space:pre-wrap}
+.muse-notice{color:#a1a7a3}
+@media(max-width:650px){.muse-transcript{font-size:17px}.muse-hint,.muse-notice{font-size:11px}.muse-message{grid-template-columns:5ch minmax(0,1fr)}}
+body.lost-muse-active .pz{display:none}
+body.lost-muse-active .console-prompt{pointer-events:none}

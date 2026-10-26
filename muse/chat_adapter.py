@@ -51,6 +51,7 @@ class ChatState:
         self._got_reply = False
         self._user_id = None
         self._turn_messages = set()
+        self._user_roots = {}
         self._load()
         self.flush()
 
@@ -137,10 +138,14 @@ class ChatState:
                 v = value.get(key)
                 if isinstance(v, str) and v:
                     ids.add(v[:128])
-            for key in ('response', 'payload'):
+            for key in ('response', 'payload', 'result'):
                 collect(value.get(key), depth + 1)
         collect(reply)
         self._roots.update(ids)
+        for ident in ids:
+            self._user_roots[ident] = self._user_id
+        if len(self._user_roots) > 128:
+            self._user_roots = dict(list(self._user_roots.items())[-64:])
         self._awaiting_ack = False
         self.phase = 'waiting'
         self.error = None
@@ -168,9 +173,11 @@ class ChatState:
             return
         seq = event.get('seq')
         if isinstance(seq, (int, float)) and not isinstance(seq, bool) and seq > 0:
-            if seq <= self._last_seq:
+            # Muse updates a voice-note row with its transcript using the
+            # original sequence, potentially after newer assistant events.
+            if seq <= self._last_seq and (event.get('event_name') or event.get('event')) != 'message.user':
                 return
-            self._last_seq = seq
+            self._last_seq = max(self._last_seq, seq)
         if isinstance(seq, (int, float)) and not isinstance(seq, bool) and seq > 0:
             # The server may replay earlier deltas after resubscription. Sequence
             # filtering is subscription-local; retain bounded fingerprints too.
@@ -198,6 +205,25 @@ class ChatState:
         kind = event.get('event_name') or event.get('event')
         p = event.get('payload')
         if not isinstance(p, dict):
+            return
+        if kind == 'message.user':
+            ident = p.get('message_id') or event.get('message_id') or p.get('id')
+            local_id = self._user_roots.get(ident) if isinstance(ident, str) else None
+            if local_id is None:
+                return
+            text = next((p[k] for k in ('display_text', 'content', 'text') if isinstance(p.get(k), str)), None)
+            if text is None:
+                return
+            text = text.split('\n[file:', 1)[0].strip()
+            if not text or text in ('[Voice note]', '[Голосовое сообщение]'):
+                return
+            text = ''.join(c for c in text if c in '\n\t' or ord(c) >= 32 and not 127 <= ord(c) <= 159)
+            for message in self.messages:
+                if message['id'] == local_id and message['role'] == 'user':
+                    message['text'] = text[:MAX_TEXT]
+                    message['pending'] = False
+                    self.changed()
+                    break
             return
         if kind in ('agent.status', 'task.status'):
             if not self.busy:

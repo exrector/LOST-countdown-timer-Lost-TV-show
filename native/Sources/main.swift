@@ -406,6 +406,10 @@ final class StationApp: NSObject, NSApplicationDelegate {
             case "activate": activateStation()
             case "diagnostics": snapshot()
             case "microphone-permission": activateStation(); microphone.command(["op":"authorize"])
+            // Same-user microphone diagnostics never send captured audio.
+            case "microphone-start": microphone.command(["op":"start"])
+            case "microphone-stop": microphone.command(["op":"stop"])
+            case "microphone-cancel": microphone.command(["op":"cancel"])
             default: break
             }
         }
