@@ -3,12 +3,13 @@ const test=require('node:test'),assert=require('node:assert/strict'),vm=require(
 function fixture(){
  const listeners=new Map(),commands=[];let document;
  class Element{
-  constructor(tag,cls=''){this.tagName=tag;this.className=cls;this.children=[];this.hidden=false;this.disabled=false;this.value='';this.placeholder='';this.maxLength=524288;this.scrollHeight=100;this.scrollTop=0;this.clientHeight=100;this.style={};this.events={};
+  constructor(tag,cls=''){this.tagName=tag;this.className=cls;this.children=[];this.hidden=false;this.disabled=false;this.value='';this.placeholder='';this._maxLength=-1;this.scrollHeight=100;this.scrollTop=0;this.clientHeight=100;this.style={};this.events={};
    this.classList={contains:c=>this.className.split(' ').includes(c),add:c=>{if(!this.classList.contains(c))this.className+=' '+c;},remove:c=>{this.className=this.className.split(' ').filter(x=>x!==c).join(' ');},toggle:(c,on)=>on?this.classList.add(c):this.classList.remove(c)};
   }
   appendChild(e){if(e.parent)e.parent.children=e.parent.children.filter(x=>x!==e);this.children.push(e);e.parent=this;return e;}
+  get maxLength(){return this._maxLength;} set maxLength(v){if(v<0)throw new Error('IndexSizeError');this._maxLength=v;} removeAttribute(n){if(n==='maxlength')this._maxLength=-1;}
   setAttribute(){} addEventListener(k,fn){this.events[k]=fn;} replaceChildren(){this.children=[];} focus(){document.activeElement=this;} scrollBy(_,n){this.scrollTop+=n;}
-  querySelector(q){const find=e=>e.children.flatMap(x=>[x,...find(x)]);return find(this).find(e=>q.startsWith('.')?e.classList.contains(q.slice(1)):e.tagName===q)||null;}
+  querySelector(q){const find=e=>e.children.flatMap(x=>[x,...find(x)]);return find(this).find(e=>q.startsWith('.')?q.slice(1).split('.').every(c=>e.classList.contains(c)):e.tagName===q)||null;}
  }
  const body=new Element('body','console-page'),surface=body.appendChild(new Element('div','console-container')),prompt=surface.appendChild(new Element('div','console-prompt')),wrap=surface.appendChild(new Element('div','console-input')),input=wrap.appendChild(new Element('input','my-console'));input.disabled=false;input.readOnly=true;
  document={body,activeElement:body,hidden:false,createElement:t=>new Element(t),querySelector:q=>body.querySelector(q),addEventListener(){}};
@@ -106,4 +107,19 @@ test('M and P reach the station menu outside tools, including the final eight mi
 test('inside AI M and P are ordinary text',()=>{
  const f=fixture();f.win.LostMuse.open();const reached=[];f.win.addEventListener('keydown',e=>reached.push(e.code));
  f.key('keydown','m','KeyM');f.key('keydown','p','KeyP');assert.deepEqual(reached,[]);
+});
+test('leaving AI restores the hidden-command layer: AI can be typed again',()=>{
+ const f=fixture();f.key('keydown','a','KeyA');f.key('keydown','i','KeyI');f.key('keydown','Enter');assert.equal(f.win.LostMuse.isOpen(),true);
+ f.key('keydown','Escape');assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(f.body.classList.contains('lost-muse-active'),false);assert.equal(f.input.maxLength,-1);
+ f.key('keydown','a','KeyA');f.key('keydown','i','KeyI');assert.equal(f.input.value,'AI');f.key('keydown','Enter');assert.equal(f.win.LostMuse.isOpen(),true);
+});
+test('open menu swallows stray letters but keeps M and P for the station',()=>{
+ const f=fixture();const reached=[];f.win.addEventListener('keydown',e=>reached.push(e.code));
+ const menu=f.body.appendChild(new (f.body.constructor)('div','ctl open'));
+ f.key('keydown','a','KeyA');f.key('keydown','m','KeyM');f.key('keydown','p','KeyP');f.key('keydown','ArrowDown','ArrowDown');
+ assert.deepEqual(reached,['KeyM','KeyP','ArrowDown']);assert.equal(f.input.value,'');
+});
+test('pause plate is not hidden on the terminal after leaving AI',()=>{
+ const f=fixture();f.win.LostMuse.open();f.win.LostMuse.close();f.win.LostMuse.open();f.key('keydown','ArrowRight');
+ assert.equal(f.body.classList.contains('lost-muse-active'),false);
 });
