@@ -313,7 +313,7 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='flame'?'Станция 4 «Пламя»: список машин tailnet как станции DHARMA. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='flame'?'Станция 4 «Пламя» — связь DHARMA INITIATIVE (Department of Heuristics And Research on Material Applications): машины tailnet как станции. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             return result;
         }
