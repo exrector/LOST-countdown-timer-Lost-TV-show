@@ -73,9 +73,12 @@ body.console-page.lost-muse-active .console-container{padding-top:var(--station-
 body.console-page.lost-muse-active .console-prompt{line-height:1}
 body.console-page.lost-muse-active .console-input{margin-left:8px}
 body.console-page.lost-muse-active .muse-transcript{padding-top:0}
-body.console-page .service-line{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:28px;margin:9px 24px 0;color:var(--station-muted);font:13px/1.2 var(--station-font);white-space:nowrap}
+body.console-page .service-line{position:relative;display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:28px;margin:9px 24px 0;color:var(--station-muted);font:13px/1.2 var(--station-font);white-space:nowrap}
 body.console-page .service-line .ups-line{display:flex;flex:0 1 auto;gap:10px;margin:0;height:auto;font:inherit;letter-spacing:0}
 body.console-page .service-line .vpn-line{margin-left:auto;flex-shrink:0;text-align:right}
+body.console-page .service-line .input-source-line{position:absolute;left:50%;transform:translateX(-50%);color:#60aa7d;text-align:center;text-shadow:0 0 5px rgba(51,255,136,.15)}
+body.console-page .service-line .input-source-line b{font-weight:normal;color:#8dd9a9}
+body.console-page .service-line .input-source-line.unavailable,body.console-page .service-line .input-source-line.unavailable b{color:#85958a}
 /* VPN reads like the UPS readings beside it: muted caption, brighter value, same glow and state colours. */
 body.console-page .service-line .vpn-line{color:#60aa7d;text-shadow:0 0 5px rgba(51,255,136,.15)}
 body.console-page .service-line .vpn-line b{font-weight:normal;color:#8dd9a9}
