@@ -313,11 +313,11 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             return result;
         }
-        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse')]};
+        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN')]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
@@ -331,10 +331,11 @@
             MODULES_DIR,
             { label: 'ЖУРНАЛ', view: true },
             { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
-                var d = JSON.parse(raw), c = d.components || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ', ups: 'ЭНЕРГОКОНТУР' };
+                var d = JSON.parse(raw), c = d.components || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ', ups: 'ЭНЕРГОКОНТУР',vpn:'VPN' };
                 var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', disabled:'ВЫКЛЮЧЕН', stopping:'ОСТАНОВКА',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
                 return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' + Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n');
             } },
+            { module:'vpn', label:function(){return window.LostVPN?window.LostVPN.title():'VPN';}, pathLabel:'VPN', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostVPN){var tree=window.LostVPN.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { module:'ups', label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
             QUIT
         ] };
@@ -344,15 +345,25 @@
         var box = document.createElement('div'); box.className = 'ctl';
         var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
         var path = [ROOT], sel = 0;
-        function items() { var n = path[path.length - 1]; return n.view ? [] : n.dir.filter(function (it) { return (!it.devOnly || ui.mode === 'dev') && (!it.module || moduleInfo(it.module).enabled); }); }
+        function items() { var n = path[path.length - 1]; return n.view || n.editor ? [] : n.dir.filter(function (it) { return (!it.devOnly || ui.mode === 'dev') && (!it.module || moduleInfo(it.module).enabled); }); }
         function text(v) { return typeof v === 'function' ? v() : v; }
         function render() {
+            var current=path[path.length-1];if(current.editor&&win._editorNode===current&&win.querySelector('.station-editor'))return;
+            win._editorNode=current.editor?current:null;
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
             win.innerHTML = '';
             var ttl = document.createElement('div'); ttl.className = 'ttl';
             ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.pathLabel || n.label); }).join('\\');
             win.appendChild(ttl);
             var node = path[path.length - 1];
+            if(node.description){var description=document.createElement('div');description.className='station-explanation';description.textContent=node.description;win.appendChild(description);}
+            if(node.editor){
+                var form=document.createElement('form');form.className='station-editor';
+                var field=document.createElement('input');field.type='text';field.autocomplete='off';field.spellcheck=false;field.maxLength=253;field.value=node.draft||'';field.placeholder=node.placeholder||'';field.setAttribute('aria-label',text(node.label));
+                field.addEventListener('input',function(){node.draft=field.value;});form.appendChild(field);
+                form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);path.push(next);sel=0;render();}});win.appendChild(form);
+                var help=document.createElement('div');help.className='ft';help.textContent='ENTER — ПРОВЕРИТЬ И ПОДТВЕРДИТЬ   ESC — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});return;
+            }
             if (node.view) {
                 var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
                 win.appendChild(pre);
@@ -363,7 +374,7 @@
             list.forEach(function (it, i) {
                 var r = document.createElement('div'); r.className = 'row' + (i === sel ? ' sel' : '');
                 var l = document.createElement('span'); l.textContent = text(it.label);
-                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : '');
+                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : '');
                 r.appendChild(l); r.appendChild(k);
                 r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
                 r.addEventListener('click', function () { sel = i; enter(); });
@@ -378,9 +389,14 @@
         function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; sel = 0; render(); } }
         function enter(directoryOnly) {
             var it = items()[sel]; if (!it) return;
+            if(directoryOnly&&!it.dir&&!it.panel&&!it.editor)return;
+            if(it.cancel){back();return;}
+            if(it.editor){path.push(it);render();return;}
+            if(it.command){var result={label:it.label==='ВЫПОЛНИТЬ'?text(path[path.length-1].label):text(it.label),view:true,text:'ВЫПОЛНЯЕТСЯ…'};path.push(result);render();window.LostVPN.execute(it.command).then(function(output){result.text=output;render();});return;}
             if (it.dir) { path.push(it); sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); if (it.onEnter) it.onEnter(); render(); return; }
             if (it.view) {
-                it.text = ''; path.push(it); render();
+                it.text = it.staticText || ''; path.push(it); render();
+                if(it.staticText)return;
                 fetch(it.endpoint || '/__journal?lines=14').then(function (r) { if (!r.ok) throw new Error('journal unavailable'); return r.text(); }).then(function (t) {
                     it.text = it.format ? it.format(t) : t || '(ЖУРНАЛ ПУСТ)'; render();
                 }).catch(function () { it.text = 'ДАННЫЕ НЕДОСТУПНЫ. ←/ESC НАЗАД; ОТКРОЙТЕ СНОВА ДЛЯ ПОВТОРА.'; render(); });
@@ -442,6 +458,7 @@
         var swallowEnter = false, lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды
         document.addEventListener('keydown', function (e) {
             if (e.metaKey || e.ctrlKey || e.altKey || window.LostBootActive) return;
+            if(isOpen()&&path[path.length-1].editor){if(e.key==='Escape'){e.preventDefault();back();}else if(e.key==='Enter')swallowEnter=true;return;}
             var menuEnter = e.key === 'Enter' && isOpen();
             var f = menuEnter ? function () { enter(false); } : KEYS[e.code];
             if (!f) return;

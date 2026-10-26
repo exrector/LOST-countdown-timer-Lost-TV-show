@@ -7,7 +7,7 @@
  var line=el('div','ups-line stale');line.setAttribute('aria-label','Телеметрия энергоконтура');
  var services=document.querySelector('.service-line');if(!services){services=el('div','service-line');document.body.appendChild(services);}
  services.appendChild(line);
- var vpn=el('div','vpn-line','VPN: ');vpn.setAttribute('aria-label','VPN роутера');vpn.appendChild(el('b','','НЕТ ДАННЫХ'));vpn.title='AdGuard VPN на роутере: источник телеметрии ещё не подключён';services.appendChild(vpn);
+
  document.body.classList.add('lost-ups-ready');
  var panel=el('section','ups-panel');panel.hidden=true;panel.setAttribute('role','dialog');panel.setAttribute('aria-label','Энергоконтур');panel.setAttribute('aria-modal','true');
  var title=el('div','ups-title');title.appendChild(el('span','','LOST:\\МЕНЮ\\ЭНЕРГОКОНТУР'));var close=button('ESC НАЗАД',leave);title.appendChild(close);panel.appendChild(title);
