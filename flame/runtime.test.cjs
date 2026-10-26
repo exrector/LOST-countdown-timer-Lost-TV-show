@@ -76,6 +76,6 @@ test('screen: own station first, unknown machines named, offline shows last cont
     assert.ok(lines.every(l => l.length <= 78), 'rows fit the 820px panel');
     assert.match(Flame.row({ number: '1', station: 'THE HYDRA', device: 'EXRECTORS-MAC-MINI-USA-LONG-NAME', online: true }), /EXRECTORS-MAC-MINI-USA  ONLINE$/);
     assert.match(Flame.format({ installed: true, enabled: true, status: 'unavailable', error: 'Tailscale на станции: Stopped' }), /THE LOOKING GLASS IS BLOCKING ALL SIGNALS\.\nTailscale на станции: Stopped/);
-    assert.match(Flame.format({ enabled: false }), /MODULE OFFLINE/);
+    assert.match(Flame.format({ enabled: false }), /MODULE OFFLINE.*СТАНЦИИ/);
     assert.match(Flame.format('not json'), /ДАННЫЕ НЕДОСТУПНЫ/);
 });

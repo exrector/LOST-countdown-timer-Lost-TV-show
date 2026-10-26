@@ -287,7 +287,6 @@
             }, 8000);
             send({ type: '__cmd', cmd: 'mode', value: v }); if (ui.render) ui.render();
         }; }
-        var AUDIO = { speakers: 'ДИНАМИКИ', monitor: 'МОНИТОР', off: 'ВЫКЛ' };
         // дерево меню: label — строка или функция; dir — вложенная папка; key — подсказка клавиши
         var TIMERS = { label: 'ТАЙМЕР', dir: [['108 МИН', 6480], ['4 МИН', 240], ['1 МИН', 60], ['10 СЕК', 10]].map(function (p) {
             return { label: p[0], act: click('.lost-timer-dev-action-set[data-seconds="' + p[1] + '"]') }; }) };
@@ -296,9 +295,6 @@
             { label: 'СБРОС ТАЙМЕРА', act: click('.lost-timer-dev-action-reset') },
             { label: 'ИЕРОГЛИФЫ', act: click('.lost-timer-dev-action-glyphs') },
             SOUNDS_DIR] };
-        var AUDIO_DIR = { label: function () { return 'ЗВУК: ' + (AUDIO[audioMode] || 'ДИНАМИКИ'); }, pathLabel: 'ЗВУК', dir: Object.keys(AUDIO).map(function (v) {
-            return { label: AUDIO[v], current: function () { return audioMode === v; }, act: function () { send({ type: '__audio', mode: v }); } };
-        }) };
         var MODULE_STATUS={ready:'РАБОТАЕТ',starting:'ЗАПУСК',stopping:'ОСТАНОВКА',disabled:'ВЫКЛЮЧЕН',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН',degraded:'НЕТ СВЕЖИХ ДАННЫХ',unavailable:'НЕТ СВЯЗИ',connecting:'СОЕДИНЕНИЕ',reconnecting:'ПЕРЕПОДКЛЮЧЕНИЕ',revoked:'ПАРА ОТОЗВАНА'};
         function moduleInfo(id){return moduleState[id] || {enabled:false,status:'not_installed',installed:false};}
         function setModule(id,enabled){return function(){
@@ -313,32 +309,35 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='imessage'?'Пульт по iMessage: глобально, с разрешённых номеров. Команды и настройки — «ПУЛЬТ → iMESSAGE».':id==='siri'?'Пульт «Команд» iPhone (Siri): только домашняя сеть. Команды и настройки — «ПУЛЬТ → SIRI».':id==='flame'?'«Пламя» — связь со станциями DHARMA INITIATIVE: машины tailnet как станции. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='imessage'?'Станция читает iMessage от разрешённых номеров и выполняет команды LOST или команды из «Команд» Mac mini. Списки — «ПУЛЬТ».':id==='flame'?'Информер станций DHARMA INITIATIVE: машины tailnet как станции, связь видна с Лебедя. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             return result;
         }
-        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','ПЛАМЯ'),moduleDirectory('imessage','iMESSAGE'),moduleDirectory('siri','SIRI')]};
+        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','СТАНЦИИ'),moduleDirectory('imessage','ПУЛЬТ iMESSAGE')]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
         ] };
         var ROOT = { label: 'МЕНЮ', dir: [
             { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
-            AUDIO_DIR,
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, pathLabel: 'РЕЖИМ', key: 'D/L', dir: [
                 { label: 'LIVE', key: 'L', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
             ] },
             MODULES_DIR,
             { label:function(){var m=moduleInfo('muse');return 'AI: '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?(MODULE_STATUS[m.status]||m.status):'ВЫКЛ');}, pathLabel:'AI', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostMuseMenu){var tree=window.LostMuseMenu.menu(function(){open(false);if(window.LostMuse)window.LostMuse.open();});own.dir=tree.dir;own.description=tree.description;} } },
-            { label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
+            { module:'imessage', label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { label: 'ЖУРНАЛ', view: true },
             { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
-                var d = JSON.parse(raw), c = d.components || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ', ups: 'ЭНЕРГОКОНТУР',vpn:'VPN' };
+                var d = JSON.parse(raw), c = d.components || {}, m = d.modules || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ' };
                 var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', disabled:'ВЫКЛЮЧЕН', stopping:'ОСТАНОВКА',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
-                return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' + Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n');
+                // Модули — по их собственному состоянию (раньше VPN и др. искались среди компонентов и всегда были «ОЖИДАНИЕ»).
+                var mods = { ups: 'ЭНЕРГОКОНТУР', muse: 'AI', vpn: 'VPN', flame: 'СТАНЦИИ', imessage: 'ПУЛЬТ iMESSAGE' };
+                return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' +
+                    Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n') + '\n\n' +
+                    Object.keys(mods).filter(function (k) { return m[k]; }).map(function (k) { return mods[k].padEnd(17) + (m[k].enabled === false ? 'ВЫКЛЮЧЕН' : status[m[k].status] || String(m[k].status || 'ОЖИДАНИЕ').toUpperCase()) + (m[k].location ? ' · ' + m[k].location : ''); }).join('\n');
             } },
             { module:'vpn', label:function(){return window.LostVPN?window.LostVPN.title():'VPN';}, pathLabel:'VPN', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostVPN){var tree=window.LostVPN.menu();own.dir=tree.dir;own.description=tree.description;} } },
-            { module:'flame', label:'ПЛАМЯ: СВЯЗЬ СО СТАНЦИЯМИ', pathLabel:'ПЛАМЯ', view:true, endpoint:'/__flame/state?refresh=1', format:function(raw){ return window.LostFlame ? window.LostFlame.format(raw) : 'ДАННЫЕ НЕДОСТУПНЫ'; } },
+            { module:'flame', label:'СТАНЦИИ', pathLabel:'СТАНЦИИ', view:true, endpoint:'/__flame/state?refresh=1', format:function(raw){ return window.LostFlame ? window.LostFlame.format(raw) : 'ДАННЫЕ НЕДОСТУПНЫ'; } },
             { module:'ups', label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
             QUIT
         ] };
@@ -354,9 +353,16 @@
             var current=path[path.length-1];if(current.editor&&win._editorNode===current&&win.querySelector('.station-editor'))return;
             win._editorNode=current.editor?current:null;
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
-            // Меню перерисовывается при каждом обновлении модулей и таймера: прокрутка открытого просмотра сохраняется.
+            var footer = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ESC НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : path.length > 1 ? '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ←/ESC НАЗАД' : '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ESC ЗАКРЫТЬ';
+            // render() зовут при каждом обновлении таймера, модулей и пульта. Если на экране ничего не поменялось,
+            // DOM не трогаем: иначе список и просмотр строятся заново и прокрутка прыгает.
+            var sig = JSON.stringify([isOpen(), path.map(function (n) { return text(n.pathLabel || n.label); }), current.description || '',
+                current.view ? current.text || '' : list.map(function (it, i) { return [text(it.label), marker(it), i === sel]; }), footer]);
+            if (win._sig === sig && win._sigNode === current) return;
+            win._sig = sig; win._sigNode = current;
             var oldView = win.querySelector('.view'), keepScroll = oldView && win._viewNode === current ? oldView.scrollTop : 0;
-            win._viewNode = current.view ? current : null;
+            var oldList = win.querySelector('.list'), keepList = oldList && win._listNode === current ? oldList.scrollTop : 0;
+            win._viewNode = current.view ? current : null; win._listNode = current.view ? null : current;
             win.innerHTML = '';
             var ttl = document.createElement('div'); ttl.className = 'ttl';
             ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.pathLabel || n.label); }).join('\\');
@@ -380,17 +386,18 @@
             list.forEach(function (it, i) {
                 var r = document.createElement('div'); r.className = 'row' + (i === sel ? ' sel' : '');
                 var l = document.createElement('span'); l.textContent = text(it.label);
-                var k = document.createElement('span'); k.className = 'k'; k.textContent = it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : '');
+                var k = document.createElement('span'); k.className = 'k'; k.textContent = marker(it);
                 r.appendChild(l); r.appendChild(k);
                 r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
                 r.addEventListener('click', function () { sel = i; enter(); });
                 rows.appendChild(r);
             });
-            var ft = document.createElement('div'); ft.className = 'ft';
-            ft.textContent = ui.moduleError ? ui.moduleError : ui.modeError ? 'НЕТ ПОДТВЕРЖДЕНИЯ РЕЖИМА — D/L ПОВТОР, ESC НАЗАД' : ui.requestedMode ? 'ПЕРЕКЛЮЧЕНИЕ РЕЖИМА...' : path.length > 1 ? '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ←/ESC НАЗАД' : '↑↓ ВЫБОР  → РАЗДЕЛ  ENTER ОК  ESC ЗАКРЫТЬ';
+            var ft = document.createElement('div'); ft.className = 'ft'; ft.textContent = footer;
             win.appendChild(ft);
+            rows.scrollTop = keepList;
             if (isOpen()) { var selected = rows.querySelector('.sel'); if (selected) selected.scrollIntoView({ block: 'nearest' }); }
         }
+        function marker(it) { return it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
         function isOpen() { return box.classList.contains('open'); }
         function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; sel = 0; render(); } }
         function enter(directoryOnly) {
@@ -417,17 +424,18 @@
         function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
         function move(d) { if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
-        window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',channel:e.detail.channel,key:e.detail.key,enabled:e.detail.enabled}); });
+        window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words}); });
         window.addEventListener('lost-remote', function(){ render(); });
         ui.render = render;
         ui.onMode = function () {
-            if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, ROOT.dir[2]]; sel = 0; }
+            if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, modeDir()]; sel = 0; }
         };
         function openDev() {
-            open(true); path = [ROOT, ROOT.dir[2], DEV]; sel = 0; DEV.onEnter(); render();
+            open(true); path = [ROOT, modeDir(), DEV]; sel = 0; DEV.onEnter(); render();
         }
 
-        function openAudio() { open(true); path = [ROOT, AUDIO_DIR]; sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); render(); }
+        // Раздел «РЕЖИМ» ищется по содержимому: положение пунктов корня меню может меняться.
+        function modeDir() { return ROOT.dir.filter(function (n) { return n.dir && n.dir.indexOf(DEV) !== -1; })[0]; }
         function openQuit() {
             if (isOpen() && path[path.length - 1] === QUIT) return QUIT.dir[1].act();
             open(true); path = [ROOT, QUIT]; sel = 1; render();

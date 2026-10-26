@@ -1,70 +1,57 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const { parse, COMMANDS } = require('./commands.cjs');
+const { COMMANDS, parseWords, match } = require('./commands.cjs');
 const { createRemote, normalizeSettings, isHomeNetwork } = require('./runtime.cjs');
 const { createIMessage } = require('./imessage.cjs');
 
-test('phrases keep the old remote behaviour and order', () => {
-    const cases = { 'Пауза': 'pause', 'сон': 'pause', 'Стоп': 'pause', 'Старт': 'resume', 'утро': 'resume', 'Подъём': 'resume',
-        'Звук выкл': 'sound-off', 'тихо': 'sound-off', 'Звук': 'sound', 'Динамики': 'speakers', 'монитор': 'monitor',
-        'Статус': 'status', '?': 'status', 'журнал': 'journal' };
-    for (const [text, id] of Object.entries(cases)) assert.equal(parse(text).id, id, text);
-    assert.deepEqual(parse(' 4 8  15 16 23 42 '), { id: 'code', code: '4 8 15 16 23 42' });
-    assert.equal(parse('привет'), null);
-    assert.ok(COMMANDS.every(c => c.label && c.phrases.length));
+const defaults = normalizeSettings().words;
+test('default words keep the old behaviour; there are no sound commands', () => {
+    const cases = { 'Пауза': 'pause', 'сон': 'pause', 'Стоп': 'pause', 'Старт': 'resume', 'утро': 'resume', 'Подъём': 'resume', 'проснулся': 'resume', 'Статус': 'status', '?': 'status', 'журнал': 'journal' };
+    for (const [text, id] of Object.entries(cases)) assert.equal(match(text, defaults).id, id, text);
+    assert.deepEqual(match(' 4 8  15 16 23 42 ', defaults), { id: 'code', code: '4 8 15 16 23 42' });
+    assert.equal(match('привет', defaults), null);
+    assert.deepEqual(COMMANDS.map(c => c.id), ['journal', 'status', 'resume', 'pause']);
+});
+
+test('a words line from the menu: commas, case, ё, spaces, duplicates', () => {
+    assert.deepEqual(parseWords(' Пауза, СОН ,, сон, стоп  машина, Ёлка '), ['пауза', 'сон', 'стоп машина', 'елка']);
+    assert.deepEqual(parseWords(''), []);
 });
 
 function remote(over = {}) {
-    const calls = [], saves = [];
-    const actions = new Proxy({}, { get: (_, id) => (channel, said) => { calls.push([id, channel, said]); return id === 'code' ? 'Код отправлен.' : ''; } });
-    const r = createRemote({ saved: over.saved, persist: () => { saves.push(1); return over.persist !== false; }, actions,
-        shortcuts: { find: t => t === 'Громкость 50' ? 'Громкость 50' : null, run: (name, channel) => { calls.push(['shortcut', name, channel]); return 'Запускаю команду «' + name + '».'; } },
-        active: channel => over.active ? over.active(channel) : true });
-    return { r, calls, saves };
+    const calls = [];
+    const actions = new Proxy({}, { get: (_, id) => (channel, said) => { calls.push([id, said]); return id === 'code' ? 'Код отправлен.' : ''; } });
+    const names = ['Громкость 50', 'VPN SWITCH'];
+    const r = createRemote({ saved: over.saved, persist: () => over.persist !== false, actions,
+        shortcuts: { list: () => names, find: t => names.find(n => n.toLowerCase() === String(t).trim().toLowerCase()) || null,
+            run: name => { calls.push(['shortcut', name]); return 'Запускаю команду «' + name + '».'; } } });
+    return { r, calls };
 }
 
-test('each channel has its own command switches; a disabled command is refused, not run', () => {
+test('a message runs a LOST command by its words or a Mac mini command by its exact name', () => {
     const { r, calls } = remote();
-    assert.equal(r.set('siri', 'pause', false), true);
-    assert.match(r.run('Пауза', 'siri'), /«ПАУЗА» по Siri выключена/);
-    assert.equal(r.run('Пауза', 'imessage', '+70000000000'), '');
-    assert.deepEqual(calls, [['pause', 'imessage', 'Пауза']]);
-    assert.equal(r.snapshot().siri.commands.find(c => c.id === 'pause').enabled, false);
-    assert.equal(r.settings().imessage.commands.pause, true);
-});
-
-test('Mac shortcuts by exact name are a separate switch per channel', () => {
-    const { r, calls } = remote();
-    assert.match(r.run('Громкость 50', 'siri'), /Запускаю/);
-    r.set('siri', 'shortcuts', false);
-    assert.match(r.run('Громкость 50', 'siri'), /Не понял/);
-    assert.deepEqual(calls, [['shortcut', 'Громкость 50', 'siri']]);
-    assert.doesNotMatch(r.help('siri'), /«Команд»/);
-});
-
-test('code can be disabled per channel; unknown text answers with the channel help; off channel is silent', () => {
-    const { r } = remote({ active: channel => channel === 'imessage' });
+    assert.equal(r.run('Пауза', 'imessage', '+7'), '');
+    assert.match(r.run('vpn switch', 'imessage', '+7'), /Запускаю команду «VPN SWITCH»/);
     assert.equal(r.run('4 8 15 16 23 42', 'imessage'), 'Код отправлен.');
-    r.set('imessage', 'code', false);
-    assert.match(r.run('4 8 15 16 23 42', 'imessage'), /не принимается/);
-    assert.match(r.run('привет', 'imessage'), /^Не понял «привет»\. Команды: /);
-    assert.equal(r.run('Пауза', 'siri'), null);
-    assert.equal(r.run('Пауза', 'other'), null);
+    assert.match(r.run('привет', 'imessage'), /^Не понял «привет»\. Команды: журнал\/journal, /);
+    assert.deepEqual(calls, [['pause', 'Пауза'], ['shortcut', 'VPN SWITCH'], ['code', 'imessage']]);
+    assert.deepEqual(r.snapshot().shortcuts, ['Громкость 50', 'VPN SWITCH']);
 });
 
-test('settings persist and survive reload; failed save keeps the old value; garbage is rejected', () => {
-    const first = remote(); first.r.set('imessage', 'sound', false);
+test('words are edited as one line, persist and survive reload; bad edits keep the old words', () => {
+    const first = remote();
+    assert.equal(first.r.setWords('pause', 'отбой, тишина'), true);
+    assert.equal(first.r.run('Отбой', 'imessage'), '');
+    assert.match(first.r.run('пауза', 'imessage'), /Не понял/);
     const again = remote({ saved: first.r.settings() });
-    assert.equal(again.r.settings().imessage.commands.sound, false);
-    const failing = remote({ persist: false });
-    assert.equal(failing.r.set('siri', 'pause', false), false);
-    assert.equal(failing.r.settings().siri.commands.pause, true);
-    assert.equal(again.r.set('siri', 'quit', false), false);
-    assert.equal(again.r.set('siri', 'pause', 'no'), false);
-    assert.deepEqual(Object.keys(normalizeSettings({ evil: {} })), ['imessage', 'siri', 'blocked']);
+    assert.deepEqual(again.r.snapshot().commands.find(c => c.id === 'pause').words, ['отбой', 'тишина']);
+    assert.equal(again.r.setWords('pause', ' , '), false);
+    assert.equal(again.r.setWords('quit', 'выход'), false);
+    assert.equal(remote({ persist: false }).r.setWords('pause', 'x'), false);
+    assert.deepEqual(normalizeSettings({ words: { pause: [] }, evil: 1 }).words.pause, defaults.pause);
 });
 
-test('Siri accepts only the home network, never the tailnet or the internet', () => {
+test('station address commands are accepted only from the home network, never the tailnet or the internet', () => {
     for (const a of ['127.0.0.1', '::1', '::ffff:192.168.1.40', '10.0.0.5', '172.20.1.1']) assert.equal(isHomeNetwork(a), true, a);
     for (const a of ['100.99.36.23', '::ffff:100.64.0.1', '8.8.8.8', '172.32.0.1', '', 'fe80::1', '192.169.1.1']) assert.equal(isHomeNetwork(a), false, a);
 });
@@ -83,18 +70,4 @@ test('iMessage: only listed senders are queried; while the module is off message
     active = true; rows = ''; im.check();
     assert.equal(ran.length, 1);
     assert.equal(createIMessage({ senders: [] }).start(), false);
-});
-
-test('each Siri command on the Mac can be forbidden for the station; the list comes from the Mac', () => {
-    const calls = [];
-    const r = createRemote({ actions: {}, persist: () => true,
-        shortcuts: { list: () => ['Громкость 50', 'Свет'], find: t => ['Громкость 50', 'Свет'].find(n => n.toLowerCase() === t.toLowerCase()) || null, run: name => { calls.push(name); return 'Запускаю команду «' + name + '».'; } } });
-    assert.deepEqual(r.snapshot().siriCommands, [{ name: 'Громкость 50', enabled: true }, { name: 'Свет', enabled: true }]);
-    assert.equal(r.setShortcut('Свет', false), true);
-    assert.match(r.run('свет', 'imessage', '+7'), /«Свет» на станции запрещена/);
-    assert.match(r.run('Громкость 50', 'imessage', '+7'), /Запускаю/);
-    assert.deepEqual(calls, ['Громкость 50']);
-    const again = createRemote({ saved: r.settings(), actions: {}, shortcuts: { list: () => ['Свет'], find: () => null, run: () => '' } });
-    assert.deepEqual(again.snapshot().siriCommands, [{ name: 'Свет', enabled: false }]);
-    assert.equal(r.setShortcut('', true), false);
 });
