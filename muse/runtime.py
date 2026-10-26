@@ -101,6 +101,8 @@ def main():
     threading.Thread(target=watch_owner, daemon=True).start()
     from chat_adapter import install
     install(ROOT, str(uuid.uuid5(uuid.NAMESPACE_URL, 'lost-terminal-' + fixed_identity.suffix)), separate_chat=True)
+    from executor_adapter import install as install_executor
+    install_executor()
     status('connecting')
     sys.argv = ['musegadget', 'run']
     try:
