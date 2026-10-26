@@ -397,7 +397,7 @@
                 var k = document.createElement('span'); k.className = 'k'; k.textContent = marker(it);
                 r.appendChild(l); r.appendChild(k);
                 r.addEventListener('mousedown', function (e) { e.preventDefault(); }); // фокус остаётся в поле ввода
-                r.addEventListener('click', function () { sel = i; enter(list[i].confirm ? 'confirm' : 'open'); });
+                r.addEventListener('click', function () { tap(i, list[i]); });
                 rows.appendChild(r);
             });
             var ft = document.createElement('div'); ft.className = 'ft'; ft.textContent = footer;
@@ -407,7 +407,7 @@
         }
         function marker(it) { return it.confirm ? (it.current && it.current() ? '<ВЫБРАНО>' : '[ENTER]') : it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
         function isOpen() { return box.classList.contains('open'); }
-        function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; base = 1; sel = 0; render(); } }
+        function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); ui.hint = ''; if (on) { path = [ROOT]; base = 1; sel = 0; render(); } }
         // Единое управление меню: → открывает и выполняет обычное, ← / Esc — назад,
         // Enter — только подтверждение необратимого (пункты confirm) и сохранение в полях правки.
         function enter(mode) {
@@ -433,6 +433,19 @@
             if (path.indexOf(DEV) !== -1 && (ui.mode !== 'dev' || ui.requestedMode)) return;
             if (it.act) it.act();
             setTimeout(render, 150);
+        }
+        // Касание (тачскрин терминала приходит кликами): обычный пункт открывается сразу, пункт [ENTER] — только выбирается.
+        // Подтверждает второе касание той же строки (не раньше 0,3 с — дребезг, не позже 5 с) или Enter.
+        var armedAt = 0;
+        function touchHint(it) { return 'КОСНИТЕСЬ ЕЩЁ РАЗ ИЛИ ENTER — ПОДТВЕРДИТЬ «' + text(it.label) + '»'; }
+        function tap(i, it) {
+            if (!it.confirm) { sel = i; enter('open'); return; }
+            var age = Date.now() - armedAt;
+            if (sel === i && ui.hint === touchHint(it) && age >= 300 && age <= 5000) { armedAt = 0; enter('confirm'); return; }
+            if (sel === i && ui.hint === touchHint(it) && age < 300) return;
+            sel = i; armedAt = Date.now(); ui.hint = touchHint(it); render();
+            var shown = ui.hint;
+            setTimeout(function () { if (ui.hint === shown && Date.now() - armedAt >= 5000) { ui.hint = ''; render(); } }, 5100);
         }
         function back() { ui.hint = ''; if (path.length > base) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
         function move(d) { ui.hint = ''; if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
