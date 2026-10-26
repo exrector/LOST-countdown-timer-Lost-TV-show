@@ -10,6 +10,8 @@ const { loadState, writeState } = require('./state-store');
 const { StationClock } = require('./clock');
 const timeline = require('../js/lost-timeline');
 const { createModules } = require('./modules');
+const { createRemote, isHomeNetwork } = require('../remote/runtime.cjs');
+const { createIMessage } = require('../remote/imessage.cjs');
 const { createUPSGateway } = require('./ups-gateway');
 const { createMuseGateway } = require('../muse/gateway.cjs');
 
@@ -54,16 +56,14 @@ function start(port = 8765, opts = {}) {
         }
         if (p === '/__ping') { res.writeHead(200); return res.end('ok'); }
         if (p === '/__quit') { res.writeHead(200); res.end('bye'); setTimeout(() => events.emit('quit'), 100); return; }
-        // «Фокус: Сон» с iPhone (Команды → «Получить содержимое URL»): /__sleep?on=1 — пауза, /__sleep?on=0 — продолжить
-        if (p === '/__sleep') {
-            setSleep(url.searchParams.get('on') === '1', 'запрос по сети');
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            return res.end(sleepOn ? 'LOST: сон, пауза' : 'LOST: работает');
-        }
-        // тот же пульт, что и по iMessage, но по локальной сети: /__cmd?text=Пауза — ответ тем же текстом, что пришёл бы сообщением
-        if (p === '/__cmd') {
-            const answer = runRemote(url.searchParams.get('text') || '', 'сеть');
-            setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(answer ? answer + ' ' + statusText() : statusText()); }, 1500);
+        // Модуль Siri — «Команды» iPhone по адресу станции, только из домашней сети (не из tailnet и не снаружи).
+        // /__sleep?on=1|0 — пауза/старт («Фокус: Сон»); /__cmd?text=Пауза — тот же разбор, что у iMessage.
+        if (p === '/__sleep' || p === '/__cmd') {
+            if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: команды Siri принимаются только из домашней сети'); }
+            if (moduleManager.desired().siri !== true) { req.resume(); res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: модуль Siri выключен'); }
+            const text = p === '/__sleep' ? (url.searchParams.get('on') === '1' ? 'пауза' : 'старт') : url.searchParams.get('text') || '';
+            const answer = remote.run(text, 'siri');
+            setTimeout(() => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(answer ? answer + ' ' + statusText() : statusText()); }, p === '/__sleep' ? 0 : 1500);
             return;
         }
         if (p === '/__journal') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(journalTail(Math.min(200, parseInt(url.searchParams.get('lines')) || 16))); }
@@ -93,6 +93,7 @@ function start(port = 8765, opts = {}) {
     const stateFile = opts.stateFile || path.join(__dirname, '.state.json');
     let audioMode = opts.audioDefault || 'mac';
     const saved = loadState(stateFile);
+    let remote = null; // пульт создаётся ниже, когда готовы таймер и звук
     const moduleManager = createModules({ saved: saved.modules, persist: saveState, apply: opts.applyModule, installed: opts.moduleInstalled,
         publish: modules => { const msg = JSON.stringify({ type: '__modules', modules }); for (const set of Object.values(peers)) for (const ws of set) if (ws.readyState === 1) ws.send(msg); } });
     audioMode = saved.audio || audioMode;
@@ -105,7 +106,7 @@ function start(port = 8765, opts = {}) {
     syncClock();
     function saveState() {
         savedAt = Date.now(); syncClock();
-        return writeState(stateFile, { audio: audioMode, ...clock.snapshot(), modules: moduleManager.desired() });
+        return writeState(stateFile, { audio: audioMode, ...clock.snapshot(), modules: moduleManager.desired(), remote: remote ? remote.settings() : saved.remote });
     }
     function switchMode(mode) {
         if (mode === clock.mode) return;
@@ -213,46 +214,26 @@ function start(port = 8765, opts = {}) {
         } catch (_) { return ''; }
     }
 
-    // ===== Удалённый пульт через iMessage =====
-    // Сообщения на Apple ID этого Мака от разрешённых номеров (config.json → sleepFrom) читаются из базы «Сообщений»
-    // раз в 10 с и выполняются как команды; на каждую LOST отвечает сообщением со своим состоянием.
-    // Выход и Dev Mode по сообщению намеренно недоступны (удалённо их не отменить, Dev Mode перезапускает таймер).
-    const HELP = 'Команды: Пауза/Сон, Старт/Утро, Звук, Звук выкл, Динамики, Монитор, Статус, код 4 8 15 16 23 42 — или точное название команды из «Команд» Mac mini.';
-    function runRemote(text, via, sender) {
-        const t = String(text || '').trim().toLowerCase().replace(/ё/g, 'е');
-        if (/^[\d\s]+$/.test(t) && /\d/.test(t)) {
-            const code = t.split(/\s+/).filter(Boolean).join(' ');
+    // ===== Пульт: модули iMessage (глобально) и Siri (домашняя сеть), см. remote/ =====
+    // Выход и Dev Mode удалённо намеренно недоступны (удалённо их не отменить, Dev Mode перезапускает таймер).
+    const remoteActions = {
+        code(code, channel) {
             if (!timerInfo().open) return 'Код не принят: терминал открывается только в последние 4 минуты.';
             const msg = JSON.stringify({ type: 'numberSubmitted', value: code });
-            if(code !== '4 8 15 16 23 42') for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
-            console.log('[пульт] код:', code);
+            if (code !== '4 8 15 16 23 42') for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
+            console.log('[пульт] код:', code, '(' + channel + ')');
             if (code === '4 8 15 16 23 42') { journalAccepted(); clock.reset(); saveState(); publishClock(); }
             return 'Код отправлен.';
-        }
-        // Своя команда из «Команд» этого Мака: текст сообщения точно совпадает с её названием (без учёта регистра).
-        // Так любое слово с iPhone может запустить что угодно в системе — достаточно создать команду с таким именем.
-        const sc = findShortcut(text);
-        if (sc) {
-            console.log('[пульт] запускаю команду «' + sc + '» (' + via + ')');
-            // ввод закрываем сразу: при открытом stdin `shortcuts run` ждёт входные данные для команды и висит
-            const child = execFile('shortcuts', ['run', sc], { timeout: 120000 }, (e, out) => {
-                const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
-                console.log('[пульт] команда «' + sc + '»: ' + res);
-                if (sender) reply(sender, 'Команда «' + sc + '»: ' + res.slice(0, 500));
-            });
-            child.stdin.end();
-            return 'Запускаю команду «' + sc + '».';
-        }
-        if (/^журнал|^journal/.test(t)) return 'Журнал станции:\n' + (journalTail(6) || '(пусто)') + '\n';
-        if (/^(статус|status|\?)/.test(t)) return '';
-        if (/звук выкл|без звука|тихо|mute/.test(t)) { setAudio('off'); return ''; }
-        if (/динамик/.test(t)) { setAudio('speakers'); return ''; }
-        if (/монитор|hdmi/.test(t)) { setAudio('monitor'); return ''; }
-        if (/^звук/.test(t)) { setAudio({ speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers'); return ''; }
-        if (/(выкл|проснул|подъем|утро|встал|старт|пуск|продолж|play)/.test(t)) { setSleep(false, via + ' «' + text.trim() + '»'); return ''; }
-        if (/(пауза|сон|спать|сплю|стоп|pause)/.test(t)) { setSleep(true, via + ' «' + text.trim() + '»'); return ''; }
-        return 'Не понял «' + text.trim() + '». ' + HELP;
-    }
+        },
+        journal: () => 'Журнал станции:\n' + (journalTail(6) || '(пусто)') + '\n',
+        status: () => '',
+        'sound-off': () => { setAudio('off'); return ''; },
+        speakers: () => { setAudio('speakers'); return ''; },
+        monitor: () => { setAudio('monitor'); return ''; },
+        sound: () => { setAudio({ speakers: 'monitor', monitor: 'off', off: 'speakers' }[audioMode] || 'speakers'); return ''; },
+        resume: (channel, said) => { setSleep(false, channel + ' «' + said + '»'); return ''; },
+        pause: (channel, said) => { setSleep(true, channel + ' «' + said + '»'); return ''; },
+    };
     // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
     let shortcutNames = [], shortcutsAt = 0, shortcutsRefreshing = false;
     function refreshShortcuts() {
@@ -263,39 +244,25 @@ function start(port = 8765, opts = {}) {
             if (!error) shortcutNames = output.split('\n').map(x => x.trim()).filter(Boolean);
         });
     }
-    function findShortcut(text) {
-        refreshShortcuts();
-        const want = String(text || '').trim().toLowerCase();
-        return shortcutNames.find(n => n.toLowerCase() === want) || null;
-    }
-    // Ответ через «Сообщения» на этом Маке (при первой отправке macOS спросит разрешение на управление «Сообщениями»)
-    function reply(to, text) {
-        const script = 'on run argv\n tell application "Messages"\n set s to 1st account whose service type = iMessage\n' +
-            ' send (item 2 of argv) to participant (item 1 of argv) of s\n end tell\nend run';
-        execFile('osascript', ['-e', script, to, text], e => { if (e) console.log('[пульт] ответ не отправлен:', (e.message || '').split('\n')[0]); });
-    }
-    if (opts.sleepFrom && opts.sleepFrom.length) {
-        const db = path.join(os.homedir(), 'Library/Messages/chat.db');
-        const from = opts.sleepFrom.map(x => "'" + String(x).replace(/'/g, '') + "'").join(',');
-        let lastId = null, warned = false;
-        const check = () => {
-            const q = lastId === null ? 'select max(ROWID) from message;'
-                : `select m.ROWID, h.id, m.text from message m join handle h on h.ROWID = m.handle_id where m.ROWID > ${lastId} and m.is_from_me = 0 and h.id in (${from}) order by m.ROWID;`;
-            execFile('/usr/bin/sqlite3', ['-readonly', '-separator', '\t', db, q], (e, out) => {
-                if (e) { if (!warned) console.log('[пульт] не читается база «Сообщений» — дайте LOST.app «Полный доступ к диску»:', (e.message || '').split('\n')[0]); warned = true; return; }
-                if (warned) { console.log('[пульт] доступ к «Сообщениям» есть'); warned = false; }
-                if (lastId === null) { lastId = parseInt(out) || 0; return; } // старые сообщения не трогаем
-                for (const line of out.split('\n').filter(Boolean)) {
-                    const [id, sender, ...rest] = line.split('\t'); lastId = Math.max(lastId, parseInt(id));
-                    const answer = runRemote(rest.join(' '), 'iMessage', sender);
-                    // ответ — после того, как таймер успеет отработать команду и прислать новое состояние
-                    setTimeout(() => reply(sender, answer ? answer + ' ' + statusText() : statusText()), 1500);
-                }
+    const shortcutRunner = {
+        find(text) { refreshShortcuts(); const want = String(text || '').trim().toLowerCase(); return shortcutNames.find(n => n.toLowerCase() === want) || null; },
+        run(name, channel, sender) {
+            console.log('[пульт] запускаю команду «' + name + '» (' + channel + ')');
+            // ввод закрываем сразу: при открытом stdin `shortcuts run` ждёт входные данные для команды и висит
+            const child = execFile('shortcuts', ['run', name], { timeout: 120000 }, (e, out) => {
+                const res = e ? 'ошибка: ' + (e.message || '').split('\n')[0] : (String(out || '').trim() || 'готово');
+                console.log('[пульт] команда «' + name + '»: ' + res);
+                if (sender && imessage) imessage.reply(sender, 'Команда «' + name + '»: ' + res.slice(0, 500));
             });
-        };
-        console.log('[пульт] жду iMessage от:', opts.sleepFrom.join(', '));
-        check(); setInterval(check, 10000);
-    }
+            child.stdin.end();
+            return 'Запускаю команду «' + name + '».';
+        },
+    };
+    remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner, active: channel => moduleManager.desired()[channel] === true });
+    const remoteMsg = () => JSON.stringify({ type: '__remote', remote: remote.snapshot(), senders: imessage ? imessage.senders().length : 0, address: lanIp() });
+    function publishRemote() { const m = remoteMsg(); for (const ws of peers.console) if (ws.readyState === 1) ws.send(m); }
+    const imessage = createIMessage({ senders: opts.sleepFrom || [], run: remote.run, status: statusText, active: () => moduleManager.desired().imessage === true });
+    imessage.start();
 
     server.on('upgrade', (req, sock, head) => {
         const role = new URL(req.url, 'http://x').searchParams.get('role');
@@ -305,6 +272,7 @@ function start(port = 8765, opts = {}) {
             console.log(`[bridge] ${role} connected (tv=${peers.tv.size}, console=${peers.console.size})`);
             ws.send(audioMsg());
             ws.send(JSON.stringify({ type: '__modules', modules: moduleManager.snapshot() }));
+            if (role === 'console') ws.send(remoteMsg());
             ws.send(JSON.stringify({type:'__clock', ...syncClock()}));
             if (role === 'console') Object.values(last).forEach(m => ws.send(m));
             ws.on('message', m => {
@@ -315,6 +283,7 @@ function start(port = 8765, opts = {}) {
                 if (data.type === '__audio') { if (['speakers','monitor','off'].includes(data.mode)) setAudio(data.mode); return; }
                 if (data.type === '__alive') { events.emit('client-alive', { ...data, role }); if (role === 'tv') events.emit('tv-alive', data); return; }
                 if (data.type === '__log') { console.log('[' + role + ' log]', data.msg); return; }
+                if (data?.type === '__remote_set') { if (role === 'console') { if (!remote.set(data.channel, data.key, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.channel, error: 'invalid_remote_request' })); publishRemote(); } return; }
                 if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }
                 if (!data || typeof data !== 'object') return;
                 if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {

@@ -7,6 +7,7 @@ function loadState(file) {
     let s = {}; try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
     if (!s || typeof s !== 'object') s = {};
     return { audio: ['speakers','monitor','off'].includes(s.audio) ? s.audio : null,
+        ...(s.remote && typeof s.remote === 'object' ? { remote: s.remote } : {}),
         modules: normalizeModules(s.modules), mode: s.mode === 'dev' ? 'dev' : 'live', live: slot(s.live || s), dev: slot(s.dev) };
 }
 function writeState(file, state) {

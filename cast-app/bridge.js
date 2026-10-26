@@ -313,11 +313,11 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='flame'?'«Пламя» — связь со станциями DHARMA INITIATIVE: машины tailnet как станции. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='imessage'?'Пульт по iMessage: глобально, с разрешённых номеров. Команды и настройки — «ПУЛЬТ → iMESSAGE».':id==='siri'?'Пульт «Команд» iPhone (Siri): только домашняя сеть. Команды и настройки — «ПУЛЬТ → SIRI».':id==='flame'?'«Пламя» — связь со станциями DHARMA INITIATIVE: машины tailnet как станции. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             return result;
         }
-        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','ПЛАМЯ')]};
+        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','ПЛАМЯ'),moduleDirectory('imessage','iMESSAGE'),moduleDirectory('siri','SIRI')]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
@@ -329,6 +329,8 @@
                 { label: 'LIVE', key: 'L', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
             ] },
             MODULES_DIR,
+            { label:function(){var m=moduleInfo('muse');return 'AI: '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?(MODULE_STATUS[m.status]||m.status):'ВЫКЛ');}, pathLabel:'AI', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostMuseMenu){var tree=window.LostMuseMenu.menu(function(){open(false);if(window.LostMuse)window.LostMuse.open();});own.dir=tree.dir;own.description=tree.description;} } },
+            { label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { label: 'ЖУРНАЛ', view: true },
             { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
                 var d = JSON.parse(raw), c = d.components || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ', ups: 'ЭНЕРГОКОНТУР',vpn:'VPN' };
@@ -352,6 +354,9 @@
             var current=path[path.length-1];if(current.editor&&win._editorNode===current&&win.querySelector('.station-editor'))return;
             win._editorNode=current.editor?current:null;
             var list = items(); if (sel >= list.length) sel = list.length - 1; if (sel < 0) sel = 0;
+            // Меню перерисовывается при каждом обновлении модулей и таймера: прокрутка открытого просмотра сохраняется.
+            var oldView = win.querySelector('.view'), keepScroll = oldView && win._viewNode === current ? oldView.scrollTop : 0;
+            win._viewNode = current.view ? current : null;
             win.innerHTML = '';
             var ttl = document.createElement('div'); ttl.className = 'ttl';
             ttl.textContent = 'LOST:\\' + path.map(function (n) { return text(n.pathLabel || n.label); }).join('\\');
@@ -367,7 +372,7 @@
             }
             if (node.view) {
                 var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
-                win.appendChild(pre);
+                win.appendChild(pre); pre.scrollTop = keepScroll;
                 var f = document.createElement('div'); f.className = 'ft'; f.textContent = '↑↓ ПРОКРУТКА  ←/ESC НАЗАД'; win.appendChild(f);
                 return;
             }
@@ -412,6 +417,8 @@
         function back() { if (path.length > 1) { var from = path.pop(); sel = Math.max(0, items().indexOf(from)); render(); } else open(false); }
         function move(d) { if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
+        window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',channel:e.detail.channel,key:e.detail.key,enabled:e.detail.enabled}); });
+        window.addEventListener('lost-remote', function(){ render(); });
         ui.render = render;
         ui.onMode = function () {
             if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, ROOT.dir[2]]; sel = 0; }
