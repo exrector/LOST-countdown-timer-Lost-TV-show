@@ -90,3 +90,11 @@ test('module off blocks all UPS upstream traffic, broadcasts/persists desired st
   assert.equal((await request(app.port,'/__ups/state')).status,200);assert.equal(seen,2);
  }finally{ws?.terminate();tv?.terminate();if(app)await stop(app.child);await new Promise(r=>upstream.close(r));fs.rmSync(f.dir,{recursive:true,force:true});}
 });
+
+test('K in the terminal: a Mac mini command runs only from the console; an unknown name answers with an error, nothing runs',async()=>{
+ const f=fixture({});const {child,port}=await boot(f.dir);const tv=await connect(port,'tv'),con=await connect(port,'console');const got=[];con.on('message',m=>{const d=JSON.parse(m);if(d.type==='__shortcut_result')got.push(d);});
+ try{tv.send(JSON.stringify({type:'__shortcut_run',id:1,name:'LOST test: no such command'}));con.send(JSON.stringify({type:'__shortcut_run',id:2,name:'LOST test: no such command'}));
+  await until(()=>got.length>0);await new Promise(r=>setTimeout(r,100));
+  assert.equal(got.length,1);assert.equal(got[0].id,2);assert.match(got[0].text,/^ошибка: команды «LOST test: no such command» нет/);
+ }finally{tv.close();con.close();await stop(child);}
+});

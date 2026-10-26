@@ -318,6 +318,11 @@
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', confirm: true, act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
         ] };
+        // Команды из «Команд» Mac mini; K открывает раздел из любого места. Список строится заново при каждом открытии и обновлении.
+        var SHORTCUTS = { label: 'КОМАНДЫ MAC MINI', key: 'K', dir: [], onEnter: function () {
+            if (!window.LostRemote) return; var tree = window.LostRemote.shortcuts(); SHORTCUTS.dir = tree.dir; SHORTCUTS.description = tree.description;
+            send({ type: '__shortcuts_refresh' });
+        } };
         var ROOT = { label: 'МЕНЮ', dir: [
             { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, pathLabel: 'РЕЖИМ', key: 'D/L', dir: [
@@ -325,6 +330,7 @@
             ] },
             MODULES_DIR,
             { label:function(){var m=moduleInfo('muse');return 'AI: '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?(MODULE_STATUS[m.status]||m.status):'ВЫКЛ');}, pathLabel:'AI', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostMuseMenu){var tree=window.LostMuseMenu.menu(function(){open(false);if(window.LostMuse)window.LostMuse.open();});own.dir=tree.dir;own.description=tree.description;} } },
+            SHORTCUTS,
             { module:'imessage', label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { label: 'ЖУРНАЛ', view: true },
             { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
@@ -338,7 +344,7 @@
             } },
             { module:'vpn', label:function(){return window.LostVPN?window.LostVPN.title():'VPN';}, pathLabel:'VPN', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostVPN){var tree=window.LostVPN.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { module:'flame', label:'СТАНЦИИ', pathLabel:'СТАНЦИИ', view:true, endpoint:'/__flame/state?refresh=1', format:function(raw){ return window.LostFlame ? window.LostFlame.format(raw) : 'ДАННЫЕ НЕДОСТУПНЫ'; } },
-            { module:'ups', label: 'ЭНЕРГОКОНТУР', panel: true, key: 'U', act: function () { if (window.LostUPS) window.LostUPS.openMenu(); } },
+            { module:'ups', label:'ЭНЕРГОКОНТУР', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostUPS){var tree=window.LostUPS.menu();own.dir=tree.dir;own.description=tree.description;} } },
             QUIT
         ] };
 
@@ -374,8 +380,8 @@
                 var form=document.createElement('form');form.className='station-editor';
                 var field=document.createElement('input');field.type='text';field.autocomplete='off';field.spellcheck=false;field.maxLength=253;field.value=node.draft||'';field.placeholder=node.placeholder||'';field.setAttribute('aria-label',text(node.label));
                 field.addEventListener('input',function(){node.draft=field.value;});form.appendChild(field);
-                form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);path.push(next);sel=0;render();}});win.appendChild(form);
-                var help=document.createElement('div');help.className='ft';help.textContent='ENTER — '+(node.confirmLabel||'ПРОВЕРИТЬ И ПОДТВЕРДИТЬ')+'   ESC — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});return;
+                form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);if(next&&next.view)path.pop();path.push(next);sel=0;render();}});win.appendChild(form);
+                var help=document.createElement('div');help.className='ft';help.textContent='ENTER — '+(node.confirmLabel||'ПРОВЕРИТЬ И ПОДТВЕРДИТЬ')+'   ← — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});field.select();return;
             }
             if (node.view) {
                 var pre = document.createElement('pre'); pre.className = 'view'; pre.textContent = node.text || 'ЗАГРУЗКА...';
@@ -398,7 +404,7 @@
             rows.scrollTop = keepList;
             if (isOpen()) { var selected = rows.querySelector('.sel'); if (selected) selected.scrollIntoView({ block: 'nearest' }); }
         }
-        function marker(it) { return it.confirm ? '[ENTER]' : it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
+        function marker(it) { return it.confirm ? (it.current && it.current() ? '<ВЫБРАНО>' : '[ENTER]') : it.dir || it.panel ? '<DIR>' : it.view ? '<ФАЙЛ>' : it.editor ? '<ВВОД>' : it.current && it.current() ? '<ВЫБРАНО>' : (it.key ? '[' + it.key + ']' : ''); }
         function isOpen() { return box.classList.contains('open'); }
         function open(on) { box.classList.toggle('open', on); document.body.classList.toggle('station-panel-open', on); window.dispatchEvent(new CustomEvent('lost-menu-change',{detail:{open:on}})); if (on) { path = [ROOT]; sel = 0; render(); } }
         // Единое управление меню: → открывает и выполняет обычное, ← / Esc — назад,
@@ -409,6 +415,8 @@
             else if (mode === 'confirm') return;
             ui.hint = '';
             if(it.cancel){back();return;}
+            // Подтверждённое действие с экраном результата (передача в ИБП и т. п.).
+            if(it.run){var shown=it.run();if(shown)path.push(shown);render();return;}
             if(it.editor){path.push(it);render();return;}
             if(it.command){var result={label:it.label==='ВЫПОЛНИТЬ'?text(path[path.length-1].label):text(it.label),view:true,text:'ВЫПОЛНЯЕТСЯ…'};path.push(result);render();window.LostVPN.execute(it.command).then(function(output){result.text=output;render();});return;}
             if (it.dir) { path.push(it); sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); if (it.onEnter) it.onEnter(); render(); return; }
@@ -429,7 +437,8 @@
         function move(d) { ui.hint = ''; if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
         window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words}); });
-        window.addEventListener('lost-remote', function(){ render(); });
+        window.addEventListener('lost-shortcut-run', function(e){ if(e.detail) send({type:'__shortcut_run',id:e.detail.id,name:e.detail.name}); });
+        window.addEventListener('lost-remote', function(){ if(path[path.length-1]===SHORTCUTS&&window.LostRemote){var tree=window.LostRemote.shortcuts();SHORTCUTS.dir=tree.dir;SHORTCUTS.description=tree.description;} render(); });
         ui.render = render;
         ui.onMode = function () {
             if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, modeDir()]; sel = 0; }
@@ -440,15 +449,15 @@
 
         // Раздел «РЕЖИМ» ищется по содержимому: положение пунктов корня меню может меняться.
         function modeDir() { return ROOT.dir.filter(function (n) { return n.dir && n.dir.indexOf(DEV) !== -1; })[0]; }
+        function openShortcuts() {
+            if (isOpen() && path[path.length - 1] === SHORTCUTS) return open(false);
+            open(true); path = [ROOT, SHORTCUTS]; sel = 0; SHORTCUTS.onEnter(); render();
+        }
         function openQuit() {
             if (isOpen() && path[path.length - 1] === QUIT) return QUIT.dir[1].act();
             open(true); path = [ROOT, QUIT]; sel = 1; render();
         }
-        window.addEventListener('lost-ups-open', function () {
-            if (!isOpen()) { path = [ROOT]; sel = ROOT.dir.findIndex(function (n) { return n.panel; }); }
-            box.classList.remove('open');
-        });
-        window.addEventListener('lost-ups-close', function () { box.classList.add('open'); document.body.classList.add('station-panel-open'); render(); });
+        window.addEventListener('lost-ups-update', function () { render(); });
 
         var prompt = document.querySelector('.console-prompt');
         if (prompt) {
@@ -460,11 +469,12 @@
         render();
 
         // ===== Клавиатура (у компьютера нет мыши) =====
-        // Вне меню доступны пауза и вход в меню. Буквы не запускают режимы/звук/выход;
+        // Вне меню доступны пауза, вход в меню и список команд Mac mini (K). Остальные буквы не запускают режимы/выход;
         // они зарезервированы под явную команду AI и будущий ввод ассистента.
         var KEYS = {
             KeyP: click('#pauseResume'), Pause: click('#pauseResume'),
             KeyM: function () { open(!isOpen()); },
+            KeyK: openShortcuts,
             Escape: function () { if (isOpen()) back(); },
             ArrowUp: function () { move(-1); }, ArrowDown: function () { move(1); },
             ArrowRight: function () { if (isOpen()) enter('open'); else open(true); },
@@ -478,7 +488,9 @@
         var swallowEnter = false, lastCode = '', lastAt = 0; // клавиатура Informer (Teensy) дребезжит: одно нажатие иногда приходит дважды
         document.addEventListener('keydown', function (e) {
             if (e.metaKey || e.ctrlKey || e.altKey || window.LostBootActive) return;
-            if(isOpen()&&path[path.length-1].editor){if(e.key==='Escape'){e.preventDefault();back();}else if(e.key==='Enter')swallowEnter=true;return;}
+            // В поле правки: Enter сохраняет; ← выходит, если курсор в начале или выделено всё значение (как сразу после открытия).
+            if(isOpen()&&path[path.length-1].editor){var fe=e.target;var atStart=fe&&fe.tagName==='INPUT'&&fe.selectionStart===0&&(fe.selectionEnd===0||fe.selectionEnd===fe.value.length);
+                if(e.key==='Escape'||e.key==='ArrowLeft'&&atStart){e.preventDefault();back();}else if(e.key==='Enter')swallowEnter=true;return;}
             var menuEnter = e.key === 'Enter' && isOpen();
             var f = menuEnter ? function () { enter('confirm'); } : KEYS[e.code];
             if (!f) return;
