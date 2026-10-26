@@ -135,8 +135,8 @@ test('received messages appear in the transcript (a real element\'s dataset is r
  f.win.LostMuse.receive({module:{enabled:true,installed:true,status:'ready'},chat:{phase:'idle',available:true,messages:[{id:'u1',role:'user',text:'prosto odin test',createdAt:1},{id:'a1',role:'assistant',text:'Тест дошёл.',createdAt:2}]}});
  const transcript=f.surface.querySelector('.muse-transcript')||f.body.querySelector('.muse-transcript');
  assert.ok(transcript,'transcript exists');
- const rows=transcript.children.map(r=>[r.dataset.timelineId,r._body.textContent]);
- assert.deepEqual(rows,[['message:a1','Тест дошёл.'],['message:u1','prosto odin test']]);
+ const rows=transcript.children.map(r=>[r.dataset.timelineId,r._label.textContent,r._body.textContent]);
+ assert.deepEqual(rows,[['message:a1','AI','Тест дошёл.'],['message:u1','STATION','prosto odin test']]);
 });
 
 test('while Muse replies a voice note can be recorded; Enter queues it and it is sent once Muse is free',()=>{

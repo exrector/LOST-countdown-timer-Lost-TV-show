@@ -30,7 +30,7 @@
         var messages = (d.chat && Array.isArray(d.chat.messages) ? d.chat.messages : []).slice(-30).reverse();
         if (!messages.length) return 'ИСТОРИЯ ПУСТА.';
         return 'ПОСЛЕДНИЕ ' + messages.length + ', НОВЫЕ СВЕРХУ\n\n' + messages.map(function (m) {
-            return (m.role === 'user' ? '>:    ' : m.role === 'assistant' ? 'muse: ' : '      ') + String(m.text || '').slice(0, 2000);
+            return (m.role === 'user' ? 'STATION ' : m.role === 'assistant' ? 'AI      ' : '        ') + String(m.text || '').slice(0, 2000);
         }).join('\n\n');
     }
     var CONTROLS = [
