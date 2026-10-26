@@ -195,7 +195,10 @@ final class StationPage: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if role == "console" && app?.stationShown == true { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(web) }
+        if role == "console" {
+            app?.publishInputSource(force: true)
+            if app?.stationShown == true { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(web) }
+        }
     }
     func close() { if role == "tv" { app?.audio.stopAll() }; shuttingDown = true; web.configuration.userContentController.removeScriptMessageHandler(forName: "station"); web.stopLoading(); window.close() }
 }
@@ -212,6 +215,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
     var ending = false
     var terminationReplied = false
     var lastLayout = ""
+    var lastInputSourceID = ""
     let args = CommandLine.arguments
     var owner: pid_t = 0
     var ownerToken = ""
@@ -401,8 +405,37 @@ final class StationApp: NSObject, NSApplicationDelegate {
               Date().timeIntervalSince1970 * 1000 - updated < 30000 else { return false }
         return true
     }
+    func inputSourceSnapshot() -> [String: String] {
+        guard let unmanaged = TISCopyCurrentKeyboardLayoutInputSource() else {
+            return ["id": "", "label": "--"]
+        }
+        let source = unmanaged.takeRetainedValue()
+        guard let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else {
+            return ["id": "", "label": "--"]
+        }
+        let id = Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
+        let normalized = id.lowercased()
+        let label: String
+        if normalized.contains("russian") || normalized.contains("cyrillic") { label = "RU" }
+        else if normalized.contains("abc") || normalized.contains("us") { label = "EN" }
+        else {
+            let name = id.split(separator: ".").last.map(String.init) ?? id
+            label = String(name.prefix(3)).uppercased()
+        }
+        return ["id": id, "label": label]
+    }
+    func publishInputSource(force: Bool = false) {
+        let value = inputSourceSnapshot()
+        let id = value["id"] ?? ""
+        guard force || id != lastInputSourceID else { return }
+        lastInputSourceID = id
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        pages["console"]?.web.evaluateJavaScript("window.__LOST_INPUT_SOURCE=\(json);window.dispatchEvent(new CustomEvent('lost-input-source',{detail:window.__LOST_INPUT_SOURCE}));", completionHandler: nil)
+    }
     func tick() {
         if !ownerAlive() { ending = true; NSApp.terminate(nil); return }
+        publishInputSource()
         guard let statusURL = statusURL else { return }
         // Same-user control file also works from SSH without GUI automation permissions.
         let commandURL = statusURL.deletingLastPathComponent().appendingPathComponent("native-command.txt")
@@ -420,7 +453,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
             default: break
             }
         }
-        let info: [String: Any] = ["pid": getpid(), "owner": owner, "ownerToken": ownerToken, "bundle": Bundle.main.bundlePath, "renderer": "WKWebView", "desktopMode": desktopMode, "hidden": NSApp.isHidden, "globalPF6": hotKey != nil, "microphone": microphone.snapshot(), "updatedAt": Date().timeIntervalSince1970,
+        let info: [String: Any] = ["pid": getpid(), "owner": owner, "ownerToken": ownerToken, "bundle": Bundle.main.bundlePath, "renderer": "WKWebView", "desktopMode": desktopMode, "hidden": NSApp.isHidden, "globalPF6": hotKey != nil, "inputSource": inputSourceSnapshot(), "microphone": microphone.snapshot(), "updatedAt": Date().timeIntervalSince1970,
             "windows": pages.mapValues { ["url": $0.web.url?.absoluteString ?? "", "loading": $0.web.isLoading,
                                           "width": $0.web.bounds.width, "height": $0.web.bounds.height] as [String: Any] }]
         if let data = try? JSONSerialization.data(withJSONObject: info, options: [.sortedKeys]) { try? data.write(to: statusURL, options: .atomic) }
@@ -431,7 +464,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
             try? data.write(to: statusURL.deletingLastPathComponent().appendingPathComponent("native-audio.json"), options: .atomic)
         }
         for (role, page) in pages {
-            let probe = "JSON.stringify({ready:document.readyState,url:location.href,errors:window.__LOST_NATIVE_ERRORS,viewport:[innerWidth,innerHeight],clipPath:CSS.supports('clip-path','inset(0 0 50% 0)'),transform3d:CSS.supports('transform','rotateX(90deg)'),digits:Array.from(document.querySelectorAll('.lost-flipper-prev .lost-flipper-number-table-cell')).map(function(e){return e.textContent.trim()}).join(''),input:!!document.querySelector('.my-console'),opener:!!window.opener,abortTimeout:typeof AbortSignal.timeout,requestSubmit:typeof HTMLFormElement.prototype.requestSubmit,hidden:document.hidden,clock:window.__LOST_CLOCK,audio:window.__LOST_TIMER?window.__LOST_TIMER.audioEvents:[],media:Array.from(document.querySelectorAll('audio')).map(function(a){return {src:a.getAttribute('src'),time:a.currentTime,paused:a.paused,ended:a.ended,muted:a.muted,volume:a.volume,ready:a.readyState,error:a.error?a.error.code:null}}),ups:window.LostUPS?window.LostUPS.status():null,upsLine:document.querySelector('.ups-line')?document.querySelector('.ups-line').textContent:null})"
+            let probe = "JSON.stringify({ready:document.readyState,url:location.href,errors:window.__LOST_NATIVE_ERRORS,viewport:[innerWidth,innerHeight],clipPath:CSS.supports('clip-path','inset(0 0 50% 0)'),transform3d:CSS.supports('transform','rotateX(90deg)'),digits:Array.from(document.querySelectorAll('.lost-flipper-prev .lost-flipper-number-table-cell')).map(function(e){return e.textContent.trim()}).join(''),input:!!document.querySelector('.my-console'),opener:!!window.opener,abortTimeout:typeof AbortSignal.timeout,requestSubmit:typeof HTMLFormElement.prototype.requestSubmit,hidden:document.hidden,clock:window.__LOST_CLOCK,audio:window.__LOST_TIMER?window.__LOST_TIMER.audioEvents:[],media:Array.from(document.querySelectorAll('audio')).map(function(a){return {src:a.getAttribute('src'),time:a.currentTime,paused:a.paused,ended:a.ended,muted:a.muted,volume:a.volume,ready:a.readyState,error:a.error?a.error.code:null}}),inputSource:window.__LOST_INPUT_SOURCE||null,inputSourceLine:document.querySelector('.input-source-line')?document.querySelector('.input-source-line').textContent:null,ups:window.LostUPS?window.LostUPS.status():null,upsLine:document.querySelector('.ups-line')?document.querySelector('.ups-line').textContent:null})"
             page.web.evaluateJavaScript(probe) { value, error in
                 if let json = value as? String { try? json.write(to: statusURL.deletingLastPathComponent().appendingPathComponent("native-\(role)-diagnostics.json"), atomically: true, encoding: .utf8) }
             }
