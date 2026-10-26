@@ -30,9 +30,9 @@ test('reads the local CLI with a fixed command and a local stations file', async
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flame-')), file = path.join(dir, 'flame.json');
     fs.writeFileSync(file, JSON.stringify({ stations: map }));
     const calls = [];
-    const flame = createFlame({ tailscale: '/fixture/tailscale', stationsFile: file, run: async (bin, args) => { calls.push([bin, ...args]); return { stdout: status() }; }, setTimer: () => 1, clearTimer() {} });
+    const flame = createFlame({ tailscale: '/fixture/tailscale', stationsFile: file, run: async (bin, args, options) => { calls.push([bin, ...args, options.env.TAILSCALE_BE_CLI]); return { stdout: status() }; }, setTimer: () => 1, clearTimer() {} });
     const s = await flame.refresh({ force: true });
-    assert.deepEqual(calls, [['/fixture/tailscale', 'status', '--json']]);
+    assert.deepEqual(calls, [['/fixture/tailscale', 'status', '--json', '1']]);
     assert.equal(s.status, 'ready'); assert.equal(s.stations[0].station, 'THE SWAN');
 });
 
