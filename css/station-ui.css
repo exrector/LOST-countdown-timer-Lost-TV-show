@@ -65,3 +65,18 @@ body.console-page .ctl .list{flex:1}
 body.console-page .ctl .row{display:flex;justify-content:space-between;cursor:pointer}
 body.console-page .ctl .view{box-sizing:border-box;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 body.console-page .ups-panel{font-variant-numeric:tabular-nums}
+
+/* The command row never changes its vertical origin when AI opens. */
+body.console-page .muse-compose{position:absolute;left:var(--station-inset);right:var(--station-inset);top:5px;display:flex;align-items:center;min-height:36px;gap:0;margin:0}
+body.console-page.lost-muse-active .muse-compose{gap:0}
+body.console-page.lost-muse-active .console-container{padding-top:var(--station-panel-top)}
+body.console-page.lost-muse-active .console-prompt{line-height:1}
+body.console-page.lost-muse-active .console-input{margin-left:8px}
+body.console-page.lost-muse-active .muse-transcript{padding-top:0}
+body.console-page .service-line{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:28px;margin:9px 24px 0;color:var(--station-muted);font:13px/1.2 var(--station-font);white-space:nowrap}
+body.console-page .service-line .ups-line{display:flex;flex:0 1 auto;gap:10px;margin:0;height:auto;font:inherit;letter-spacing:0}
+body.console-page .service-line .vpn-line{margin-left:auto;flex-shrink:0;text-align:right}
+body.console-page .service-line .vpn-line b{font-weight:normal;color:var(--station-muted)}
+@media(max-width:650px){body.console-page .service-line{font-size:10px;gap:12px;margin-left:20px;margin-right:20px}body.console-page .service-line .ups-line{gap:5px}}
+
+body.console-page .service-line .ups-line[hidden]{display:none}

@@ -2,12 +2,12 @@
 .muse-transcript[hidden],.muse-hint[hidden],.muse-notice[hidden]{display:none!important}
 .muse-compose{display:contents}
 body.lost-muse-active .console-container{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;align-content:normal}
-body.lost-muse-active .timer-status{visibility:hidden}
-body.lost-muse-active .ups-line{visibility:hidden}
+
+
 body.lost-muse-active .muse-compose{display:flex;align-items:center;flex-shrink:0;gap:5px;min-height:36px;margin:0}
-body.lost-muse-active .console-input{flex:1;min-width:0;margin-left:0}
-body.lost-muse-active .my-console{caret-color:#33ff88}
-body.lost-muse-active .console-cursor{display:none}
+body.lost-muse-active .console-input{flex:1;min-width:0;margin-left:8px}
+body.lost-muse-active .my-console{caret-color:transparent}
+
 body.lost-muse-active .my-console::placeholder{color:#747c77;text-shadow:none}
 .muse-transcript{flex:1;min-height:0;overflow:auto;padding:6px 0 12px;color:#33ff88;font:20px/1.5 "Courier New",Courier,monospace;scrollbar-width:thin;scrollbar-color:#53635a transparent;overscroll-behavior:contain}
 .muse-message{display:grid;grid-template-columns:6ch minmax(0,1fr);gap:0;margin:0 0 12px}

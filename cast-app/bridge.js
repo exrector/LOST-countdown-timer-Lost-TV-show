@@ -33,7 +33,7 @@
         };
         ws.onmessage = function (e) {
             var d = JSON.parse(e.data);
-            if (d.type === '__clock') { send({type:'__alive',role:role,up:Math.round(performance.now()/1000)}); window.__LOST_CLOCK = d; if(role==='console')window.dispatchEvent(new CustomEvent('lost-muse-code-priority',{detail:{active:d.phase!=='countdown'||(d.left>0&&d.left<=240)}})); if (role === 'tv' && d.mode === tvMode() && window.__LOST_TIMER) window.__LOST_TIMER.applyClock(d); return; }
+            if (d.type === '__clock') { send({type:'__alive',role:role,up:Math.round(performance.now()/1000)}); window.__LOST_CLOCK = d; if(role==='console')window.dispatchEvent(new CustomEvent('lost-muse-code-priority',{detail:{active:d.phase!=='countdown'||(d.left>0&&d.left<=480)}})); if (role === 'tv' && d.mode === tvMode() && window.__LOST_TIMER) window.__LOST_TIMER.applyClock(d); return; }
             if(d.type==='__modules'){applyModules(d.modules);return;}
             if(d.type==='__module_error'){if(ui){ui.moduleError=d.error==='not_installed'?'МОДУЛЬ НЕ УСТАНОВЛЕН':'НЕ УДАЛОСЬ ПЕРЕКЛЮЧИТЬ МОДУЛЬ';if(ui.render)ui.render();}return;}
             if (d.type === '__cmd') return runCommand(d);
