@@ -93,7 +93,9 @@
         emit('lost-console-command-change', {});
         notice.textContent = noticeText || (snapshot.chat || {}).error || m.error || ''; notice.hidden = !notice.textContent;
         renderMessages();
-        if (!input.disabled && (document.activeElement === document.body || document.activeElement === panel)) input.focus();
+        // Opened while Muse was offline, focus parks on the transcript; once input is enabled
+        // again it must return there, or typed keys and Enter go nowhere.
+        if (!input.disabled && (document.activeElement === document.body || document.activeElement === panel || document.activeElement === transcript)) input.focus();
     }
     function receive(value) { if (!value || typeof value !== 'object') return; if (value.module) snapshot.module = value.module; if (value.chat) snapshot.chat = value.chat; if (typeof value.preview === 'boolean') snapshot.preview = value.preview; if (value.microphone) setMicrophone(value.microphone); if (held && !connected()) recordStop(true); render(); flush(); }
     function flush() { if (queued && opened && connected() && !busy()) { queued = false; submit(); } }

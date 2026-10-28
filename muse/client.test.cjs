@@ -173,3 +173,10 @@ test('hidden command registry lists AI with its explanation for the menu',()=>{
  const f=fixture();const list=f.win.LostConsoleInput.list();
  assert.equal(JSON.stringify(list.map(c=>c.name)),'["AI"]');assert.match(list[0].about,/Enter/);assert.match(list[0].about,/8 минут/);
 });
+test('opened while Muse reconnects: focus returns to input once it is back, not stuck on the transcript',()=>{
+ const f=fixture();f.win.__LOST_MODULES.muse.status='reconnecting';
+ f.win.LostMuse.receive({module:{enabled:true,installed:true,status:'reconnecting'}});
+ f.win.LostMuse.open();assert.equal(f.input.disabled,true);assert.equal(f.win.document.activeElement.className,'muse-transcript');
+ f.win.LostMuse.receive({module:{enabled:true,installed:true,status:'ready'}});
+ assert.equal(f.input.disabled,false);assert.equal(f.win.document.activeElement,f.input);
+});

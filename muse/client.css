@@ -1,4 +1,5 @@
 /* AI shares the station terminal, prompt and input. */
+.muse-transcript:focus{outline:none}
 .muse-transcript[hidden],.muse-hint[hidden],.muse-notice[hidden]{display:none!important}
 .muse-compose{display:contents}
 body.lost-muse-active .console-container{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;align-content:normal}
