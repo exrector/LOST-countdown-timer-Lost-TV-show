@@ -333,6 +333,12 @@
             SHORTCUTS,
             { module:'imessage', label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { label: 'ЖУРНАЛ', view: true },
+            // Скрытые команды терминала — из реестра js/station-input.js: имя и пояснение каждой.
+            { label: 'СКРЫТЫЕ КОМАНДЫ', view: true, staticText: function () {
+                var list = window.LostConsoleInput ? window.LostConsoleInput.list() : [];
+                if (!list.length) return 'СКРЫТЫХ КОМАНД НЕТ';
+                return 'Набрать слово в терминале и нажать Enter.\n\n' + list.map(function (c) { return c.name + '\n' + (c.about || '(без описания)'); }).join('\n\n');
+            } },
             { label: 'СОСТОЯНИЕ СТАНЦИИ', view: true, endpoint: '/__health', format: function (raw) {
                 var d = JSON.parse(raw), c = d.components || {}, m = d.modules || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ' };
                 var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', disabled:'ВЫКЛЮЧЕН', stopping:'ОСТАНОВКА',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
@@ -422,8 +428,9 @@
             if(it.command){var result={label:it.label==='ВЫПОЛНИТЬ'?text(path[path.length-1].label):text(it.label),view:true,text:'ВЫПОЛНЯЕТСЯ…'};path.push(result);render();window.LostVPN.execute(it.command).then(function(output){result.text=output;render();});return;}
             if (it.dir) { path.push(it); sel = Math.max(0, items().findIndex(function (n) { return n.current && n.current(); })); if (it.onEnter) it.onEnter(); render(); return; }
             if (it.view) {
-                it.text = it.staticText || ''; path.push(it); render();
-                if(it.staticText)return;
+                var fixed = text(it.staticText);
+                it.text = fixed || ''; path.push(it); render();
+                if(fixed)return;
                 fetch(it.endpoint || '/__journal?lines=14').then(function (r) { if (!r.ok) throw new Error('journal unavailable'); return r.text(); }).then(function (t) {
                     it.text = it.format ? it.format(t) : t || '(ЖУРНАЛ ПУСТ)'; render();
                 }).catch(function () { it.text = 'ДАННЫЕ НЕДОСТУПНЫ. ←/ESC НАЗАД; ОТКРОЙТЕ СНОВА ДЛЯ ПОВТОРА.'; render(); });

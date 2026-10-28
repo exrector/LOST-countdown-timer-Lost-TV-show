@@ -169,3 +169,7 @@ test('text can be typed while Muse replies; Enter sends it after the reply',()=>
  f.win.LostMuse.receive({chat:{phase:'idle',messages:[]}});
  const sent=f.fetches.filter(x=>x[0]==='/__muse/message');assert.equal(sent.length,1);assert.equal(JSON.parse(sent[0][1]).message,'следующий вопрос');
 });
+test('hidden command registry lists AI with its explanation for the menu',()=>{
+ const f=fixture();const list=f.win.LostConsoleInput.list();
+ assert.equal(JSON.stringify(list.map(c=>c.name)),'["AI"]');assert.match(list[0].about,/Enter/);assert.match(list[0].about,/8 минут/);
+});

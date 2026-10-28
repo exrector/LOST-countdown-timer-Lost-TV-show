@@ -165,7 +165,7 @@
     window.addEventListener('lost-muse-send-voice', function(){if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'send'});});
     window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone){window.LostStation.microphone({op:'query'});window.LostStation.microphone({op:'authorize'});}});
     if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});
-    if (window.LostConsoleInput) window.LostConsoleInput.register('AI', open);
+    if (window.LostConsoleInput) window.LostConsoleInput.register('AI', open, 'Ассистент Kay в этом терминале: текст и голос (удерживать RESET).\nНабрать AI и Enter или нажать PF3. Esc — назад в терминал.\nВ последние 8 минут недоступен: терминал оставлен для кода.');
     window.LostMuse = { canOpen: canOpen, open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone,
         commandHistory: function () { var a = (snapshot.chat || {}).audit || {}; return { shown: Array.isArray(a.events) ? a.events.length : 0, limit: a.limit || 120, maxBytes: a.maxBytes || 262144, truncated: a.truncated === true, available: a.available !== false }; } };
     render();
