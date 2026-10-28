@@ -544,9 +544,11 @@
     }
     if (role === 'console') document.addEventListener('DOMContentLoaded', buildPanel);
 
-    // ================= Консоль: загрузка станции при запуске =================
-    // Один раз при открытии терминала строки печатаются как у старого компьютера, потом экран уходит и остаётся >:
-    // Любая клавиша — пропустить.
+    // ================= Консоль: загрузка станции и построчная развёртка DHARMA =================
+    // Полный цикл намеренно занимает 20,77 с: это на 34 мс длиннее фонограммы
+    // harddrive.mp3 (20,736 с), поэтому звук не обрезается и естественно кончается
+    // почти вместе с последней строкой. Это художественный тайминг, не задержка,
+    // которую надо «оптимизировать». Любая клавиша по-прежнему пропускает запуск.
     if (role === 'console') document.addEventListener('DOMContentLoaded', function () {
         var BOOT = [
             ['DHARMA INITIATIVE', ''],
@@ -559,40 +561,124 @@
             ['', ''],
             ['ГОТОВ.', '']
         ];
+        var ROWS = 72;
+        // Неровная кадровая развёртка: четыре прохода этого рисунка дают 8768 мс.
+        // Короткие и длинные интервалы изображают механику старого видеотракта,
+        // а не современную плавную CSS-анимацию.
+        var CADENCE = [76, 125, 89, 155, 68, 102, 189, 81, 112, 231, 85, 136, 73, 163, 93, 117, 208, 89];
+        var JITTER = [-2, 1, 0, -1, 2, 0, 1, -2];
+        var GHOST = [.38, .57, .46, .71, .42, .62];
+        var BOOT_DOTS = [62, 81, 70, 104, 57, 92];
         var st = document.createElement('style');
         st.textContent = '.boot{position:fixed;inset:0;z-index:50;background:#030906;color:#33ff88;' +
             'font:20px/1.5 "Courier New",Courier,monospace;text-shadow:0 0 5px rgba(51,255,136,.6),0 0 15px rgba(51,255,136,.2);' +
-            'padding:60px 70px;white-space:pre;transition:opacity .6s}' +
+            'padding:60px 70px;white-space:pre}' +
             '.boot::before{content:"";position:absolute;inset:0;pointer-events:none;' +
             'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}' +
-            '.boot .cur{display:inline-block;width:12px;height:22px;background:#33ff88;vertical-align:-4px;animation:blink 1s step-end infinite}';
+            '.boot .cur{display:inline-block;width:12px;height:22px;background:#33ff88;vertical-align:-4px;animation:blink 1s step-end infinite}' +
+            /* Ступенчатое гашение вместо белой или плавной проходящей полосы. */
+            '.boot.lost-boot-off{pointer-events:none;animation:lostBootOff .36s steps(1,end) forwards}' +
+            '@keyframes lostBootOff{0%{opacity:1}22%{opacity:.18}42%{opacity:.72}63%{opacity:.06}82%{opacity:.34}100%{opacity:0}}';
         document.head.appendChild(st);
         var boot = document.createElement('div'); boot.className = 'boot';
         var out = document.createElement('span'), cur = document.createElement('span'); cur.className = 'cur';
         boot.appendChild(out); boot.appendChild(cur); document.body.appendChild(boot);
-        var W = 32, i = 0, timers = [], done = false;
-        function finish() {
-            if (done) return; done = true; window.LostBootActive = false;
-            timers.forEach(clearTimeout);
-            boot.style.opacity = '0';
-            setTimeout(function () { boot.remove(); }, 650);
+        var W = 32, i = 0, timers = [], done = false, fallbackAudio = null;
+        var container = document.querySelector('.console-container');
+        var emblem = document.createElement('div'); emblem.className = 'lost-logo-reveal'; emblem.setAttribute('aria-hidden', 'true');
+        var canvas = document.createElement('canvas'); canvas.width = 720; canvas.height = 720; emblem.appendChild(canvas);
+        var context = canvas.getContext('2d'), logo = new Image(), logoReady = false, logoFailed = false;
+
+        // Нативное приложение использует AVAudioEngine. Audio нужен только как
+        // fallback при открытии console.html в обычном браузере для диагностики.
+        function startupAudio(op) {
+            var command = { op: op, key: 'harddrive', requestedAt: Date.now() / 1000 };
+            if (window.LostStation && window.LostStation.audio) { window.LostStation.audio(command); return; }
+            if (!fallbackAudio) { fallbackAudio = new Audio('assets/sounds/harddrive.mp3'); fallbackAudio.preload = 'auto'; fallbackAudio.volume = .72; }
+            if (op === 'stop') { fallbackAudio.pause(); try { fallbackAudio.currentTime = 0; } catch (_) {} return; }
+            var playback = fallbackAudio.play();
+            if (playback && playback.catch) playback.catch(function (e) { log('звук запуска заблокирован: ' + e.message); });
+        }
+        function later(ms, action) {
+            var id = setTimeout(function () { if (!done) action(); }, ms); timers.push(id); return id;
+        }
+        function clearTimers() { timers.splice(0).forEach(clearTimeout); }
+        function drawFinalLogo() {
+            if (!logoReady) return;
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(logo, 0, 0, canvas.width, canvas.height);
+        }
+        function finish(skip) {
+            if (done) return;
+            done = true; window.LostBootActive = false; clearTimers();
+            if (skip) { startupAudio('stop'); drawFinalLogo(); }
+            boot.remove();
+            document.removeEventListener('keydown', skipBoot, true);
+            // При ошибке картинки не прячем прежний CSS-логотип.
+            if (logoFailed || !logoReady) { emblem.remove(); container.classList.remove('lost-logo-sequence'); }
+        }
+        function paintRow(row, alpha, offset) {
+            var sourceY = Math.floor(row * logo.naturalHeight / ROWS);
+            var sourceEnd = Math.floor((row + 1) * logo.naturalHeight / ROWS);
+            var destinationY = Math.floor(row * canvas.height / ROWS);
+            var destinationEnd = Math.floor((row + 1) * canvas.height / ROWS);
+            context.clearRect(0, destinationY, canvas.width, destinationEnd - destinationY);
+            context.save(); context.globalAlpha = alpha;
+            context.drawImage(logo, 0, sourceY, logo.naturalWidth, sourceEnd - sourceY,
+                offset, destinationY, canvas.width, destinationEnd - destinationY);
+            context.restore();
+        }
+        function revealRows() {
+            var row = 0; context.imageSmoothingEnabled = false;
+            function drawNext() {
+                // Интервал после 72-й строки уже длиннее её последней коррекции,
+                // поэтому здесь можно завершить без дополнительной паузы: итог
+                // остаётся ровно в одобренном цикле 20,77 с.
+                if (row >= ROWS) { finish(false); return; }
+                var current = row;
+                // Строка сначала появляется тускло и со сдвигом, затем независимо
+                // от соседних строк «ловит синхронизацию» и встаёт на место.
+                paintRow(current, GHOST[current % GHOST.length], JITTER[current % JITTER.length]);
+                later(54 + (current % 5) * 13 + (current % 17 === 0 ? 95 : 0), function () { paintRow(current, 1, 0); });
+                row += 1;
+                later(CADENCE[current % CADENCE.length], drawNext);
+            }
+            drawNext();
+        }
+        function beginReveal() {
+            if (logoFailed) { finish(false); return; }
+            if (!logoReady) { later(30, beginReveal); return; }
+            boot.classList.add('lost-boot-off');
+            later(410, function () { boot.style.display = 'none'; later(180, revealRows); });
         }
         function line() {
             if (done) return;
-            if (i >= BOOT.length) return timers.push(setTimeout(finish, 900));
+            if (i >= BOOT.length) return later(500, beginReveal);
             var name = BOOT[i][0], res = BOOT[i][1]; i++;
-            if (!res) { out.textContent += name + '\n'; return timers.push(setTimeout(line, name ? 260 : 120)); }
-            // точки «бегут» до результата, как при проверке оборудования
+            if (!res) { out.textContent += name + '\n'; return later(name ? 850 : 350, line); }
+            // Неровные точки медленно добегают до результата проверки оборудования.
             var dots = Math.max(3, W - name.length), d = 0;
             out.textContent += name + ' ';
             (function step() {
                 if (done) return;
-                if (d++ < dots) { out.textContent += '.'; timers.push(setTimeout(step, 18)); }
-                else { out.textContent += ' ' + res + '\n'; timers.push(setTimeout(line, 220)); }
+                if (d++ < dots) { out.textContent += '.'; later(BOOT_DOTS[(d - 1) % BOOT_DOTS.length], step); }
+                else { out.textContent += ' ' + res + '\n'; later(600, line); }
             })();
         }
-        timers.push(setTimeout(line, 400));
-        document.addEventListener('keydown', function skip(e) { if (!done) { if (e.key === 'Enter') window.LostBootEnter = true; e.preventDefault(); e.stopImmediatePropagation(); finish(); } document.removeEventListener('keydown', skip, true); }, true);
+        function skipBoot(e) {
+            if (!done) { if (e.key === 'Enter') window.LostBootEnter = true; e.preventDefault(); e.stopImmediatePropagation(); finish(true); }
+        }
+        logo.onload = function () {
+            if (done) return; // при раннем пропуске остаётся штатный статический знак
+            logoReady = true; container.appendChild(emblem); container.classList.add('lost-logo-sequence');
+        };
+        logo.onerror = function () { logoFailed = true; };
+        logo.src = 'assets/dharma-neon.png';
+        // stop/play гарантирует, что после перезагрузки страницы старая фонограмма
+        // не продолжит звучать поверх заново начавшейся визуальной последовательности.
+        startupAudio('stop'); startupAudio('play');
+        later(700, line);
+        document.addEventListener('keydown', skipBoot, true);
     });
 
     // ПАУЗА — служебное уведомление по центру обоих экранов.

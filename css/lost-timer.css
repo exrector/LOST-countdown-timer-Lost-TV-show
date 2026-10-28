@@ -115,6 +115,36 @@ a:hover {
     z-index: -1;
 }
 
+/*
+ * Во время стартовой последовательности bridge.js рисует этот же знак на Canvas
+ * отдельными горизонтальными строками. Статический ::after выключается только
+ * после успешной загрузки картинки; при любой ошибке он остаётся видимым как
+ * безопасный fallback. После анимации Canvas остаётся финальным логотипом, чтобы
+ * не было заметной подмены изображения на последний кадр.
+ */
+.console-container.lost-logo-sequence::after {
+    display: none;
+}
+
+.lost-logo-reveal {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: min(75vh, 85%);
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    opacity: 0.4;
+    filter: drop-shadow(0 0 5px rgba(51, 255, 136, 0.6)) drop-shadow(0 0 15px rgba(51, 255, 136, 0.2));
+    pointer-events: none;
+    z-index: -1;
+}
+
+.lost-logo-reveal canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
 .console-container::before {
     content: "";
     position: absolute;

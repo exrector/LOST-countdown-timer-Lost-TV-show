@@ -6,7 +6,10 @@ import AVFoundation
 
 // Decode each effect once; all nodes use the same continuously running audio clock.
 final class StationAudio {
-    let keys = ["alarm", "beep", "discharge", "keypress", "reset", "spinup", "systemfailure", "thud", "tick", "timeout"]
+    // harddrive.mp3 сопровождает весь старт терминала: текстовую диагностику и
+    // построчную развёртку DHARMA. Как и остальные эффекты, он декодируется один
+    // раз и играет через общий AVAudioEngine без перепадов громкости WebKit.
+    let keys = ["alarm", "beep", "discharge", "harddrive", "keypress", "reset", "spinup", "systemfailure", "thud", "tick", "timeout"]
     let engine = AVAudioEngine()
     var nodes: [String: AVAudioPlayerNode] = [:]
     var buffers: [String: AVAudioPCMBuffer] = [:]

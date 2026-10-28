@@ -25,4 +25,5 @@ body.lost-muse-active .console-prompt{pointer-events:none}
 /* AI: тёмная подложка на весь фрейм терминала. Чертёж почти не просвечивает, неоновый знак DHARMA убран:
    его размытое свечение под меняющимся текстом чата на панели mini выглядело как мигание фона. */
 body.lost-muse-active .console-container{background:linear-gradient(rgba(3,9,6,.97),rgba(3,9,6,.97)),url(../assets/swan-blueprint.png) center / contain no-repeat,#030906}
-body.lost-muse-active .console-container::after{display:none}
+/* В AI скрываются обе реализации знака: обычный ::after и Canvas после стартовой развёртки. */
+body.lost-muse-active .console-container::after,body.lost-muse-active .lost-logo-reveal{display:none}
