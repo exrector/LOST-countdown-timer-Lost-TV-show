@@ -317,7 +317,7 @@
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='shortcuts'?'Команды из приложения «Команды» на Mac mini: запуск из терминала (K), по iMessage с точным названием и из «Команд» iPhone. Выключенный модуль ничего из «Команд» не запускает.':id==='imessage'?'Станция читает iMessage от разрешённых номеров и выполняет команды LOST или команды из «Команд» Mac mini. Списки — «ПУЛЬТ».':id==='flame'?'Информер станций DHARMA INITIATIVE: машины tailnet как станции, связь видна с Лебедя. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='shortcuts'?'Команды из приложения «Команды» на Mac mini: запуск из терминала (K), по iMessage с точным названием и из «Команд» iPhone. Выключенный модуль ничего из «Команд» не запускает.':id==='imessage'?'Станция читает iMessage от разрешённых номеров и выполняет команды LOST или команды из «Команд» Mac mini. Слова команд — ниже в этом разделе.':id==='flame'?'Информер станций DHARMA INITIATIVE: машины tailnet как станции, связь видна с Лебедя. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime AI пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
             var own=result.dir.slice();
             return result;
@@ -329,10 +329,10 @@
         SHORTCUTS.onEnter=function(){buildShortcuts();send({type:'__shortcuts_refresh'});};
         var MODULES_DIR={label:'МОДУЛИ',dir:[
             moduleDirectory('ups','UPS',function(){return window.LostUPS&&window.LostUPS.menu();}),
-            moduleDirectory('muse','mUse',function(){return window.LostMuseMenu&&window.LostMuseMenu.menu(openAI);}),
+            moduleDirectory('muse','AI',function(){return window.LostMuseMenu&&window.LostMuseMenu.menu(openAI);}),
             moduleDirectory('vpn','VPN',function(){return window.LostVPN&&window.LostVPN.menu();}),
             moduleDirectory('flame','СТАНЦИИ',function(){return {dir:[{label:'СТАНЦИИ',view:true,endpoint:'/__flame/state?refresh=1',format:function(raw){return window.LostFlame?window.LostFlame.format(raw):'ДАННЫЕ НЕДОСТУПНЫ';}}]};}),
-            moduleDirectory('imessage','ПУЛЬТ iMESSAGE',function(){return window.LostRemote&&window.LostRemote.menu();}),
+            moduleDirectory('imessage','iMESSAGE',function(){return window.LostRemote&&window.LostRemote.menu();}),
             SHORTCUTS
         ]};
         var QUIT = { label: 'ВЫХОД', dir: [
@@ -356,7 +356,7 @@
                 var d = JSON.parse(raw), c = d.components || {}, m = d.modules || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ' };
                 var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', disabled:'ВЫКЛЮЧЕН', stopping:'ОСТАНОВКА',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
                 // Модули — по их собственному состоянию (раньше VPN и др. искались среди компонентов и всегда были «ОЖИДАНИЕ»).
-                var mods = { ups: 'ЭНЕРГОКОНТУР', muse: 'AI', vpn: 'VPN', flame: 'СТАНЦИИ', imessage: 'ПУЛЬТ iMESSAGE', shortcuts: 'КОМАНДЫ MAC MINI' };
+                var mods = { ups: 'ЭНЕРГОКОНТУР', muse: 'AI', vpn: 'VPN', flame: 'СТАНЦИИ', imessage: 'iMESSAGE', shortcuts: 'КОМАНДЫ MAC MINI' };
                 return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' +
                     Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n') + '\n\n' +
                     Object.keys(mods).filter(function (k) { return m[k]; }).map(function (k) { return mods[k].padEnd(17) + (m[k].enabled === false ? 'ВЫКЛЮЧЕН' : status[m[k].status] || String(m[k].status || 'ОЖИДАНИЕ').toUpperCase()) + (m[k].location ? ' · ' + m[k].location : ''); }).join('\n');

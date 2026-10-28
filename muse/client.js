@@ -85,7 +85,7 @@
         else if (microphone.draftReady) hint = 'Запись ' + elapsed + ' с готова · Enter — отправить' + (replying() ? ' после ответа' : '') + ' · RESET — перезаписать · Esc — отменить';
         else if (microphone.uploading || posting) hint = 'Отправляю…';
         else if (microphone.requesting) hint = 'Разрешите микрофон в macOS';
-        else if (!active) hint = m.enabled === false ? 'mUse выключен · Меню → Модули' : (statuses[m.status] || 'Нет связи с Muse');
+        else if (!active) hint = m.enabled === false ? 'AI выключен · Меню → Модули' : (statuses[m.status] || 'Нет связи с Muse');
         else if (['sending', 'waiting', 'thinking', 'streaming', 'replying', 'responding'].indexOf(currentPhase) !== -1) hint = currentPhase === 'replying' ? 'Muse отвечает…' : 'Ожидаю ответ…';
         footer.textContent = hint;
         input.disabled = !active || posting || microphone.uploading || microphone.requesting; input.placeholder = microphone.draftReady ? 'Голосовая запись готова' : '';

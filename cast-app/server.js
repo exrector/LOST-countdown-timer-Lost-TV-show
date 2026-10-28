@@ -184,11 +184,14 @@ function start(port = 8765, opts = {}) {
             req.on('timeout', () => req.destroy()); req.on('error', () => resolve(null));
         });
     }
-    // «статус» — единственный полный ответ: таймер Live, включённые модули, терминал, экран таймера, дисплей, ядро.
+    // «статус» — единственный полный ответ: таймер Live, включённые модули, терминал, экран таймера, дисплей.
+    // Перед ответом все меняющиеся данные собираются заново (opts.refreshStatus, не дольше 15 с) — в ответе
+    // только что полученные показания, а не последние запомненные («VPN: … ПОКАЗАНИЯ УСТАРЕЛИ» 28.10).
     async function statusText() {
+        if (opts.refreshStatus) await Promise.race([Promise.resolve().then(opts.refreshStatus).catch(() => {}), new Promise(r => setTimeout(r, 15000).unref())]);
         const modules = moduleManager.snapshot();
         const ups = modules.ups && modules.ups.enabled !== false ? await readUPS() : null;
-        return formatStatus({ timer: clock.sample('live'), modules, components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : null, ups, core: { uptime: process.uptime() } });
+        return formatStatus({ timer: clock.sample('live'), modules, components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : null, ups });
     }
     function setLiveSleep(on, source) {
         clock.setPaused(on, 'live'); syncClock(); if (curMode === 'live') sleepOn = curPaused; saveState(); publishClock();

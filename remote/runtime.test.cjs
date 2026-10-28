@@ -61,11 +61,11 @@ test('status is the one full reply: Live timer, every switched-on module, termin
     const modules = { ups: { enabled: true, status: 'ready' }, vpn: { enabled: true, status: 'ready', location: 'New York' }, muse: { enabled: true, status: 'reconnecting' },
         flame: { enabled: false, status: 'disabled' }, imessage: { enabled: true, status: 'ready' }, shortcuts: { enabled: true, status: 'error', error: 'нет доступа' } };
     const components = { terminal: { status: 'ready' }, timer: { status: 'waiting' }, display: { status: 'ready', name: 'Waveshare-625' } };
-    assert.equal(formatStatus({ timer: { left: 1416, paused: false, phase: 'countdown' }, modules, components, ups, core: { uptime: 8040 } }),
-        'ТАЙМЕР: ОСТАЛОСЬ 023.36\nПИТАНИЕ: СЕТЬ · ЗАРЯД 100% · РЕЗЕРВ 077.30 · НАГРУЗКА 6%\nVPN: NEW YORK\nAI: ПЕРЕПОДКЛЮЧЕНИЕ\nПУЛЬТ: ГОТОВ\nMAC MINI: ОШИБКА — НЕТ ДОСТУПА\n' +
-        'ТЕРМИНАЛ: НА СВЯЗИ\nЭКРАН ТАЙМЕРА: НЕТ СВЯЗИ\nДИСПЛЕЙ: WAVESHARE-625\nЯДРО: 2 Ч 14 МИН');
+    assert.equal(formatStatus({ timer: { left: 1416, paused: false, phase: 'countdown' }, modules, components, ups }),
+        'ТАЙМЕР: ОСТАЛОСЬ 023.00\nПИТАНИЕ: СЕТЬ · ЗАРЯД 100% · РЕЗЕРВ 78 МИН · НАГРУЗКА 6%\nVPN: NEW YORK\nAI: ПЕРЕПОДКЛЮЧЕНИЕ\niMESSAGE: ГОТОВ\nMAC MINI: ОШИБКА — НЕТ ДОСТУПА\n' +
+        'ТЕРМИНАЛ: НА СВЯЗИ\nЭКРАН ТАЙМЕРА: НЕТ СВЯЗИ\nДИСПЛЕЙ: WAVESHARE-625');
     assert.equal(formatStatus({ timer: { left: 200, paused: true, phase: 'countdown' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'ready', location: '' } }, ups: { online: true, vars: { 'ups.status': 'OB', 'battery.charge': '40' } } }),
-        'ТАЙМЕР: ПАУЗА 003.20 · ВВОД КОДА\nПИТАНИЕ: БАТАРЕЯ · ЗАРЯД 40%\nVPN: ОТКЛЮЧЁН');
+        'ТАЙМЕР: ПАУЗА 003.00 · ВВОД КОДА\nПИТАНИЕ: БАТАРЕЯ · ЗАРЯД 40%\nVPN: ОТКЛЮЧЁН');
     assert.equal(formatStatus({ timer: { left: 0, phase: 'failure' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'unavailable' } }, ups: null }),
         'ТАЙМЕР: СБОЙ\nПИТАНИЕ: НЕТ ДАННЫХ\nVPN: НЕТ ДАННЫХ');
 });
@@ -103,4 +103,9 @@ test('iMessage: only listed senders are queried; while the module is off message
     active = true; rows = ''; im.check();
     assert.equal(ran.length, 1);
     assert.equal(createIMessage({ senders: [] }).start(), false);
+});
+
+test('timer time is МММ.СС: minutes only from a minute up, seconds only below a minute', () => {
+    const { mmss } = require('./status.cjs');
+    assert.deepEqual([6222, 6480, 360, 359, 60, 59, 6, 0].map(mmss), ['103.00', '108.00', '006.00', '005.00', '001.00', '000.59', '000.06', '000.00']);
 });

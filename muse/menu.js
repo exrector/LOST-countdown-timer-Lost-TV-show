@@ -56,7 +56,7 @@
         '  аватар и состояния персонажа в цветах терминала'
     ].join('\n');
     function menu(openDialog) {
-        return { description: 'Ассистент Muse в терминале станции. Выключить модуль — «МОДУЛИ → mUse».', dir: [
+        return { description: 'Ассистент Muse в терминале станции. Выключить модуль — «МОДУЛИ → AI».', dir: [
             { label: 'ОТКРЫТЬ ДИАЛОГ', key: 'AI', act: openDialog },
             { label: 'СОСТОЯНИЕ', view: true, endpoint: '/__muse/state', format: status },
             { label: 'ИСТОРИЯ', view: true, endpoint: '/__muse/state', format: history },

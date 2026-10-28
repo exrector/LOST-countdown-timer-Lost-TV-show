@@ -126,7 +126,7 @@ test('remote replies are one short line about Live: status, pause, start, code, 
  const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
  const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
  try{
-  assert.match(await cmd('статус'),/^ТАЙМЕР: ОСТАЛОСЬ 019\.00\n.*ЯДРО: \d+ МИН$/s);
+  const full=await cmd('статус');assert.match(full,/^ТАЙМЕР: ОСТАЛОСЬ 019\.00\n/);assert.doesNotMatch(full,/ЯДРО/);
   assert.equal(await cmd('4 8 15 16 23 42'),'КОД НЕ ПРИНЯТ 019.00');
   assert.equal(await cmd('пауза'),'ПАУЗА 019.00');
   assert.match(await cmd('статус'),/^ТАЙМЕР: ПАУЗА 019\.00\n/);
@@ -143,11 +143,20 @@ test('the remote ignores Dev: with the terminal in Dev it reports, pauses and re
  const f=fixture({audio:'off',mode:'dev',live:{left:200,paused:false},dev:{left:3000,paused:false}});const {child,port}=await boot(f.dir);
  const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
  try{
-  assert.match(await cmd('статус'),/^ТАЙМЕР: ОСТАЛОСЬ 003\.\d\d · ВВОД КОДА\n/);
-  assert.match(await cmd('пауза'),/^ПАУЗА 003\.\d\d$/);
+  assert.match(await cmd('статус'),/^ТАЙМЕР: ОСТАЛОСЬ 003\.00 · ВВОД КОДА\n/);
+  assert.equal(await cmd('пауза'),'ПАУЗА 003.00');
   let h=await health(port);assert.equal(h.clocks.live.paused,true);assert.equal(h.timer.mode,'dev');assert.equal(h.timer.paused,false);
-  assert.match(await cmd('старт'),/^СТАРТ 003\.\d\d$/);
+  assert.equal(await cmd('старт'),'СТАРТ 003.00');
   assert.equal(await cmd('4 8 15 16 23 42'),'КОД ПРИНЯТ 108.00');
   h=await health(port);assert.ok(h.clocks.live.left>6470);assert.equal(h.timer.mode,'dev');assert.ok(h.timer.left<=3000&&h.timer.left>2990);
+ }finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
+});
+test('status collects fresh data before answering: refreshStatus runs first and its result is in the reply',async()=>{
+ const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});
+ const {child,port}=await boot(f.dir,false,8766,"refreshStatus:async()=>{await new Promise(r=>setTimeout(r,300));require('fs').writeFileSync('refreshed',String(Date.now()));},");
+ try{
+  const before=Date.now();const body=(await request(port,'/__cmd?text='+encodeURIComponent('статус'))).body;
+  assert.match(body,/^ТАЙМЕР: ОСТАЛОСЬ 019\.00/);
+  assert.ok(Number(fs.readFileSync(path.join(f.dir,'refreshed'),'utf8'))>=before,'refreshed for this reply');
  }finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
 });
