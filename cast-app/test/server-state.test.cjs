@@ -151,12 +151,10 @@ test('the remote ignores Dev: with the terminal in Dev it reports, pauses and re
   h=await health(port);assert.ok(h.clocks.live.left>6470);assert.equal(h.timer.mode,'dev');assert.ok(h.timer.left<=3000&&h.timer.left>2990);
  }finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
 });
-test('status waits for the end of the next shared poll cycle and answers right after it',async()=>{
- const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});
- const {child,port}=await boot(f.dir,false,8766,"nextPoll:()=>new Promise(r=>setTimeout(()=>{require('fs').writeFileSync('polled',String(Date.now()));r();},800)),");
+test('status answers at once with the data already collected, without waiting for a poll',async()=>{
+ const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
  try{
-  const body=(await request(port,'/__cmd?text='+encodeURIComponent('статус'))).body,answered=Date.now();
-  assert.match(body,/^ТАЙМЕР: ОСТАЛОСЬ 019\.00/);
-  const polled=Number(fs.readFileSync(path.join(f.dir,'polled'),'utf8'));assert.ok(polled<=answered,'the reply goes after the poll cycle ends');
+  const started=Date.now();const body=(await request(port,'/__cmd?text='+encodeURIComponent('статус'))).body;
+  assert.match(body,/^ТАЙМЕР: ОСТАЛОСЬ 019\.00/);assert.ok(Date.now()-started<5000,'no wait for a poll cycle');
  }finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
 });

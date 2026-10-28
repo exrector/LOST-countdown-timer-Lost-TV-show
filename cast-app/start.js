@@ -97,8 +97,7 @@ async function openWindow(role) {
 }
 const museRuntime = require('../muse/supervisor.cjs').createMuse({ root: ROOT });
 // Все источники данных — ИБП (агент), VPN (запрос к роутеру), станции (Tailscale) — опрашиваются одним общим циклом
-// раз в 2 мин, без своих таймеров. «статус» пульта ждёт конца ближайшего цикла и отвечает только что собранным
-// (решение владельца 28.10). Срок годности показаний — полтора цикла. Вне цикла: надзор за окнами (2 с) и экранами
+// раз в 2 мин, без своих таймеров. «статус» пульта сразу отвечает тем, что собрал последний цикл (решение владельца 28.10). Срок годности показаний — полтора цикла. Вне цикла: надзор за окнами (2 с) и экранами
 // (10 с) — это перезапуск упавших окон, а не опрос; состояние AI — чтение файла его же процесса.
 const POLL_MS = 120000;
 const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5 });
@@ -161,7 +160,7 @@ async function tick() {
     } catch (error) { console.error('[надзор]', error.code || error.message); }
     finally { busy = false; }
 }
-let pollWaiters = [], polling = false;
+let polling = false;
 async function pollCycle() {
     if (stopping || polling) return; polling = true;
     try {
@@ -171,11 +170,8 @@ async function pollCycle() {
         core.updateMuse(museRuntime.read());
     } finally {
         polling = false;
-        const waiting = pollWaiters; pollWaiters = []; for (const done of waiting) done();
     }
 }
-// Обещание конца ближайшего цикла опроса — его ждёт ответ «статус».
-function nextPoll() { return new Promise(done => pollWaiters.push(done)); }
 async function shutdown(code = 0) {
     if (stopping) return; stopping = true; recovery.stop();
     console.log('[ядро]', code === 0 ? 'штатный выход' : 'аварийное завершение');
@@ -197,7 +193,7 @@ events.on('quit', () => shutdown(0));
 events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
 events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, nextPoll, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed, imessage:true, shortcuts: fs.existsSync('/usr/bin/shortcuts') }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed, imessage:true, shortcuts: fs.existsSync('/usr/bin/shortcuts') }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
     caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
     screens = await readScreens() || []; lastScreensAt = Date.now();
     await openWindow('console'); if (localTimer) await openWindow('tv');
