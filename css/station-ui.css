@@ -80,6 +80,8 @@ body.console-page .service-line .vpn-line{order:1;margin-left:auto;flex-shrink:0
 body.console-page .service-line .input-source-line{order:2;flex-shrink:0;color:#60aa7d;text-shadow:0 0 5px rgba(51,255,136,.15)}
 body.console-page .service-line .input-source-line b{font-weight:normal;color:#8dd9a9}
 body.console-page .service-line .input-source-line.unavailable,body.console-page .service-line .input-source-line.unavailable b{color:#85958a}
+/* Режим таймера — последняя ячейка справа после LANG: L или D. */
+body.console-page .service-line .station-mode-line{order:3;flex-shrink:0;color:#8dd9a9;text-shadow:0 0 5px rgba(51,255,136,.15)}
 /* VPN reads like the UPS readings beside it: muted caption, brighter value, same glow and state colours. */
 body.console-page .service-line .vpn-line{color:#60aa7d;text-shadow:0 0 5px rgba(51,255,136,.15)}
 body.console-page .service-line .vpn-line b{font-weight:normal;color:#8dd9a9}
