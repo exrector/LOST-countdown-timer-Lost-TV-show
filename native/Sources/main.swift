@@ -337,7 +337,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
                 guard let context = context, let event = event else { return OSStatus(eventNotHandledErr) }
                 let app = Unmanaged<StationApp>.fromOpaque(context).takeUnretainedValue()
                 if GetEventKind(event) == UInt32(kEventHotKeyReleased) { app.desktopKeyDown = false }
-                else if !app.desktopKeyDown { app.desktopKeyDown = true; app.showDesktop() }
+                else if !app.desktopKeyDown { app.desktopKeyDown = true; app.toggleDesktop() }
                 return noErr
             }, events.count, buffer.baseAddress, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         }
@@ -346,13 +346,16 @@ final class StationApp: NSObject, NSApplicationDelegate {
             NSLog("LOST: global PF6 unavailable (%d); local PF6 and Dock remain available", registered)
             localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 if event.keyCode == UInt16(kVK_F6) && event.modifierFlags.intersection([.command,.control,.option,.shift]).isEmpty {
-                    if !event.isARepeat { self?.showDesktop() }; return nil
+                    if !event.isARepeat { self?.toggleDesktop() }; return nil
                 }
                 return event
             }
         }
     }
     var stationShown: Bool { !desktopMode && !NSApp.isHidden }
+    // PF6 (PF18 on the station keyboard) is a global hot key, delivered while LOST is
+    // hidden too: it hides the station and brings it back.
+    func toggleDesktop() { if stationShown { showDesktop() } else { activateStation() } }
     @objc func showDesktop() {
         microphone.cancel()
         desktopMode = true
@@ -374,7 +377,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         if let page = pages["console"] { page.window.makeFirstResponder(page.web) }
         tick()
     }
-    // Leaving the desktop needs an explicit request: Dock icon / LOST.app (reopen), the menu item or the distributed notification.
+    // Leaving the desktop needs an explicit request: PF6 again, Dock icon / LOST.app (reopen), the menu item or the distributed notification.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { activateStation(); return false }
     @objc func screensChanged() { layout() }
     func layout() {
