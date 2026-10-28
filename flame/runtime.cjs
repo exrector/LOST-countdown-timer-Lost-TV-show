@@ -39,7 +39,8 @@ function parseStatus(json, stations = {}) {
     list.sort((a, b) => rank(a) - rank(b) || (Number(a.number) || 99) - (Number(b.number) || 99) || a.station.localeCompare(b.station, 'ru') || a.device.localeCompare(b.device));
     return { backend, stations: list };
 }
-function createFlame({ tailscale, stationsFile = path.join(os.homedir(), '.config/lost/flame.json'), run = runDefault, exists = fs.existsSync, now = Date.now, intervalMs = 60000, minGapMs = 5000, setTimer = setInterval, clearTimer = clearInterval } = {}) {
+// autoPoll: false — свой таймер не заводится, опрашивает общий цикл станции (cast-app/start.js, раз в 2 мин).
+function createFlame({ tailscale, stationsFile = path.join(os.homedir(), '.config/lost/flame.json'), run = runDefault, exists = fs.existsSync, now = Date.now, intervalMs = 60000, minGapMs = 5000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval } = {}) {
     const binary = tailscale || CANDIDATES.find(file => exists(file)) || null;
     let enabled = true, busy = null, timer = null, generation = 0, lastAttempt = -Infinity;
     let state = { status: binary ? 'starting' : 'not_installed', backend: '', stations: [], updatedAt: 0, error: binary ? null : 'Tailscale на станции не найден' };
@@ -69,7 +70,7 @@ function createFlame({ tailscale, stationsFile = path.join(os.homedir(), '.confi
         if (typeof on !== 'boolean') return false;
         enabled = on; generation++;
         if (timer !== null) clearTimer(timer); timer = null;
-        if (on && binary) { refresh({ force: true }); timer = setTimer(() => refresh({ force: true }), intervalMs); timer?.unref?.(); }
+        if (on && binary) { refresh({ force: true }); if (autoPoll) { timer = setTimer(() => refresh({ force: true }), intervalMs); timer?.unref?.(); } }
         return snapshot();
     }
     return { snapshot, refresh, setEnabled, close() { setEnabled(false); } };

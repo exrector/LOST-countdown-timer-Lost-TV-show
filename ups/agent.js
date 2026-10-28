@@ -34,7 +34,7 @@ function guardState() {
 }
 function state() {
  return { ...current,fields:describe(current.vars,current.writable),policy,guard:guardState(),
-  connection:{host:cfg.host,port:cfg.port,ups:cfg.ups},canEdit:!!(cfg.username&&cfg.password),pollInterval:5000 };
+  connection:{host:cfg.host,port:cfg.port,ups:cfg.ups},canEdit:!!(cfg.username&&cfg.password),pollInterval:120000 };
 }
 function json(res,code,data,origin) {
  res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':origin||'null','Vary':'Origin','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));
@@ -46,6 +46,8 @@ const server = http.createServer(async (req,res) => {
  if (!origin || !allowed.has(origin)) return json(res,403,{error:'Только локальный терминал LOST'});
  if (req.method==='OPTIONS') { res.writeHead(204,{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, X-LOST-UPS','Vary':'Origin'});return res.end(); }
  if (req.method==='GET' && req.url==='/state') return json(res,200,state(),origin);
+ // Общий цикл опроса станции (cast-app/start.js, раз в 2 мин) просит прочитать ИБП сейчас — своего таймера у агента нет.
+ if (req.method==='GET' && req.url==='/state?refresh=1') { await refresh(true); return json(res,200,state(),origin); }
  if (req.method!=='POST' || req.headers['x-lost-ups']!=='1' || !String(req.headers['content-type']).startsWith('application/json')) return json(res,403,{error:'Запрос отклонён'},origin);
  let data='', acquired=false;
  try {
@@ -75,4 +77,4 @@ const server = http.createServer(async (req,res) => {
 });
 server.headersTimeout=6000;server.requestTimeout=8000;
 server.listen(PORT,'127.0.0.1',()=>console.log('LOST UPS agent listening on loopback:'+PORT));
-refresh();setInterval(()=>refresh(),5000);
+refresh(); // дальше — по запросу общего цикла опроса станции (GET /state?refresh=1)

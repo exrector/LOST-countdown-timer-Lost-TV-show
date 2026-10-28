@@ -24,7 +24,7 @@ const windows = { tv: null, console: null };
 const peers = { tv: 0, console: 0 };
 const heartbeat = { tv: 0, console: 0 };
 const modules = { timer: { status: 'starting' }, terminal: { status: 'starting' }, display: { status: 'starting' }, ups: { status: 'starting' } };
-let stopping = false, core, caffeinate, castSession, screens = [], lastScreensAt = 0, lastUPSAt = 0, lastUPSStart = 0, busy = false;
+let stopping = false, core, caffeinate, castSession, screens = [], lastScreensAt = 0, lastUPSStart = 0, busy = false;
 const localTimer = ['local', 'both'].includes(cfg.output || 'chromecast');
 function profile(role) { return path.join(os.tmpdir(), role === 'tv' ? 'lost-timer-profile' : 'lost-terminal-profile'); }
 function getJSON(port, route, timeout = 3000, headers = {}) {
@@ -96,8 +96,13 @@ async function openWindow(role) {
     return true;
 }
 const museRuntime = require('../muse/supervisor.cjs').createMuse({ root: ROOT });
-const vpnRuntime = require('../vpn/runtime.cjs').createVPN();
-const flameRuntime = require('../flame/runtime.cjs').createFlame();
+// Все источники данных — ИБП (агент), VPN (запрос к роутеру), станции (Tailscale) — опрашиваются одним общим циклом
+// раз в 2 мин, без своих таймеров. «статус» пульта ждёт конца ближайшего цикла и отвечает только что собранным
+// (решение владельца 28.10). Срок годности показаний — полтора цикла. Вне цикла: надзор за окнами (2 с) и экранами
+// (10 с) — это перезапуск упавших окон, а не опрос; состояние AI — чтение файла его же процесса.
+const POLL_MS = 120000;
+const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5 });
+const flameRuntime = require('../flame/runtime.cjs').createFlame({ autoPoll: false });
 const applyUPSService = createUPSService({ root: ROOT });
 async function applyModule(id, enabled) {
     if (id === 'muse') return museRuntime.apply(id, enabled);
@@ -118,8 +123,8 @@ async function ensureUPS() {
 async function pollUPS() {
     if (!upsEnabled() || ['starting','stopping','error','not_installed'].includes(core.getModules().ups.status)) return;
     try {
-        const state = await getJSON(8766, '/state', 3000, { Origin: 'http://localhost:' + core.port });
-        const fresh = state.online && Date.now() - state.updatedAt < 20000;
+        const state = await getJSON(8766, '/state?refresh=1', 8000, { Origin: 'http://localhost:' + core.port });
+        const fresh = state.online && Date.now() - state.updatedAt < POLL_MS * 1.5;
         if (!upsEnabled()) return;
         modules.ups = { enabled: true, status: fresh ? 'ready' : 'degraded', updatedAt: state.updatedAt || null, error: fresh ? null : 'Нет актуальных показаний ИБП' };
         core.updateUPS(modules.ups);
@@ -152,27 +157,25 @@ async function tick() {
                 try { launched = await openWindow(role); } finally { recovery.completeAttempt(role, { launched }); }
             }
         }
-        if (upsEnabled() && now - lastUPSAt > 5000) { lastUPSAt = now; await pollUPS(); }
+        // ИБП читается общим циклом опроса (pollCycle), не здесь.
     } catch (error) { console.error('[надзор]', error.code || error.message); }
     finally { busy = false; }
 }
-// Ответ пульта «статус»: перед ним заново собрать всё меняющееся — AI, VPN (роутер), станции (Tailscale),
-// экраны и дисплей, ИБП. Окна терминала и таймера надзор проверяет каждые 2 с по их сигналам.
-async function refreshStatus() {
-    core.updateMuse(museRuntime.read());
-    const [vpn, flame, next] = await Promise.all([
-        vpnRuntime.refresh({ force: true }).catch(() => null),
-        flameRuntime.refresh({ force: true }).catch(() => null),
-        readScreens().catch(() => null),
-        upsEnabled() ? pollUPS().catch(() => {}) : null,
-    ]);
-    if (vpn) core.updateVPN(vpn);
-    if (flame) core.updateFlame(flame);
-    if (next) { screens = next; lastScreensAt = Date.now(); }
-    const display = timerDisplay();
-    modules.display = { status: display ? 'ready' : 'waiting', name: display?.name || cfg.display || null };
-    core.updateMuse(museRuntime.read());
+let pollWaiters = [], polling = false;
+async function pollCycle() {
+    if (stopping || polling) return; polling = true;
+    try {
+        const [vpn, flame] = await Promise.all([vpnRuntime.refresh({ force: true }).catch(() => null), flameRuntime.refresh({ force: true }).catch(() => null), upsEnabled() ? pollUPS().catch(() => {}) : null]);
+        if (vpn) core.updateVPN(vpn);
+        if (flame) core.updateFlame(flame);
+        core.updateMuse(museRuntime.read());
+    } finally {
+        polling = false;
+        const waiting = pollWaiters; pollWaiters = []; for (const done of waiting) done();
+    }
 }
+// Обещание конца ближайшего цикла опроса — его ждёт ответ «статус».
+function nextPoll() { return new Promise(done => pollWaiters.push(done)); }
 async function shutdown(code = 0) {
     if (stopping) return; stopping = true; recovery.stop();
     console.log('[ядро]', code === 0 ? 'штатный выход' : 'аварийное завершение');
@@ -194,7 +197,7 @@ events.on('quit', () => shutdown(0));
 events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
 events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, refreshStatus, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed, imessage:true, shortcuts: fs.existsSync('/usr/bin/shortcuts') }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, nextPoll, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed, imessage:true, shortcuts: fs.existsSync('/usr/bin/shortcuts') }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
     caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
     screens = await readScreens() || []; lastScreensAt = Date.now();
     await openWindow('console'); if (localTimer) await openWindow('tv');
@@ -202,7 +205,7 @@ events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.r
         try { castSession = await require('./cast').castSite(cfg.chromecast, 'http://' + core.ip + ':' + core.port + '/index.html?mode=' + core.getMode()); }
         catch (_) { console.error('[cast] подключение недоступно'); }
     }
-    await tick(); setInterval(tick, 2000);
+    await tick(); setInterval(tick, 2000); pollCycle(); setInterval(pollCycle, POLL_MS); // первый цикл — сразу при запуске
     if (!nativeUI && process.env.LOST_SUPERVISED === '1') {
         run('/usr/bin/open', [path.join(ROOT, 'LOST.app')], { timeout: 5000 }).catch(() => {});
     }
