@@ -20,9 +20,11 @@ final class VoiceDenoiser {
         let sum = h.reduce(0, +); h = h.map { $0 / sum }
         return h.map(Float.init)
     }()
-    // Full RNNoise suppression leaves artefacts that cost speech recognition words; a
-    // little of the original under the clean signal limits suppression to this floor.
-    static let defaultDryGain: Float = 0.1 // −20 dB
+    // Full RNNoise suppression also strips 1.2–8 kHz consonant energy from the in-case
+    // microphone (10–17 dB, the voice sounds muffled) and costs recognition words. The
+    // original mixed under the clean signal limits suppression; 30 % was chosen by ear
+    // over 10 % (muffled) and 50 % (noisier) on 2026-10-28.
+    static let defaultDryGain: Float = 0.3 // ≈ −10 dB
     private let state: OpaquePointer
     private let frame = Int(rnnoise_get_frame_size())
     private let dryGain: Float
