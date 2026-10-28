@@ -5,8 +5,8 @@ const os = require('os');
 const { promisify } = require('util');
 const runDefault = promisify(require('child_process').execFile);
 
-// VPN, Flame and the iMessage remote exist only where the station provides them; all default to on.
-const OPTIONAL = ['vpn', 'flame', 'imessage'];
+// VPN, Flame, the iMessage remote and Mac mini Shortcuts exist only where the station provides them; all default to on.
+const OPTIONAL = ['vpn', 'flame', 'imessage', 'shortcuts'];
 function normalizeModules(value) { return { ups: value?.ups !== false, muse: value?.muse === true, ...Object.fromEntries(OPTIONAL.filter(id => typeof value?.[id] === 'boolean').map(id => [id, value[id]])) }; }
 function createModules({ saved, persist, apply, publish = () => {}, installed = { muse: false } }) {
     const desired = normalizeModules(saved);

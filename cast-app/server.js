@@ -244,9 +244,11 @@ function start(port = 8765, opts = {}) {
         pause: (channel, said) => { setSleep(true, channel + ' «' + said + '»'); return ''; },
     };
     // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
+    // Модуль «Команды Mac mini»: выключенный — ни терминал, ни iMessage, ни «Команды» iPhone их не видят и не запускают.
+    const shortcutsOn = () => moduleManager.desired().shortcuts !== false;
     let shortcutNames = [], shortcutsAt = 0, shortcutsRefreshing = false;
     function refreshShortcuts(now) {
-        if (shortcutsRefreshing || !now && Date.now() - shortcutsAt < 60000) return;
+        if (!shortcutsOn() || shortcutsRefreshing || !now && Date.now() - shortcutsAt < 60000) return;
         shortcutsRefreshing = true; shortcutsAt = Date.now();
         execFile('shortcuts', ['list'], { encoding: 'utf8', timeout: 10000 }, (error, output) => {
             shortcutsRefreshing = false;
@@ -254,8 +256,8 @@ function start(port = 8765, opts = {}) {
         });
     }
     const shortcutRunner = {
-        list() { refreshShortcuts(); return shortcutNames.slice(); },
-        find(text) { refreshShortcuts(); const want = String(text || '').trim().toLowerCase(); return shortcutNames.find(n => n.toLowerCase() === want) || null; },
+        list() { if (!shortcutsOn()) return []; refreshShortcuts(); return shortcutNames.slice(); },
+        find(text) { if (!shortcutsOn()) return null; refreshShortcuts(); const want = String(text || '').trim().toLowerCase(); return shortcutNames.find(n => n.toLowerCase() === want) || null; },
         // Итог команды одной строкой, когда она завершится: вывод, «готово» или «ошибка: …».
         run(name, channel) {
             console.log('[пульт] запускаю команду «' + name + '» (' + channel + ')');
@@ -312,11 +314,12 @@ function start(port = 8765, opts = {}) {
                     if (role !== 'console') return;
                     const answer = text => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: '__shortcut_result', id: data.id, text })); };
                     const name = shortcutRunner.find(data.name);
-                    if (!name) answer('ошибка: команды «' + String(data.name || '').slice(0, 100) + '» нет в «Командах» Mac mini');
+                    if (!shortcutsOn()) answer('ошибка: модуль «Команды Mac mini» выключен');
+                    else if (!name) answer('ошибка: команды «' + String(data.name || '').slice(0, 100) + '» нет в «Командах» Mac mini');
                     else shortcutRunner.run(name, 'терминал').then(answer);
                     return;
                 }
-                if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); } return; }
+                if (data?.type === '__module') { if (role === 'console') { if (!moduleManager.set(data.id, data.enabled)) ws.send(JSON.stringify({ type: '__module_error', id: data.id, error: data.id === 'muse' ? 'not_installed' : 'invalid_module_request' })); else if (data.id === 'shortcuts') { if (data.enabled) refreshShortcuts(true); publishRemote(); } } return; }
                 if (!data || typeof data !== 'object') return;
                 if (data.type === '__cmd' && data.cmd === 'mode' && role === 'console' && ['live','dev'].includes(data.value)) {
                     switchMode(data.value);
