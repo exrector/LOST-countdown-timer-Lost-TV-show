@@ -11,8 +11,13 @@ rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$ROOT/native/.module-cache"
 # Swift cannot catch NSException; a one-function Objective-C shim does (see LOSTObjC.h).
 OBJ="$(mktemp -d)"; trap 'rm -rf "$OBJ"' EXIT
-xcrun clang -c -fobjc-arc -O2 -target "$TARGET_ARCH-apple-macosx12.0" "$ROOT/native/Sources/LOSTObjC.m" -o "$OBJ/LOSTObjC.o"
-xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation -import-objc-header "$ROOT/native/Sources/LOSTObjC.h" "$ROOT/native/Sources/main.swift" "$ROOT/native/Sources/StationMicrophone.swift" "$OBJ/LOSTObjC.o" -o "$BUNDLE/Contents/MacOS/LOSTNative"
+RNN="$ROOT/native/vendor/rnnoise"
+xcrun clang -c -fobjc-arc -O2 -target "$TARGET_ARCH-apple-macosx12.0" -I"$RNN/include" "$ROOT/native/Sources/LOSTObjC.m" -o "$OBJ/LOSTObjC.o"
+# RNNoise voice denoiser, x86_64 only (see native/vendor/rnnoise/README.md).
+for c in "$RNN"/src/*.c; do
+ xcrun clang -c -O2 -target "$TARGET_ARCH-apple-macosx12.0" -I"$RNN/include" -I"$RNN/src" "$c" -o "$OBJ/rnnoise-$(basename "$c" .c).o"
+done
+xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation -Xcc -I"$RNN/include" -import-objc-header "$ROOT/native/Sources/LOSTObjC.h" "$ROOT/native/Sources/main.swift" "$ROOT/native/Sources/StationMicrophone.swift" "$ROOT/native/Sources/VoiceDenoiser.swift" "$OBJ"/*.o -o "$BUNDLE/Contents/MacOS/LOSTNative"
 if [ -f "$ROOT/native/Resources/LOST.icns" ]; then
  mkdir -p "$BUNDLE/Contents/Resources"; cp "$ROOT/native/Resources/LOST.icns" "$BUNDLE/Contents/Resources/LOST.icns"
 fi
