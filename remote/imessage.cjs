@@ -8,14 +8,15 @@ const { execFile: execDefault } = require('node:child_process');
 // Ответ пульта: текст команды и состояние станции. { text, bare: true } — только текст (справка, команды Mac mini).
 // answer может быть Promise — ответ уходит, когда команда завершится.
 // status может вернуть строку или Promise; если состояние не собралось, уходит один текст команды.
-function compose(answer, status) {
+// fallback — ответ, когда нет ни текста, ни состояния (текст правится в «ОТВЕТЫ»).
+function compose(answer, status, fallback = 'LOST: состояние недоступно.') {
     return Promise.resolve(answer).then(answer => {
         const own = answer && typeof answer === 'object', text = own ? answer.text : answer;
         return Promise.resolve().then(() => own && answer.bare ? '' : status()).catch(() => '')
-            .then(state => [text, state].filter(Boolean).join('\n\n') || 'LOST: состояние недоступно.');
+            .then(state => [text, state].filter(Boolean).join('\n\n') || (typeof fallback === 'function' ? fallback() : fallback));
     });
 }
-function createIMessage({ senders = [], run, status, active = () => true, db = path.join(os.homedir(), 'Library/Messages/chat.db'), exec = execDefault, log = console.log, intervalMs = 10000, delayMs = 1500, setTimer = setInterval, later = setTimeout }) {
+function createIMessage({ senders = [], run, status, fallback, active = () => true, db = path.join(os.homedir(), 'Library/Messages/chat.db'), exec = execDefault, log = console.log, intervalMs = 10000, delayMs = 1500, setTimer = setInterval, later = setTimeout }) {
     const list = senders.map(x => String(x).replace(/'/g, '')).filter(Boolean);
     const from = list.map(x => "'" + x + "'").join(',');
     let lastId = null, warned = false, timer = null;
@@ -37,7 +38,7 @@ function createIMessage({ senders = [], run, status, active = () => true, db = p
                 const answer = run(rest.join(' '), 'imessage', sender);
                 if (answer === null) continue;
                 // ответ — после того, как таймер успеет отработать команду и прислать новое состояние
-                later(() => compose(answer, status).then(text => reply(sender, text)), delayMs);
+                later(() => compose(answer, status, fallback).then(text => reply(sender, text)), delayMs);
             }
         });
     }

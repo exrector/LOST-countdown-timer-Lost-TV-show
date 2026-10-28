@@ -16,10 +16,20 @@
             save.shown.text = valid ? save.label + ': ' + e.data.words.join(', ') : 'НЕ УДАЛОСЬ СОХРАНИТЬ СЛОВА. Прежние слова остаются.';
             window.dispatchEvent(new CustomEvent('lost-remote')); return;
         }
+        if (e.data.type === '__remote_reply_set_result') {
+            var put = saves[e.data.requestId]; if (!put || e.data.id !== put.reply) return;
+            var good = e.data.ok === true && typeof e.data.text === 'string';
+            if (!good && e.data.ok !== false) return;
+            delete saves[e.data.requestId]; clearTimeout(put.timer);
+            put.shown.label = good ? 'СОХРАНЕНО' : 'ОШИБКА';
+            put.shown.text = good ? put.label + ':\n\n' + (e.data.text || '(пусто — только состояние станции)') : 'НЕ УДАЛОСЬ СОХРАНИТЬ ОТВЕТ. Прежний текст остаётся.';
+            window.dispatchEvent(new CustomEvent('lost-remote')); return;
+        }
         if (e.data.type !== '__remote') return;
         state = { remote: e.data.remote, senders: e.data.senders || 0 };
         window.dispatchEvent(new CustomEvent('lost-remote'));
     });
+    if (window.__LOST_REMOTE) state = { remote: window.__LOST_REMOTE.remote, senders: window.__LOST_REMOTE.senders || 0 };
     function result(text) { text = String(text || ''); return /^ошибка/i.test(text) ? 'ОШИБКА.\n\n' + text.replace(/^ошибка:\s*/i, '') : 'ВЫПОЛНЕНО.' + (text && text !== 'готово' ? '\n\n' + text : ''); }
     function command(id) { return state.remote && state.remote.commands.filter(function (c) { return c.id === id; })[0]; }
     function words(id) { var c = command(id); return c ? c.words.join(', ') : ''; }
@@ -43,9 +53,36 @@
             } };
         return node;
     }
+    // Тексты ответов пульта (remote/replies.cjs). Поле однострочное: перенос строки пишется как \n.
+    function reply(id) { return state.remote && (state.remote.replies || []).filter(function (r) { return r.id === id; })[0]; }
+    function oneLine(text) { return String(text || '').replace(/\n/g, '\\n'); }
+    function replyEditor(r) {
+        var node = { editor: true, maxLength: 1000, confirmLabel: 'СОХРАНИТЬ', label: function () { var now = reply(r.id) || r; return r.label + (now.text === now.standard ? '' : ' *'); }, pathLabel: r.label, draft: oneLine((reply(r.id) || r).text),
+            description: r.about + ' \\n — перенос строки. Пустая строка — стандартный текст: «' + (oneLine(r.standard) || 'пусто') + '». Enter — сохранить.',
+            prepare: function (value) {
+                var shown = { label: 'СОХРАНЕНИЕ', view: true, text: 'СОХРАНЕНИЕ…' };
+                if (typeof value !== 'string' || value.length > 1000) { shown.label = 'ОШИБКА'; shown.text = 'Не длиннее 1000 знаков. Прежний текст остаётся.'; return shown; }
+                var requestId = 'remote-reply-' + nextSave++;
+                saves[requestId] = { shown: shown, reply: r.id, label: r.label, timer: setTimeout(function () {
+                    if (!saves[requestId]) return; delete saves[requestId];
+                    shown.label = 'НЕ ПОДТВЕРЖДЕНО'; shown.text = 'СОХРАНЕНИЕ НЕ ПОДТВЕРЖДЕНО. Проверьте текст в меню перед повтором.';
+                    window.dispatchEvent(new CustomEvent('lost-remote'));
+                }, 8000) };
+                window.dispatchEvent(new CustomEvent('lost-remote-reply-set', { detail: { id: r.id, text: value.replace(/\\n/g, '\n'), requestId: requestId } }));
+                node.draft = value;
+                return shown;
+            } };
+        return node;
+    }
+    function replies() {
+        var list = state.remote && state.remote.replies ? state.remote.replies.map(replyEditor) : [];
+        if (!list.length) list.push({ label: 'НЕТ ДАННЫХ', view: true, staticText: 'СПИСОК ОТВЕТОВ ЕЩЁ НЕ ПОЛУЧЕН ОТ СТАНЦИИ.' });
+        return { label: 'ОТВЕТЫ', dir: list, description: 'Что станция отвечает по iMessage и «Командам» iPhone. * — текст изменён. Состояние станции и список команд собираются из данных; меняются их заголовки.' };
+    }
     function menu() {
         var list = state.remote ? state.remote.commands.map(editor) : [];
         list.push({ label: 'КОД: 4 8 15 16 23 42', view: true, staticText: 'Код принимается только в последние 4 минуты цикла: сообщение из одних цифр.' });
+        list.push(replies());
         return { description: 'Станция читает iMessage от разрешённых номеров (' + state.senders + ') и выполняет команду LOST по её словам или команду из «Команд» Mac mini с тем же названием (список — МЕНЮ → МОДУЛИ → КОМАНДЫ MAC MINI, клавиша K). Ответ — сообщением с состоянием станции.', dir: list };
     }
     // Команды из «Команд» Mac mini. Запуск меняет что-то за пределами LOST, поэтому только Enter (подтверждение).

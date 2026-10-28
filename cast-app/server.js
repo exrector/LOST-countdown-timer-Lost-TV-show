@@ -64,7 +64,7 @@ function start(port = 8765, opts = {}) {
             if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: команды по адресу станции принимаются только из домашней сети'); }
             const text = p === '/__sleep' ? (url.searchParams.get('on') === '1' ? 'пауза' : 'старт') : url.searchParams.get('text') || '';
             const answer = remote.run(text, 'сеть');
-            setTimeout(() => compose(answer, statusText).then(text => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(text); }), p === '/__sleep' ? 0 : 1500);
+            setTimeout(() => compose(answer, statusText, () => remote.reply('unavailable')).then(text => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(text); }), p === '/__sleep' ? 0 : 1500);
             return;
         }
         if (p === '/__journal') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(journalTail(Math.min(200, parseInt(url.searchParams.get('lines')) || 16))); }
@@ -231,17 +231,18 @@ function start(port = 8765, opts = {}) {
     // Выход и Dev Mode удалённо намеренно недоступны (удалённо их не отменить, Dev Mode перезапускает таймер).
     const remoteActions = {
         code(code, channel) {
-            if (!timerInfo().open) return 'Код не принят: терминал открывается только в последние 4 минуты.';
+            if (!timerInfo().open) return remote.reply('code_closed');
             const msg = JSON.stringify({ type: 'numberSubmitted', value: code });
             if (code !== '4 8 15 16 23 42') for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
             console.log('[пульт] код:', code, '(' + channel + ')');
             if (code === '4 8 15 16 23 42') { journalAccepted(); clock.reset(); saveState(); publishClock(); }
-            return 'Код отправлен.';
+            return remote.reply('code_sent');
         },
-        journal: () => 'Журнал станции:\n' + (journalTail(6) || '(пусто)') + '\n',
-        status: () => '',
-        resume: (channel, said) => { setSleep(false, channel + ' «' + said + '»'); return ''; },
-        pause: (channel, said) => { setSleep(true, channel + ' «' + said + '»'); return ''; },
+        // Тексты ответов — remote/replies.cjs, правятся в МОДУЛИ → ПУЛЬТ iMESSAGE → ОТВЕТЫ.
+        journal: () => remote.reply('journal', { journal: journalTail(6) || remote.reply('journal_empty') }) + '\n',
+        status: () => remote.reply('status'),
+        resume: (channel, said) => { setSleep(false, channel + ' «' + said + '»'); return remote.reply('resume'); },
+        pause: (channel, said) => { setSleep(true, channel + ' «' + said + '»'); return remote.reply('pause'); },
     };
     // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
     // Модуль «Команды Mac mini»: выключенный — ни терминал, ни iMessage, ни «Команды» iPhone их не видят и не запускают.
@@ -273,11 +274,11 @@ function start(port = 8765, opts = {}) {
         },
     };
     // Kay — тот же чат Muse, что и AI в терминале.
-    const kay = createKay({ send: opts.sendMuseMessage, chat: opts.getMuseChat, ready: () => { const m = moduleManager.snapshot().muse; return !!m && m.enabled !== false && m.status === 'ready'; } });
+    const kay = createKay({ send: opts.sendMuseMessage, chat: opts.getMuseChat, reply: (id, vars) => remote.reply(id, vars), ready: () => { const m = moduleManager.snapshot().muse; return !!m && m.enabled !== false && m.status === 'ready'; } });
     remote = createRemote({ saved: saved.remote, persist: saveState, actions: remoteActions, shortcuts: shortcutRunner, kay });
     const remoteMsg = () => JSON.stringify({ type: '__remote', remote: remote.snapshot(), senders: imessage ? imessage.senders().length : 0, address: lanIp() });
     function publishRemote() { const m = remoteMsg(); for (const ws of peers.console) if (ws.readyState === 1) ws.send(m); }
-    const imessage = createIMessage({ senders: opts.sleepFrom || [], run: remote.run, status: statusText, active: () => moduleManager.desired().imessage === true });
+    const imessage = createIMessage({ senders: opts.sleepFrom || [], run: remote.run, status: statusText, fallback: () => remote.reply('unavailable'), active: () => moduleManager.desired().imessage === true });
     imessage.start();
 
     server.on('upgrade', (req, sock, head) => {
@@ -306,6 +307,14 @@ function start(port = 8765, opts = {}) {
                     const command = ok ? remote.snapshot().commands.find(c => c.id === data.id) : null;
                     const words = command ? command.words : undefined;
                     ws.send(JSON.stringify({ type: '__remote_set_result', requestId: data.requestId, id: data.id, ok: !!words, ...(words ? { words } : { error: 'save_failed' }) }));
+                    publishRemote(); return;
+                }
+                // Текст ответа пульта из меню «ОТВЕТЫ»: пустой — стандартный. Ответ подтверждает сохранённый текст.
+                if (data?.type === '__remote_reply_set') {
+                    if (role !== 'console' || typeof data.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(data.requestId)) return;
+                    const ok = typeof data.id === 'string' && typeof data.text === 'string' && remote.setReply(data.id, data.text);
+                    const saved = ok ? remote.snapshot().replies.find(r => r.id === data.id) : null;
+                    ws.send(JSON.stringify({ type: '__remote_reply_set_result', requestId: data.requestId, id: data.id, ok: !!saved, ...(saved ? { text: saved.text } : { error: 'save_failed' }) }));
                     publishRemote(); return;
                 }
                 // Клавиша K в терминале: список команд Mac mini обновляется при открытии, Enter запускает выбранную.
