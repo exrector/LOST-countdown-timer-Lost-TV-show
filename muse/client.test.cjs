@@ -37,7 +37,7 @@ test('Escape discards unsent audio before leaving; original numeric input stays 
 });
 test('code priority closes AI and discards the draft without sending',()=>{
  const f=fixture();f.win.LostMuse.open();f.key('keydown','Control','ControlLeft');f.key('keyup','Control','ControlLeft');
- f.win.dispatchEvent({type:'lost-muse-code-priority',detail:{active:true}});assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(f.commands.at(-1),'cancel');assert.equal(f.commands.includes('send'),false);
+ f.win.dispatchEvent({type:'lost-muse-code-priority',detail:{active:true}});assert.equal(f.win.LostMuse.isOpen(),false);assert.deepEqual(f.commands.slice(-2),['cancel','chat-close']);assert.equal(f.commands.includes('send'),false);
 });
 
 test('hidden AI command is invisible until complete and survives clock updates',()=>{
@@ -77,7 +77,7 @@ test('last eight minutes close AI and discard audio; four-minute numeric gate st
  f.win.__LOST_CLOCK={phase:'countdown',left:480};
  f.dispatch({type:'lost-muse-code-priority',detail:{active:true}});
  f.dispatch({type:'message',data:{type:'enableConsole',enabled:false,remainingTime:480}});
- assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(f.commands.at(-1),'cancel');assert.equal(f.commands.includes('send'),false);
+ assert.equal(f.win.LostMuse.isOpen(),false);assert.deepEqual(f.commands.slice(-2),['cancel','chat-close']);assert.equal(f.commands.includes('send'),false);
  assert.equal(f.win.LostConsoleInput.codeOpen(),false);assert.equal(f.input.readOnly,true);
  f.key('keydown','a','KeyA');assert.equal(f.input.value,'');f.key('keydown','i','KeyI');
  assert.equal(f.input.value,'AI НЕДОСТУПЕН: СКОРО ВВОД КОДА');

@@ -460,6 +460,8 @@ final class StationApp: NSObject, NSApplicationDelegate {
             case "microphone-start": microphone.command(["op":"start"])
             case "microphone-stop": microphone.command(["op":"stop"])
             case "microphone-cancel": microphone.command(["op":"cancel"])
+            case "microphone-chat-open": microphone.command(["op":"chat-open"])
+            case "microphone-chat-close": microphone.command(["op":"chat-close"])
             default: break
             }
         }
@@ -499,7 +501,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         NSApp.reply(toApplicationShouldTerminate: true)
     }
     func applicationWillTerminate(_ notification: Notification) {
-        microphone.cancel()
+        microphone.shutdown()
         watchdog?.invalidate(); snapshotTimer?.invalidate()
         if owner > 0 { audio.stopAll() }
         if let hotKey = hotKey { UnregisterEventHotKey(hotKey) }

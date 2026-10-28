@@ -1,5 +1,4 @@
 #import <Foundation/Foundation.h>
-#include "rnnoise.h" // native/vendor/rnnoise, used by VoiceDenoiser.swift
 
 // Swift cannot catch NSException. AVAudioPlayerNode.play raises one when Core Audio
 // rebuilds the output graph underneath a running engine (Apple voice processing
