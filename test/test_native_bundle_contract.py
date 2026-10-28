@@ -37,19 +37,30 @@ class NativeBundleContractTests(unittest.TestCase):
         build = (ROOT / "script/build_and_run.sh").read_text()
         self.assertIn("""--requirements '=designated => identifier "com.exrector.lost.native"'""", build)
 
-    def test_voice_is_denoised_only_while_recording(self):
+    def test_voice_capture_has_no_own_denoiser(self):
         source = (ROOT / "native/Sources/StationMicrophone.swift").read_text()
-        denoiser = (ROOT / "native/Sources/VoiceDenoiser.swift").read_text()
         build = (ROOT / "script/build_and_run.sh").read_text()
-        self.assertIn("guard let filter = VoiceDenoiser()", source)
-        self.assertIn("denoiser.filter.process($0)", source)
-        self.assertIn("self?.denoiser = nil", source)
-        self.assertIn("rnnoise_process_frame(state, &output, input)", denoiser)
-        self.assertIn('"$ROOT/native/Sources/VoiceDenoiser.swift"', build)
-        self.assertIn('for c in "$RNN"/src/*.c; do', build)
-        self.assertTrue((ROOT / "native/vendor/rnnoise/COPYING").is_file())
         self.assertNotIn("AVAudioRecorder", source)
-        self.assertNotIn("Apple Voice Processed Mic", source)
+        self.assertNotIn("rnnoise", build.lower())
+        self.assertNotIn("Denoiser", source)
+        self.assertFalse((ROOT / "native/vendor/rnnoise").exists())
+        self.assertIn("AVSampleRateKey: Self.rate", source)
+
+    def test_apple_voice_processing_runs_only_while_chat_is_open(self):
+        source = (ROOT / "native/Sources/StationMicrophone.swift").read_text()
+        main = (ROOT / "native/Sources/main.swift").read_text()
+        client = (ROOT / "muse/client.js").read_text()
+        self.assertIn('"Apple Voice Processed Mic"', source)
+        self.assertIn('status["state"] as? String == "recording"', source)
+        self.assertIn("timeIntervalSince(updated) < 15", source)
+        self.assertIn('case "chat-open": setProcessor(true)', source)
+        self.assertIn('case "chat-close": setProcessor(false)', source)
+        self.assertIn('["bootstrap", domain, Self.processorJob.path]', source)
+        self.assertIn("setProcessor(false) // a restarted LOST starts with its chat closed", source)
+        self.assertIn("Library/Application Support/AppleVoiceProcessor/", source)
+        self.assertIn("microphone.shutdown()", main)
+        self.assertIn("{op:'chat-open'}", client)
+        self.assertIn("{op:'chat-close'}", client)
 
     def test_keyboard_layout_indicator_is_read_only_and_uses_macos_source(self):
         source = (ROOT / "native/Sources/main.swift").read_text()

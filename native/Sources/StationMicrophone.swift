@@ -19,9 +19,21 @@ private final class MicrophoneNoRedirects: NSObject, URLSessionTaskDelegate {
 }
 
 final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
-    // The device delivers 48 kHz, RNNoise's native rate (VoiceDenoiser); the bridge
-    // (muse/chat_adapter.py) accepts exactly 16-kHz mono signed-16-bit PCM WAV.
-    private static let captureRate = 48000.0
+    // Apple voice processing (exrector/apple-voice-processing) publishes the cleaned
+    // microphone as a Loopback device and rewrites its status every 5 s while audio flows.
+    // On macOS 12 it ducks all other audio for as long as it is initialized, so it runs
+    // only while the AI chat is open: its launchd job is loaded on chat-open and unloaded
+    // on chat-close. Until it is ready (~2.5 s after opening) or if it fails, the default
+    // microphone is recorded as is.
+    private static let processedName = "Apple Voice Processed Mic"
+    private static let processorLabel = "com.exrector.applevoiceprocessing"
+    private static let processorJob = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/AppleVoiceProcessor/com.exrector.applevoiceprocessing.plist")
+    private static let processorStatus = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/AppleVoiceProcessor/status.json")
+    private let processorQueue = DispatchQueue(label: "com.exrector.lost.voice-processor")
+    private var processorWanted = false // its status file outlives the job by up to 15 s
+    // muse/chat_adapter.py accepts exactly 16-kHz mono signed-16-bit PCM WAV.
     private static let rate = 16000.0
     private static let maxSeconds = 45.0
     private let update: ([String: Any]) -> Void
@@ -30,7 +42,6 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
     private let captureQueue = DispatchQueue(label: "com.exrector.lost.microphone")
     private var capture: AVCaptureSession?
     private var dataOutput: AVCaptureAudioDataOutput?
-    private var denoiser: (output: AVCaptureAudioDataOutput, filter: VoiceDenoiser)? // capture queue only
     private var pcm = Data() // held in memory only, never written to disk
     private var deviceName = ""
     private var meterTimer: Timer?
@@ -73,6 +84,7 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
             self.endpoint = components.url
         } else { self.endpoint = nil; self.origin = nil }
         super.init()
+        setProcessor(false) // a restarted LOST starts with its chat closed
         connectObserver = NotificationCenter.default.addObserver(forName: .lostCaptureDeviceConnected, object: nil, queue: .main) { [weak self] _ in self?.publish() }
         disconnectObserver = NotificationCenter.default.addObserver(forName: .lostCaptureDeviceDisconnected, object: nil, queue: .main) { [weak self] notification in
             guard let self = self else { return }
@@ -100,6 +112,8 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
         case "stop": stopRecording()
         case "send": sendDraft()
         case "cancel": cancel()
+        case "chat-open": setProcessor(true)
+        case "chat-close": setProcessor(false)
         default: break
         }
     }
@@ -112,7 +126,7 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
 
     func snapshot() -> [String: Any] {
         // The meter publishes ten times a second while recording; keep the chosen device then.
-        let name = recording ? deviceName : (AVCaptureDevice.default(for: .audio)?.localizedName ?? "")
+        let name = recording ? deviceName : (captureDevice()?.localizedName ?? "")
         var value: [String: Any] = ["available": !name.isEmpty, "supported": true, "recording": recording,
                                    "level": level, "elapsed": elapsed, "uploading": uploading,
                                    "requesting": requesting, "finished": finished, "draftReady": draft != nil, "device": name, "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "permissionRequests": permissionRequests, "lastCommand": lastCommand]
@@ -121,6 +135,42 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
     }
 
     private func publish() { update(snapshot()) }
+
+    private func processorReady() -> Bool {
+        guard processorWanted, let data = try? Data(contentsOf: Self.processorStatus),
+              let status = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              status["state"] as? String == "recording", let stamp = status["updatedAt"] as? String,
+              let updated = ISO8601DateFormatter().date(from: stamp) else { return false }
+        return Date().timeIntervalSince(updated) < 15
+    }
+
+    private func captureDevice() -> AVCaptureDevice? {
+        if processorReady(), let processed = AVCaptureDevice.devices(for: .audio).first(where: { $0.localizedName == Self.processedName }) {
+            return processed
+        }
+        return AVCaptureDevice.default(for: .audio)
+    }
+
+    // launchctl on a serial queue, so open/close in quick succession apply in order.
+    // bootstrap of a loaded job and bootout of an unloaded one simply fail: idempotent.
+    private func setProcessor(_ on: Bool) {
+        processorWanted = on
+        guard FileManager.default.fileExists(atPath: Self.processorJob.path) else { return }
+        let domain = "gui/\(getuid())"
+        let arguments = on ? ["bootstrap", domain, Self.processorJob.path] : ["bootout", domain + "/" + Self.processorLabel]
+        processorQueue.async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/launchctl"); task.arguments = arguments
+            task.standardOutput = FileHandle.nullDevice; task.standardError = FileHandle.nullDevice
+            try? task.run(); task.waitUntilExit()
+        }
+    }
+
+    // Termination: unload synchronously so ducking never outlives the station.
+    func shutdown() {
+        cancel(); setProcessor(false)
+        processorQueue.sync {}
+    }
 
     private func authorize() {
         guard !requesting else { publish(); return }
@@ -149,7 +199,7 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
         draft = nil
         finished = false; errorText = nil; elapsed = 0; level = 0; wantRecord = true
         guard endpoint != nil, origin != nil else { fail("Недоступен локальный мост голосового ввода"); return }
-        guard let device = AVCaptureDevice.default(for: .audio) else { fail("Микрофон не подключён"); return }
+        guard let device = captureDevice() else { fail("Микрофон не подключён"); return }
         deviceID = device.uniqueID
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: beginRecording(current, device)
@@ -172,12 +222,12 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
         guard current == generation, wantRecord else { return }
         let session = AVCaptureSession()
         let output = AVCaptureAudioDataOutput()
-        output.audioSettings = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: Self.captureRate,
-            AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
+        // Core Audio converts to the bridge rate. No channel count: the device's own layout
+        // is kept and channel 0 used, so a stereo Loopback carrying one mono signal is not
+        // summed into it.
+        output.audioSettings = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: Self.rate,
+            AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false]
-        guard let filter = VoiceDenoiser() else { fail("Не удалось запустить шумоподавление"); return }
-        // Fresh RNNoise state per recording, installed before the first buffer can arrive.
-        captureQueue.sync { denoiser = (output, filter) }
         output.setSampleBufferDelegate(self, queue: captureQueue)
         guard let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input), session.canAddOutput(output) else {
             fail("Не удалось подготовить запись микрофона"); return
@@ -199,14 +249,15 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
               let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
         let length = CMBlockBufferGetDataLength(block)
-        guard length >= 4, let denoiser = denoiser, denoiser.output === output else { return }
-        let valid = asbd.mFormatID == kAudioFormatLinearPCM && asbd.mSampleRate == Self.captureRate && asbd.mChannelsPerFrame == 1
-            && asbd.mBitsPerChannel == 32 && asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0
-            && asbd.mFormatFlags & (kAudioFormatFlagIsBigEndian | kAudioFormatFlagIsNonInterleaved) == 0
-        var samples = [Float](repeating: 0, count: length / 4)
-        let status = samples.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: $0.count, destination: $0.baseAddress!) }
+        guard length >= 2 else { return }
+        let channels = Int(asbd.mChannelsPerFrame)
+        let valid = asbd.mFormatID == kAudioFormatLinearPCM && asbd.mSampleRate == Self.rate && channels >= 1
+            && asbd.mBitsPerChannel == 16 && asbd.mFormatFlags & (kAudioFormatFlagIsFloat | kAudioFormatFlagIsBigEndian | kAudioFormatFlagIsNonInterleaved) == 0
+        var interleaved = [Int16](repeating: 0, count: length / 2)
+        let status = interleaved.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: $0.count, destination: $0.baseAddress!) }
+        let mono = channels > 1 ? stride(from: 0, to: interleaved.count - channels + 1, by: channels).map { interleaved[$0] } : interleaved
         let ok = valid && status == kCMBlockBufferNoErr
-        let bytes = ok ? samples.withUnsafeBufferPointer { denoiser.filter.process($0) } : Data()
+        let bytes = ok ? mono.withUnsafeBytes { Data($0) } : Data()
         DispatchQueue.main.async { [weak self] in self?.receive(bytes, valid: ok, from: output) }
     }
 
@@ -255,10 +306,7 @@ final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDel
 
     private func fail(_ message: String) { cancelCapture(error: message) }
 
-    private func cleanup() {
-        pcm = Data(); startedAt = nil
-        captureQueue.async { [weak self] in self?.denoiser = nil }
-    }
+    private func cleanup() { pcm = Data(); startedAt = nil }
 
     private func finish() {
         let held = startedAt.map { Date().timeIntervalSince($0) } ?? 0

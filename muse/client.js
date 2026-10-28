@@ -163,7 +163,9 @@
         if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:e.detail.on?'start':e.detail.cancel?'cancel':'stop'});
     });
     window.addEventListener('lost-muse-send-voice', function(){if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'send'});});
-    window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone){window.LostStation.microphone({op:'query'});window.LostStation.microphone({op:'authorize'});}});
+    // Apple voice processing ducks all station audio while it runs: only with the chat open.
+    window.addEventListener('lost-muse-open', function(){if(window.LostStation && window.LostStation.microphone){window.LostStation.microphone({op:'chat-open'});window.LostStation.microphone({op:'query'});window.LostStation.microphone({op:'authorize'});}});
+    window.addEventListener('lost-muse-close', function(){if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'chat-close'});});
     if(window.LostStation && window.LostStation.microphone)window.LostStation.microphone({op:'query'});
     if (window.LostConsoleInput) window.LostConsoleInput.register('AI', open, 'Ассистент Kay в этом терминале: текст и голос (удерживать RESET).\nНабрать AI и Enter или нажать PF3. Esc — назад в терминал.\nВ последние 8 минут недоступен: терминал оставлен для кода.');
     window.LostMuse = { canOpen: canOpen, open: open, close: close, isOpen: function () { return opened; }, receive: receive, setMicrophone: setMicrophone,
