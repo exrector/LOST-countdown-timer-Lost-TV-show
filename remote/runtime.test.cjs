@@ -102,3 +102,28 @@ test('iMessage: only listed senders are queried; while the module is off message
     assert.equal(ran.length, 1);
     assert.equal(createIMessage({ senders: [] }).start(), false);
 });
+
+test('reply texts: standard by default, edited from the menu, empty restores the standard, saved across restarts', () => {
+    let saved = null;
+    const remote = createRemote({ saved: {}, persist: () => { saved = JSON.parse(JSON.stringify(remote.settings())); return true; }, actions: {} });
+    assert.equal(remote.run('абракадабра', 'imessage'), 'Не понял «абракадабра». Список команд — «help».');
+    assert.equal(remote.reply('pause'), '');
+    assert.equal(remote.setReply('unknown', '«{said}» — такой команды нет'), true);
+    assert.equal(remote.run('абракадабра', 'imessage'), '«абракадабра» — такой команды нет');
+    assert.equal(remote.setReply('pause', 'Спокойной ночи.'), true);
+    assert.equal(remote.reply('pause'), 'Спокойной ночи.');
+    assert.equal(remote.snapshot().replies.find(r => r.id === 'unknown').text, '«{said}» — такой команды нет');
+    const again = createRemote({ saved, actions: {} });
+    assert.equal(again.run('абракадабра', 'imessage'), '«абракадабра» — такой команды нет');
+    assert.equal(again.reply('pause'), 'Спокойной ночи.');
+    assert.equal(remote.setReply('unknown', ''), true);
+    assert.equal(remote.run('абракадабра', 'imessage'), 'Не понял «абракадабра». Список команд — «help».');
+    assert.equal(remote.setReply('nope', 'x'), false);
+    assert.equal(remote.setReply('unknown', 'x'.repeat(1001)), false);
+    assert.deepEqual(normalizeSettings({ replies: { unknown: 5, pause: 'ok', nope: 'x' } }).replies, { pause: 'ok' });
+});
+test('a failed save keeps the previous reply text', () => {
+    const remote = createRemote({ saved: {}, persist: () => false, actions: {} });
+    assert.equal(remote.setReply('code_sent', 'Принято.'), false);
+    assert.equal(remote.reply('code_sent'), 'Код отправлен.');
+});

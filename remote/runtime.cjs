@@ -4,6 +4,7 @@
 // Слова команд LOST хранятся в состоянии станции и правятся в меню строкой через запятую.
 const { COMMANDS, parseWords, match } = require('./commands.cjs');
 const { parseKay } = require('./kay.cjs');
+const { REPLIES, MAX_REPLY_TEXT, normalizeReplies, replyText } = require('./replies.cjs');
 
 const LABEL = Object.fromEntries(COMMANDS.map(c => [c.id, c.label]));
 function normalizeSettings(value) {
@@ -11,30 +12,31 @@ function normalizeSettings(value) {
     return { words: Object.fromEntries(COMMANDS.map(c => {
         const own = Array.isArray(words[c.id]) ? parseWords(words[c.id].join(',')) : null;
         return [c.id, own && own.length ? own : c.words.slice()];
-    })) };
+    })), replies: normalizeReplies(value && value.replies) };
 }
 function createRemote({ saved, persist = () => true, actions, shortcuts = { find: () => null, run: () => '', list: () => [] }, kay = null }) {
     let settings = normalizeSettings(saved);
+    const reply = (id, vars) => replyText(settings.replies, id, vars);
     // Справка: команды LOST с их словами, код и команды Mac mini по точному названию.
     function help() {
         const names = (typeof shortcuts.list === 'function' && shortcuts.list()) || [];
-        return ['LOST — команды пульта:', ...COMMANDS.map(c => '• ' + c.label + ': ' + settings.words[c.id].join(', ')),
+        return reply('help', { commands: [...COMMANDS.map(c => '• ' + c.label + ': ' + settings.words[c.id].join(', ')),
             '• КОД: 4 8 15 16 23 42 — в последние 4 минуты цикла',
             '• KAY: «kay: вопрос» или «кай: вопрос» — ответит Kay (AI), переписка видна в AI на станции',
-            names.length ? 'Команды Mac mini (точное название):\n' + names.map(n => '• ' + n).join('\n') : 'Команд Mac mini нет.'].join('\n');
+            names.length ? 'Команды Mac mini (точное название):\n' + names.map(n => '• ' + n).join('\n') : 'Команд Mac mini нет.'].join('\n') });
     }
     // Ответ отправителю; '' — только состояние станции, { text, bare } — только текст; может прийти Promise.
     function run(text, channel, sender) {
         const said = String(text || '').trim();
         // «kay: …» — вопрос Kay; проверяется первым, чтобы слова команд внутри вопроса ничего не запускали.
         const question = parseKay(said);
-        if (question) return Promise.resolve(kay ? kay.ask(question, channel) : 'Kay не подключён.').then(text => ({ text, bare: true }));
+        if (question) return Promise.resolve(kay ? kay.ask(question, channel) : reply('kay_missing')).then(text => ({ text, bare: true }));
         const found = match(said, settings.words);
         if (found && found.id === 'code') return actions.code(found.code, channel);
         const name = shortcuts.find(said);
         // Команда Mac mini: один ответ, когда она завершится, — итог или ошибка, без состояния станции.
-        if (name) return Promise.resolve(shortcuts.run(name, channel)).then(res => ({ text: 'Команда «' + name + '»: ' + String(res).slice(0, 500), bare: true }));
-        if (!found) return 'Не понял «' + said + '». Список команд — «' + settings.words.help[0] + '».';
+        if (name) return Promise.resolve(shortcuts.run(name, channel)).then(res => ({ text: reply('shortcut', { name, result: String(res).slice(0, 500) }), bare: true }));
+        if (!found) return reply('unknown', { said, help: settings.words.help[0] });
         if (found.id === 'help') return { text: help(), bare: true };
         return actions[found.id](channel, said);
     }
@@ -44,7 +46,16 @@ function createRemote({ saved, persist = () => true, actions, shortcuts = { find
         const words = parseWords(line);
         if (!words.length) return false;
         const previous = settings;
-        settings = { words: { ...settings.words, [id]: words } };
+        settings = { ...settings, words: { ...settings.words, [id]: words } };
+        if (!persist()) { settings = previous; return false; }
+        return true;
+    }
+    // Новый текст ответа из меню; пустой — вернуть стандартный.
+    function setReply(id, text) {
+        if (!REPLIES.some(r => r.id === id) || typeof text !== 'string' || text.length > MAX_REPLY_TEXT) return false;
+        const previous = settings, replies = { ...settings.replies };
+        delete replies[id];
+        settings = { ...settings, replies: normalizeReplies({ ...replies, [id]: text }) };
         if (!persist()) { settings = previous; return false; }
         return true;
     }
@@ -52,9 +63,10 @@ function createRemote({ saved, persist = () => true, actions, shortcuts = { find
         return {
             commands: COMMANDS.map(c => ({ id: c.id, label: c.label, words: settings.words[c.id].slice() })),
             shortcuts: (typeof shortcuts.list === 'function' && shortcuts.list()) || [],
+            replies: REPLIES.map(r => ({ id: r.id, label: r.label, about: r.about, standard: r.text, text: Object.hasOwn(settings.replies, r.id) ? settings.replies[r.id] : r.text })),
         };
     }
-    return { run, setWords, snapshot, settings: () => JSON.parse(JSON.stringify(settings)), help };
+    return { run, setWords, setReply, reply, snapshot, settings: () => JSON.parse(JSON.stringify(settings)), help };
 }
 // /__cmd и /__sleep для «Команд» iPhone дома: только домашняя сеть, не tailnet и не интернет.
 function isHomeNetwork(address) {

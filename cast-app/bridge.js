@@ -39,6 +39,8 @@
             if (d.type === '__cmd') return runCommand(d);
             if (d.type === '__state') return applyState(d);
             if (d.type === '__audio') return setAudioMode(d.mode);
+            // Пульт присылает состояние сразу при подключении — раньше, чем загрузится remote/client.js (defer); он прочтёт его отсюда.
+            if (d.type === '__remote') window.__LOST_REMOTE = d;
             if (d.type === '__sound') return playOnConsole(d);
             window.dispatchEvent(new MessageEvent('message', { data: d }));
         };
@@ -393,7 +395,7 @@
             if(node.description){var description=document.createElement('div');description.className='station-explanation';description.textContent=node.description;win.appendChild(description);}
             if(node.editor){
                 var form=document.createElement('form');form.className='station-editor';
-                var field=document.createElement('input');field.type='text';field.autocomplete='off';field.spellcheck=false;field.maxLength=253;field.value=node.draft||'';field.placeholder=node.placeholder||'';field.setAttribute('aria-label',text(node.label));
+                var field=document.createElement('input');field.type='text';field.autocomplete='off';field.spellcheck=false;field.maxLength=node.maxLength||253;field.value=node.draft||'';field.placeholder=node.placeholder||'';field.setAttribute('aria-label',text(node.label));
                 field.addEventListener('input',function(){node.draft=field.value;});form.appendChild(field);
                 form.addEventListener('submit',function(e){e.preventDefault();if(node.prepare){var next=node.prepare(field.value);if(!next)return;if(next.view){next.text=next.text||next.staticText||'';path.pop();}path.push(next);sel=0;render();}});win.appendChild(form);
                 var help=document.createElement('div');help.className='ft';help.textContent='ENTER — '+(node.confirmLabel||'ПРОВЕРИТЬ И ПОДТВЕРДИТЬ')+'   ← — НАЗАД';win.appendChild(help);field.focus({preventScroll:true});field.select();return;
@@ -466,6 +468,7 @@
         function move(d) { ui.hint = ''; if (!isOpen()) return open(true); if (path[path.length - 1].view) { win.querySelector('.view').scrollBy(0, d * 40); return; } var n = items().length; if (!n) return; sel = (sel + d + n) % n; render(); }
         window.addEventListener('lost-muse-open', function(){open(false);});
         window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words,requestId:e.detail.requestId}); });
+        window.addEventListener('lost-remote-reply-set', function(e){ if(e.detail) send({type:'__remote_reply_set',id:e.detail.id,text:e.detail.text,requestId:e.detail.requestId}); });
         window.addEventListener('lost-shortcut-run', function(e){ if(e.detail) send({type:'__shortcut_run',id:e.detail.id,name:e.detail.name}); });
         window.addEventListener('lost-remote', function(){ if(path[path.length-1]===SHORTCUTS)buildShortcuts(); render(); });
         ui.render = render;
