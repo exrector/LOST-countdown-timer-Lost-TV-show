@@ -1,6 +1,15 @@
 import Foundation
 import AVFoundation
 
+// Swift 5.7 из Command Line Tools на macOS Monterey не импортирует новые
+// AVCaptureDevice.was*Notification, хотя сами уведомления существуют с 10.7.
+// Стабильные Objective-C raw names сохраняют hot-plug микрофона и позволяют
+// собирать тот же исходник как старым SDK mini, так и современным SDK разработки.
+private extension Notification.Name {
+    static let lostCaptureDeviceConnected = Notification.Name("AVCaptureDeviceWasConnectedNotification")
+    static let lostCaptureDeviceDisconnected = Notification.Name("AVCaptureDeviceWasDisconnectedNotification")
+}
+
 // An input-only recorder. It never changes the station's output device or engine.
 private final class MicrophoneNoRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -56,8 +65,8 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
             self.endpoint = components.url
         } else { self.endpoint = nil; self.origin = nil }
         super.init()
-        connectObserver = NotificationCenter.default.addObserver(forName: AVCaptureDevice.wasConnectedNotification, object: nil, queue: .main) { [weak self] _ in self?.publish() }
-        disconnectObserver = NotificationCenter.default.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: nil, queue: .main) { [weak self] notification in
+        connectObserver = NotificationCenter.default.addObserver(forName: .lostCaptureDeviceConnected, object: nil, queue: .main) { [weak self] _ in self?.publish() }
+        disconnectObserver = NotificationCenter.default.addObserver(forName: .lostCaptureDeviceDisconnected, object: nil, queue: .main) { [weak self] notification in
             guard let self = self else { return }
             if let device = notification.object as? AVCaptureDevice, device.uniqueID == self.deviceID, self.recording || self.requesting {
                 self.cancelCapture(error: "Микрофон отключён. Запись отменена")
