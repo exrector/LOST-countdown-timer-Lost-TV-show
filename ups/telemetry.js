@@ -1,6 +1,8 @@
 (function(root,factory){var api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.LostUPSTelemetry=api;})(typeof window==='object'?window:this,function(){
  'use strict';
- function fresh(state,lastResponse,now){return !!(state&&state.online&&Number.isFinite(state.updatedAt)&&now>=state.updatedAt&&now-state.updatedAt<20000&&now-lastResponse<15000);}
+ // Свежесть — от интервала, с которым агент читает ИБП (pollInterval, общий цикл станции 2 мин): полтора интервала;
+ // окно читает агента раз в 30 с — ответ агента не старше 90 с. Прежние 20 с / 15 с — для опроса раз в 5 с.
+ function fresh(state,lastResponse,now){var every=Math.max(5000,Number(state&&state.pollInterval)||5000);return !!(state&&state.online&&Number.isFinite(state.updatedAt)&&now>=state.updatedAt&&now-state.updatedAt<Math.max(20000,every*1.5)&&now-lastResponse<90000);}
  function number(value,unit){return value!==undefined&&value!==null&&value!==''&&Number.isFinite(Number(value))?String(value)+(unit||''):'---';}
  function view(state,lastResponse,now){
   var v=state&&state.vars||{},ok=fresh(state,lastResponse,now),flags=(v['ups.status']||'').split(/\s+/),ob=flags.indexOf('OB')>=0,ol=flags.indexOf('OL')>=0;

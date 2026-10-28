@@ -8,7 +8,7 @@ function launchNative({bundle,args,status,stdio=['ignore','inherit','inherit'],s
  fs.mkdirSync(path.dirname(status),{recursive:true});
  const writeLease=()=>{const tmp=lease+'.tmp';fs.writeFileSync(tmp,JSON.stringify({owner:process.pid,token,updatedAt:Date.now()}),{mode:0o600});fs.renameSync(tmp,lease);};
  const removeLease=()=>{try{fs.unlinkSync(lease);}catch(_){};try{fs.unlinkSync(lease+'.tmp');}catch(_){}};
- writeLease();const timer=setInterval(writeLease,2000);timer.unref();
+ writeLease();const timer=setInterval(writeLease,10000);timer.unref(); // окно ждёт метку до 30 с (ownerAlive, main.swift)
  let child;try{child=spawnProcess('/usr/bin/open',['-W','-n',bundle,'--args',...args,'--owner-token',token,'--owner-lease',lease],{stdio});}catch(error){clearInterval(timer);removeLease();throw error;}
  const handle=new EventEmitter();handle.pid=child.pid;handle.on('error',()=>{});
  const matchingStatus=()=>{try{const d=JSON.parse(fs.readFileSync(status,'utf8'));if(d.owner===process.pid&&d.ownerToken===token&&d.bundle===bundle&&Number.isInteger(d.pid)&&d.pid>1)return d;}catch(_){}return null;};
