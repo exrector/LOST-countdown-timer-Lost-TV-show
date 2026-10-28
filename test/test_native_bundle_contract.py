@@ -62,6 +62,12 @@ class NativeBundleContractTests(unittest.TestCase):
         self.assertIn("{op:'chat-open'}", client)
         self.assertIn("{op:'chat-close'}", client)
 
+    def test_pf6_hides_and_restores_the_station(self):
+        main = (ROOT / "native/Sources/main.swift").read_text()
+        self.assertIn("func toggleDesktop() { if stationShown { showDesktop() } else { activateStation() } }", main)
+        self.assertIn("app.desktopKeyDown = true; app.toggleDesktop()", main)
+        self.assertIn("RegisterEventHotKey(UInt32(kVK_F6)", main)
+
     def test_keyboard_layout_indicator_is_read_only_and_uses_macos_source(self):
         source = (ROOT / "native/Sources/main.swift").read_text()
         console = (ROOT / "console.html").read_text()
