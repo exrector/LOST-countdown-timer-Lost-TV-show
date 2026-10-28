@@ -98,3 +98,15 @@ test('K in the terminal: a Mac mini command runs only from the console; an unkno
   assert.equal(got.length,1);assert.equal(got[0].id,2);assert.match(got[0].text,/^ошибка: команды «LOST test: no such command» нет/);
  }finally{tv.close();con.close();await stop(child);}
 });
+
+test('journal records an accepted code in Dev as well as Live',async()=>{
+ const f=fixture({audio:'off',mode:'dev',live:{left:5000,paused:false},dev:{left:100,paused:false}});let app,ws;
+ const journal=path.join(f.dir,'cast-app','journal.txt');
+ try{
+  app=await boot(f.dir);ws=await connect(app.port,'console');
+  ws.send(JSON.stringify({type:'numberSubmitted',value:'4 8 15 16 23 42'}));
+  await until(async()=>fs.existsSync(journal)&&/accepted$/.test(fs.readFileSync(journal,'utf8')));
+  assert.match((await request(app.port,'/__journal?lines=2')).body,/^\d+:\d\d accepted$/);
+  assert.equal((await health(app.port)).timer.mode,'dev');
+ }finally{if(ws)ws.terminate();if(app)await stop(app.child);fs.rmSync(f.dir,{recursive:true,force:true});}
+});

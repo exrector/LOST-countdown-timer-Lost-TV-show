@@ -79,8 +79,12 @@ test('last eight minutes close AI and discard audio; four-minute numeric gate st
  f.dispatch({type:'message',data:{type:'enableConsole',enabled:false,remainingTime:480}});
  assert.equal(f.win.LostMuse.isOpen(),false);assert.equal(f.commands.at(-1),'cancel');assert.equal(f.commands.includes('send'),false);
  assert.equal(f.win.LostConsoleInput.codeOpen(),false);assert.equal(f.input.readOnly,true);
- f.key('keydown','a','KeyA');f.key('keydown','i','KeyI');f.key('keydown','Enter');f.key('keydown','F3','F3');
- assert.equal(f.input.value,'');assert.equal(f.win.LostMuse.isOpen(),false);
+ f.key('keydown','a','KeyA');assert.equal(f.input.value,'');f.key('keydown','i','KeyI');
+ assert.equal(f.input.value,'AI НЕДОСТУПЕН: СКОРО ВВОД КОДА');
+ f.dispatch({type:'message',data:{type:'enableConsole',enabled:false,remainingTime:479}});assert.equal(f.input.value,'AI НЕДОСТУПЕН: СКОРО ВВОД КОДА');
+ f.key('keydown','Enter');f.key('keydown','F3','F3');
+ assert.equal(f.win.LostMuse.isOpen(),false);
+ f.key('keydown','Escape');assert.equal(f.input.value,'');
  let menu=false;f.win.addEventListener('keydown',e=>{if(e.key==='ArrowRight')menu=true;});f.key('keydown','ArrowRight');assert.equal(menu,true);
  f.dispatch({type:'message',data:{type:'enableConsole',enabled:true,remainingTime:240}});assert.equal(f.win.LostConsoleInput.codeOpen(),true);
  f.win.__LOST_CLOCK={phase:'countdown',left:6480};f.dispatch({type:'lost-muse-code-priority',detail:{active:false}});

@@ -8,6 +8,12 @@
     var input = document.querySelector('.my-console');
     if (!input) return;
     var commands = new HiddenCommands(), actions = Object.create(null), keyboardLocked = false, swallowedEnter = false;
+    // A command typed while the code has priority answers in the same line instead of vanishing.
+    var notice = '', noticeTimer = null;
+    function setNotice(text) {
+        notice = text; clearTimeout(noticeTimer);
+        if (text) noticeTimer = setTimeout(function () { notice = ''; render(); }, 6000);
+    }
     var clock = root.__LOST_CLOCK;
     var priority = !!(clock && (clock.phase !== 'countdown' || clock.left > 0 && clock.left <= 480));
     var codeEnabled = !!(clock && clock.phase === 'countdown' && clock.left > 0 && clock.left <= 240);
@@ -18,7 +24,7 @@
     function render() {
         if (insideTool() || codeEnabled) return;
         input.disabled = false; input.readOnly = true;
-        input.value = commands.matched;
+        input.value = notice || commands.matched;
         root.dispatchEvent(new CustomEvent('lost-console-command-change'));
     }
     function reset() { commands.reset(); render(); }
@@ -34,7 +40,15 @@
         if (root.LostBootActive || insideTool() || codeEnabled || keyboardLocked) return;
         // M (menu) and P (pause) belong to the station and always reach its handler.
         if (HiddenCommands.STATION_KEYS[e.code] && !e.ctrlKey && !e.metaKey && !e.altKey) { commands.interrupt(); return; }
-        if (priority) { if (e.key === 'Enter' || typeof e.key === 'string' && e.key.length === 1) block(e); return; }
+        if (priority) {
+            if (e.key === 'Enter' || typeof e.key === 'string' && e.key.length === 1) block(e);
+            if (notice && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete')) { setNotice(''); render(); }
+            if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === 'string' && e.key.length === 1 &&
+                commands.feed(/^Key[A-Z]$/.test(e.code || '') ? e.code.slice(3) : e.key)) {
+                setNotice(commands.matched + ' НЕДОСТУПЕН: СКОРО ВВОД КОДА'); commands.reset(); render();
+            }
+            return;
+        }
         if (root.__LOST_CLOCK && root.__LOST_CLOCK.phase !== 'countdown') { reset(); return; }
         if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
         if (e.key === 'Enter') {
@@ -63,7 +77,7 @@
     root.addEventListener('message', function (e) {
         if (!e.data || e.data.type !== 'enableConsole') return;
         var enabled = !!e.data.enabled;
-        if (enabled !== codeEnabled) { commands.reset(); if (!insideTool()) input.value = ''; }
+        if (enabled !== codeEnabled) { commands.reset(); setNotice(''); if (!insideTool()) input.value = ''; }
         codeEnabled = enabled;
         priority = enabled || Number(e.data.remainingTime) > 0 && Number(e.data.remainingTime) <= 480 || !!(root.__LOST_CLOCK && root.__LOST_CLOCK.phase !== 'countdown');
         if (priority) commands.reset(); render();

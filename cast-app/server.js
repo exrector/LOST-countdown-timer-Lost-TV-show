@@ -162,7 +162,8 @@ function start(port = 8765, opts = {}) {
         const fraction = sample.rawLeft - Math.floor(sample.rawLeft);
         const delay = sample.paused ? 1000 : Math.max(1, Math.ceil((fraction || 1) * 1000));
         clockTimer = setTimeout(() => { publishClock(); if (Date.now() - savedAt >= 1000) saveState(); }, delay);
-        const live = clock.snapshot().live; journalFailure(live.left <= -timeline.failure.zeroHold && !live.paused);
+        const slots = clock.snapshot(), failing = t => t.left <= -timeline.failure.zeroHold && !t.paused;
+        journalFailure(failing(slots.live) || failing(slots[slots.mode]));
         const key = [sample.mode,sample.left,sample.paused,sample.phase,sample.failureAge,sample.cycle].join(':');
         if (key === lastClockKey && Date.now() - lastClockSentAt < 10000) return; lastClockKey = key; lastClockSentAt = Date.now();
         const control = JSON.stringify({ type: '__clock', ...sample });
@@ -195,7 +196,7 @@ function start(port = 8765, opts = {}) {
     // ОДНА бесконечная строка: слова через пробел, без переносов — переносит по ширине тот, кто показывает
     // (матричный принтер — по краю листа, терминал — по ширине окна).
     //   верный код → «<время> accepted», где время = месяц (без нуля) день(2) час(2) минута (без нуля) :секунды(2) — 922041:52;
-    //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Только Live, паузы не пишутся.
+    //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Пишется в любом режиме (Live и Dev), паузы не пишутся.
     const journalFile = path.join(__dirname, 'journal.txt');
     // журнал прежнего формата (с переносами по 80) — склеить в одну строку
     // Existing history is never rewritten; new words are appended below.
@@ -207,7 +208,7 @@ function start(port = 8765, opts = {}) {
         const p2 = n => String(n).padStart(2, '0');
         return `${d.getMonth() + 1}${p2(d.getDate())}${p2(d.getHours())}${d.getMinutes()}:${p2(d.getSeconds())}`;
     }
-    function journalAccepted() { if (curMode !== 'live') return; jWrite(stamp()); jWrite('accepted'); console.log('[журнал]', stamp(), 'accepted'); }
+    function journalAccepted() { jWrite(stamp()); jWrite('accepted'); console.log('[журнал]', stamp(), 'accepted'); }
     let failTimer = null, failCount = 0;
     function journalFailure(on) {
         if (on && !failTimer) {
