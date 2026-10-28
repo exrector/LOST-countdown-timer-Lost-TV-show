@@ -15,26 +15,34 @@ function normalizeSettings(value) {
 }
 function createRemote({ saved, persist = () => true, actions, shortcuts = { find: () => null, run: () => '', list: () => [] }, kay = null }) {
     let settings = normalizeSettings(saved);
+    // Ответы пульта — сухие, машинные, заглавными: терминал мейнфрейма 70-х (решение владельца 28.10).
     // Справка: команды LOST с их словами, код и команды Mac mini по точному названию.
     function help() {
         const names = (typeof shortcuts.list === 'function' && shortcuts.list()) || [];
-        return ['LOST — команды пульта:', ...COMMANDS.map(c => '• ' + c.label + ': ' + settings.words[c.id].join(', ')),
-            '• КОД: 4 8 15 16 23 42 — в последние 4 минуты цикла',
-            '• KAY: «kay: вопрос» или «кай: вопрос» — ответит Kay (AI), переписка видна в AI на станции',
-            names.length ? 'Команды Mac mini (точное название):\n' + names.map(n => '• ' + n).join('\n') : 'Команд Mac mini нет.'].join('\n');
+        return ['КОМАНДЫ:', ...COMMANDS.map(c => c.label + ': ' + settings.words[c.id].join(', ').toUpperCase()),
+            'КОД: 4 8 15 16 23 42 (ПОСЛЕДНИЕ 4 МИН)',
+            'KAY: KAY: ВОПРОС',
+            names.length ? 'MAC MINI:\n' + names.map(n => n.toUpperCase()).join('\n') : 'MAC MINI: НЕТ'].join('\n');
+    }
+    // Итог команды Mac mini: «готово» / «ошибка: …» / её вывод.
+    function shortcutLine(name, res) {
+        res = String(res || '').trim();
+        const head = String(name).toUpperCase() + ': ';
+        if (/^ошибка/i.test(res)) return head + 'ОШИБКА — ' + res.replace(/^ошибка:\s*/i, '').slice(0, 480);
+        return head + (!res || res === 'готово' ? 'ВЫПОЛНЕНО' : res.slice(0, 500));
     }
     // Ответ отправителю; '' — только состояние станции, { text, bare } — только текст; может прийти Promise.
     function run(text, channel, sender) {
         const said = String(text || '').trim();
         // «kay: …» — вопрос Kay; проверяется первым, чтобы слова команд внутри вопроса ничего не запускали.
         const question = parseKay(said);
-        if (question) return Promise.resolve(kay ? kay.ask(question, channel) : 'Kay не подключён.').then(text => ({ text, bare: true }));
+        if (question) return Promise.resolve(kay ? kay.ask(question, channel) : 'KAY: НЕ ПОДКЛЮЧЁН').then(text => ({ text, bare: true }));
         const found = match(said, settings.words);
         if (found && found.id === 'code') return actions.code(found.code, channel);
         const name = shortcuts.find(said);
         // Команда Mac mini: один ответ, когда она завершится, — итог или ошибка, без состояния станции.
-        if (name) return Promise.resolve(shortcuts.run(name, channel)).then(res => ({ text: 'Команда «' + name + '»: ' + String(res).slice(0, 500), bare: true }));
-        if (!found) return { text: 'Не понял «' + said + '». Список команд — «' + settings.words.help[0] + '».', bare: true };
+        if (name) return Promise.resolve(shortcuts.run(name, channel)).then(res => ({ text: shortcutLine(name, res), bare: true }));
+        if (!found) return { text: 'КОМАНДА НЕ РАСПОЗНАНА. СПИСОК: ' + settings.words.help[0].toUpperCase(), bare: true };
         if (found.id === 'help') return { text: help(), bare: true };
         return actions[found.id](channel, said);
     }

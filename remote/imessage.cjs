@@ -12,7 +12,7 @@ function compose(answer, status) {
     return Promise.resolve(answer).then(answer => {
         const own = answer && typeof answer === 'object', text = own ? answer.text : answer;
         return Promise.resolve().then(() => own && answer.bare ? '' : status()).catch(() => '')
-            .then(state => [text, state].filter(Boolean).join('\n\n') || 'LOST: состояние недоступно.');
+            .then(state => [text, state].filter(Boolean).join('\n\n') || 'НЕТ ДАННЫХ');
     });
 }
 function createIMessage({ senders = [], run, status, active = () => true, db = path.join(os.homedir(), 'Library/Messages/chat.db'), exec = execDefault, log = console.log, intervalMs = 10000, delayMs = 1500, setTimer = setInterval, later = setTimeout }) {

@@ -60,7 +60,7 @@ function start(port = 8765, opts = {}) {
         // Тот же пульт по адресу станции для «Команд» iPhone дома: /__sleep?on=1|0 — пауза/старт («Фокус: Сон»),
         // /__cmd?text=Пауза — тот же разбор, что у iMessage. Только домашняя сеть: не tailnet и не интернет.
         if (p === '/__sleep' || p === '/__cmd') {
-            if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('LOST: команды по адресу станции принимаются только из домашней сети'); }
+            if (!isHomeNetwork(req.socket.remoteAddress)) { req.resume(); res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('ДОСТУП ЗАПРЕЩЁН: ТОЛЬКО ДОМАШНЯЯ СЕТЬ'); }
             const text = p === '/__sleep' ? (url.searchParams.get('on') === '1' ? 'пауза' : 'старт') : url.searchParams.get('text') || '';
             const answer = remote.run(text, 'сеть');
             setTimeout(() => compose(answer, statusText).then(text => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(text); }), p === '/__sleep' ? 0 : 1500);
@@ -136,11 +136,6 @@ function start(port = 8765, opts = {}) {
     const last = {}; // последние enableConsole/__state от ТВ — чтобы новая консоль сразу их получила
     let sleepOn = curPaused; // последняя удалённая команда паузы — заново отправляется таймеру после перезагрузки его страницы
     const sleepMsg = () => JSON.stringify({ type: '__cmd', cmd: 'sleep', on: sleepOn });
-    function setSleep(on, source) {
-        clock.setPaused(on); syncClock(); sleepOn = curPaused; saveState(); publishClock();
-        console.log(`[пульт] ${on ? 'пауза' : 'старт'} (${source})`);
-        for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
-    }
     function setAudio(mode) {
         audioMode = mode;
         applyAudioDevice(audioMode);
@@ -173,10 +168,16 @@ function start(port = 8765, opts = {}) {
         for (const ws of peers.console) if (ws.readyState === 1) { ws.send(enable); ws.send(state); }
 
     }
-    // Ответы пульта (iMessage, «Команды» iPhone) — одной строкой, как «КОД ПРИНЯТ 108» (решение владельца 28.10):
-    // остаток таймера в минутах или СБОЙ; питание, VPN, AI и окна в ответы не входят.
-    function minutesLeft() { const s = syncClock(); return s.phase !== 'countdown' ? 'СБОЙ' : String(Math.max(0, Math.ceil(s.left / 60))); }
-    function statusText() { syncClock(); return String(curMode || 'live').toUpperCase() + (curPaused ? ' ПАУЗА' : '') + ' ' + minutesLeft(); }
+    // Пульт (iMessage, «Команды» iPhone, /__cmd) знает только Live: Dev — для разработки и в пульте не участвует,
+    // в каком бы режиме ни стоял терминал. Ответы — одной строкой, как «КОД ПРИНЯТ 108» (решение владельца 28.10):
+    // остаток Live в минутах или СБОЙ; питание, VPN, AI и окна в ответы не входят.
+    function minutesLeft() { const s = clock.sample('live'); return s.phase !== 'countdown' ? 'СБОЙ' : String(Math.max(0, Math.ceil(s.left / 60))); }
+    function statusText() { const s = clock.sample('live'); return s.phase !== 'countdown' ? 'СБОЙ' : (s.paused ? 'ПАУЗА ' : 'ОСТАЛОСЬ ') + minutesLeft(); }
+    function setLiveSleep(on, source) {
+        clock.setPaused(on, 'live'); syncClock(); if (curMode === 'live') sleepOn = curPaused; saveState(); publishClock();
+        console.log(`[пульт] Live: ${on ? 'пауза' : 'старт'} (${source})`);
+        if (curMode === 'live') for (const o of peers.tv) if (o.readyState === 1) o.send(sleepMsg());
+    }
 
     // ===== Журнал станции «Лебедь» — как распечатка в сериале =====
     // ОДНА бесконечная строка: слова через пробел, без переносов — переносит по ширине тот, кто показывает
@@ -217,17 +218,19 @@ function start(port = 8765, opts = {}) {
     // Выход и Dev Mode удалённо намеренно недоступны (удалённо их не отменить, Dev Mode перезапускает таймер).
     const remoteActions = {
         code(code, channel) {
-            if (!timerInfo().open) return { text: 'КОД НЕ ПРИНЯТ ' + minutesLeft(), bare: true };
+            const live = clock.sample('live');
+            if (!(live.phase === 'countdown' && live.left > 0 && live.left <= 240)) return { text: 'КОД НЕ ПРИНЯТ ' + minutesLeft(), bare: true };
             const msg = JSON.stringify({ type: 'numberSubmitted', value: code });
-            if (code !== '4 8 15 16 23 42') for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
-            console.log('[пульт] код:', code, '(' + channel + ')');
-            if (code === '4 8 15 16 23 42') { journalAccepted(); clock.reset(); saveState(); publishClock(); return { text: 'КОД ПРИНЯТ ' + minutesLeft(), bare: true }; }
+            // неверные цифры видит экран таймера, только когда на нём сам Live
+            if (code !== '4 8 15 16 23 42' && curMode === 'live') for (const o of peers.tv) if (o.readyState === 1) o.send(msg);
+            console.log('[пульт] код Live:', code, '(' + channel + ')');
+            if (code === '4 8 15 16 23 42') { journalAccepted(); clock.reset(undefined, 'live'); saveState(); publishClock(); return { text: 'КОД ПРИНЯТ ' + minutesLeft(), bare: true }; }
             return { text: 'КОД ОТПРАВЛЕН ' + minutesLeft(), bare: true };
         },
         journal: () => ({ text: journalTail(6) || 'ЖУРНАЛ ПУСТ', bare: true }),
         status: () => '',
-        resume: (channel, said) => { setSleep(false, channel + ' «' + said + '»'); return { text: 'СТАРТ ' + minutesLeft(), bare: true }; },
-        pause: (channel, said) => { setSleep(true, channel + ' «' + said + '»'); return { text: 'ПАУЗА ' + minutesLeft(), bare: true }; },
+        resume: (channel, said) => { setLiveSleep(false, channel + ' «' + said + '»'); return { text: 'СТАРТ ' + minutesLeft(), bare: true }; },
+        pause: (channel, said) => { setLiveSleep(true, channel + ' «' + said + '»'); return { text: 'ПАУЗА ' + minutesLeft(), bare: true }; },
     };
     // Названия команд из «Команд» этого Мака (обновляются раз в минуту)
     // Модуль «Команды Mac mini»: выключенный — ни терминал, ни iMessage, ни «Команды» iPhone их не видят и не запускают.

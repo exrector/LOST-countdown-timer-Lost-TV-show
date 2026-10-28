@@ -120,20 +120,32 @@ test('Mac mini commands module switched off: the terminal gets a refusal and not
  }finally{con.close();await stop(child);}
 });
 
-test('remote replies are one short line: status, pause, start, code, with the minutes left',async()=>{
+test('remote replies are one short line about Live: status, pause, start, code, with the minutes left',async()=>{
  const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
  const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
  try{
-  assert.equal(await cmd('статус'),'LIVE 19');
+  assert.equal(await cmd('статус'),'ОСТАЛОСЬ 19');
   assert.equal(await cmd('4 8 15 16 23 42'),'КОД НЕ ПРИНЯТ 19');
   assert.equal(await cmd('пауза'),'ПАУЗА 19');
-  assert.equal(await cmd('статус'),'LIVE ПАУЗА 19');
+  assert.equal(await cmd('статус'),'ПАУЗА 19');
   assert.equal(await cmd('старт'),'СТАРТ 19');
-  assert.match(await cmd('LOST test: abracadabra'),/^Не понял «LOST test: abracadabra»\. Список команд — «help»\.$/);
+  assert.equal(await cmd('LOST test: abracadabra'),'КОМАНДА НЕ РАСПОЗНАНА. СПИСОК: HELP');
  }finally{await stop(child);}
 });
 test('the right code in the last four minutes answers КОД ПРИНЯТ with the new 108 minutes',async()=>{
  const f=fixture({audio:'off',mode:'live',live:{left:200,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
  try{assert.equal((await request(port,'/__cmd?text='+encodeURIComponent('4 8 15 16 23 42'))).body,'КОД ПРИНЯТ 108');}
  finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
+});
+test('the remote ignores Dev: with the terminal in Dev it reports, pauses and resets Live only',async()=>{
+ const f=fixture({audio:'off',mode:'dev',live:{left:200,paused:false},dev:{left:3000,paused:false}});const {child,port}=await boot(f.dir);
+ const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
+ try{
+  assert.equal(await cmd('статус'),'ОСТАЛОСЬ 4');
+  assert.equal(await cmd('пауза'),'ПАУЗА 4');
+  let h=await health(port);assert.equal(h.clocks.live.paused,true);assert.equal(h.timer.mode,'dev');assert.equal(h.timer.paused,false);
+  assert.equal(await cmd('старт'),'СТАРТ 4');
+  assert.equal(await cmd('4 8 15 16 23 42'),'КОД ПРИНЯТ 108');
+  h=await health(port);assert.ok(h.clocks.live.left>6470);assert.equal(h.timer.mode,'dev');assert.ok(h.timer.left<=3000&&h.timer.left>2990);
+ }finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
 });

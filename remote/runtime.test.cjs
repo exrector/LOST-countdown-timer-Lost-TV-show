@@ -35,10 +35,10 @@ test('a message runs a LOST command by its words or a Mac mini command by its ex
     const { r, calls } = remote();
     assert.equal(r.run('Пауза', 'imessage', '+7'), '');
     const shortcut = r.run('vpn switch', 'imessage', '+7');
-    assert.deepEqual(await shortcut, { text: 'Команда «VPN SWITCH»: готово', bare: true });
-    assert.equal(await compose(shortcut, () => 'СОСТОЯНИЕ'), 'Команда «VPN SWITCH»: готово', 'one message: the result only, no «Запускаю», no status');
+    assert.deepEqual(await shortcut, { text: 'VPN SWITCH: ВЫПОЛНЕНО', bare: true });
+    assert.equal(await compose(shortcut, () => 'СОСТОЯНИЕ'), 'VPN SWITCH: ВЫПОЛНЕНО', 'one message: the result only, no «Запускаю», no status');
     assert.equal(r.run('4 8 15 16 23 42', 'imessage'), 'Код отправлен.');
-    assert.deepEqual(r.run('привет', 'imessage'), { text: 'Не понял «привет». Список команд — «help».', bare: true });
+    assert.deepEqual(r.run('привет', 'imessage'), { text: 'КОМАНДА НЕ РАСПОЗНАНА. СПИСОК: HELP', bare: true });
     assert.deepEqual(calls, [['pause', 'Пауза'], ['shortcut', 'VPN SWITCH'], ['code', 'imessage']]);
     assert.deepEqual(r.snapshot().shortcuts, ['Громкость 50', 'VPN SWITCH']);
 });
@@ -47,9 +47,9 @@ test('help lists LOST commands with their words, the code and the Mac mini comma
     const { r, calls } = remote();
     const answer = r.run('help', 'imessage', '+7');
     assert.equal(answer.bare, true);
-    assert.match(answer.text, /^LOST — команды пульта:\n• СПРАВКА: help, помощь, справка, команды\n/);
-    assert.match(answer.text, /• ПАУЗА: пауза, сон, спать, сплю, стоп, pause\n• КОД: 4 8 15 16 23 42/);
-    assert.match(answer.text, /Команды Mac mini \(точное название\):\n• Громкость 50\n• VPN SWITCH$/);
+    assert.match(answer.text, /^КОМАНДЫ:\nСПРАВКА: HELP, ПОМОЩЬ, СПРАВКА, КОМАНДЫ\n/);
+    assert.match(answer.text, /ПАУЗА: ПАУЗА, СОН, СПАТЬ, СПЛЮ, СТОП, PAUSE\nКОД: 4 8 15 16 23 42 \(ПОСЛЕДНИЕ 4 МИН\)/);
+    assert.match(answer.text, /MAC MINI:\nГРОМКОСТЬ 50\nVPN SWITCH$/);
     assert.equal(await compose(answer, () => 'СОСТОЯНИЕ'), answer.text);
     assert.equal(await compose('Код отправлен.', async () => 'СОСТОЯНИЕ'), 'Код отправлен.\n\nСОСТОЯНИЕ');
     assert.equal(await compose('Код отправлен.', () => { throw new Error('x'); }), 'Код отправлен.');
@@ -72,7 +72,7 @@ test('words are edited as one line, persist and survive reload; bad edits keep t
     const first = remote();
     assert.equal(first.r.setWords('pause', 'отбой, тишина'), true);
     assert.equal(first.r.run('Отбой', 'imessage'), '');
-    assert.match(first.r.run('пауза', 'imessage').text, /Не понял/);
+    assert.match(first.r.run('пауза', 'imessage').text, /НЕ РАСПОЗНАНА/);
     const again = remote({ saved: first.r.settings() });
     assert.deepEqual(again.r.snapshot().commands.find(c => c.id === 'pause').words, ['отбой', 'тишина']);
     assert.equal(again.r.setWords('pause', ' , '), false);
