@@ -99,13 +99,15 @@ test('K in the terminal: a Mac mini command runs only from the console; an unkno
  }finally{tv.close();con.close();await stop(child);}
 });
 
-test('journal records an accepted code in Dev as well as Live',async()=>{
- const f=fixture({audio:'off',mode:'dev',live:{left:5000,paused:false},dev:{left:100,paused:false}});let app,ws;
+test('journal is Live only: a code accepted in Dev is not written, the Live code over the remote is',async()=>{
+ const f=fixture({audio:'off',mode:'dev',live:{left:200,paused:false},dev:{left:100,paused:false}});let app,ws;
  const journal=path.join(f.dir,'cast-app','journal.txt');
  try{
   app=await boot(f.dir);ws=await connect(app.port,'console');
   ws.send(JSON.stringify({type:'numberSubmitted',value:'4 8 15 16 23 42'}));
-  await until(async()=>fs.existsSync(journal)&&/accepted$/.test(fs.readFileSync(journal,'utf8')));
+  await until(async()=>(await health(app.port)).timer.left>6000);
+  assert.equal(fs.existsSync(journal)&&fs.readFileSync(journal,'utf8'),false,'Dev code is not journaled');
+  assert.equal((await request(app.port,'/__cmd?text='+encodeURIComponent('4 8 15 16 23 42'))).body,'КОД ПРИНЯТ 108.00');
   assert.match((await request(app.port,'/__journal?lines=2')).body,/^\d+:\d\d accepted$/);
   assert.equal((await health(app.port)).timer.mode,'dev');
  }finally{if(ws)ws.terminate();if(app)await stop(app.child);fs.rmSync(f.dir,{recursive:true,force:true});}
@@ -124,28 +126,28 @@ test('remote replies are one short line about Live: status, pause, start, code, 
  const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
  const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
  try{
-  assert.equal(await cmd('статус'),'ОСТАЛОСЬ 19');
-  assert.equal(await cmd('4 8 15 16 23 42'),'КОД НЕ ПРИНЯТ 19');
-  assert.equal(await cmd('пауза'),'ПАУЗА 19');
-  assert.equal(await cmd('статус'),'ПАУЗА 19');
-  assert.equal(await cmd('старт'),'СТАРТ 19');
+  assert.match(await cmd('статус'),/^ТАЙМЕР: ОСТАЛОСЬ 019\.00\n.*ЯДРО: \d+ МИН$/s);
+  assert.equal(await cmd('4 8 15 16 23 42'),'КОД НЕ ПРИНЯТ 019.00');
+  assert.equal(await cmd('пауза'),'ПАУЗА 019.00');
+  assert.match(await cmd('статус'),/^ТАЙМЕР: ПАУЗА 019\.00\n/);
+  assert.equal(await cmd('старт'),'СТАРТ 019.00');
   assert.equal(await cmd('LOST test: abracadabra'),'КОМАНДА НЕ РАСПОЗНАНА. СПИСОК: HELP');
  }finally{await stop(child);}
 });
 test('the right code in the last four minutes answers КОД ПРИНЯТ with the new 108 minutes',async()=>{
  const f=fixture({audio:'off',mode:'live',live:{left:200,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
- try{assert.equal((await request(port,'/__cmd?text='+encodeURIComponent('4 8 15 16 23 42'))).body,'КОД ПРИНЯТ 108');}
+ try{assert.equal((await request(port,'/__cmd?text='+encodeURIComponent('4 8 15 16 23 42'))).body,'КОД ПРИНЯТ 108.00');}
  finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
 });
 test('the remote ignores Dev: with the terminal in Dev it reports, pauses and resets Live only',async()=>{
  const f=fixture({audio:'off',mode:'dev',live:{left:200,paused:false},dev:{left:3000,paused:false}});const {child,port}=await boot(f.dir);
  const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
  try{
-  assert.equal(await cmd('статус'),'ОСТАЛОСЬ 4');
-  assert.equal(await cmd('пауза'),'ПАУЗА 4');
+  assert.match(await cmd('статус'),/^ТАЙМЕР: ОСТАЛОСЬ 003\.\d\d · ВВОД КОДА\n/);
+  assert.match(await cmd('пауза'),/^ПАУЗА 003\.\d\d$/);
   let h=await health(port);assert.equal(h.clocks.live.paused,true);assert.equal(h.timer.mode,'dev');assert.equal(h.timer.paused,false);
-  assert.equal(await cmd('старт'),'СТАРТ 4');
-  assert.equal(await cmd('4 8 15 16 23 42'),'КОД ПРИНЯТ 108');
+  assert.match(await cmd('старт'),/^СТАРТ 003\.\d\d$/);
+  assert.equal(await cmd('4 8 15 16 23 42'),'КОД ПРИНЯТ 108.00');
   h=await health(port);assert.ok(h.clocks.live.left>6470);assert.equal(h.timer.mode,'dev');assert.ok(h.timer.left<=3000&&h.timer.left>2990);
  }finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
 });

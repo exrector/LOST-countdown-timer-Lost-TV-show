@@ -13,6 +13,7 @@ const { createModules } = require('./modules');
 const { createRemote, isHomeNetwork } = require('../remote/runtime.cjs');
 const { createIMessage, compose } = require('../remote/imessage.cjs');
 const { createKay } = require('../remote/kay.cjs');
+const { formatStatus, mmss } = require('../remote/status.cjs');
 const { createUPSGateway } = require('./ups-gateway');
 const { createMuseGateway } = require('../muse/gateway.cjs');
 
@@ -157,7 +158,7 @@ function start(port = 8765, opts = {}) {
         const delay = sample.paused ? 1000 : Math.max(1, Math.ceil((fraction || 1) * 1000));
         clockTimer = setTimeout(() => { publishClock(); if (Date.now() - savedAt >= 1000) saveState(); }, delay);
         const slots = clock.snapshot(), failing = t => t.left <= -timeline.failure.zeroHold && !t.paused;
-        journalFailure(failing(slots.live) || failing(slots[slots.mode]));
+        journalFailure(failing(slots.live)); // журнал — только Live: Dev для разработки в него не пишет
         const key = [sample.mode,sample.left,sample.paused,sample.phase,sample.failureAge,sample.cycle].join(':');
         if (key === lastClockKey && Date.now() - lastClockSentAt < 10000) return; lastClockKey = key; lastClockSentAt = Date.now();
         const control = JSON.stringify({ type: '__clock', ...sample });
@@ -170,9 +171,25 @@ function start(port = 8765, opts = {}) {
     }
     // Пульт (iMessage, «Команды» iPhone, /__cmd) знает только Live: Dev — для разработки и в пульте не участвует,
     // в каком бы режиме ни стоял терминал. Ответы — одной строкой, как «КОД ПРИНЯТ 108» (решение владельца 28.10):
-    // остаток Live в минутах или СБОЙ; питание, VPN, AI и окна в ответы не входят.
-    function minutesLeft() { const s = clock.sample('live'); return s.phase !== 'countdown' ? 'СБОЙ' : String(Math.max(0, Math.ceil(s.left / 60))); }
-    function statusText() { const s = clock.sample('live'); return s.phase !== 'countdown' ? 'СБОЙ' : (s.paused ? 'ПАУЗА ' : 'ОСТАЛОСЬ ') + minutesLeft(); }
+    // остаток Live в формате таймера МММ.СС или СБОЙ; питание, VPN, AI и окна в ответы не входят.
+    function minutesLeft() { const s = clock.sample('live'); return s.phase !== 'countdown' ? 'СБОЙ' : mmss(s.left); } // МММ.СС: 006.00, 000.06
+    // Показания ИБП для ответа «статус» — у агента напрямую, не дольше 2 с; нет ответа — null.
+    function readUPS() {
+        return new Promise(resolve => {
+            const req = http.get({ host: '127.0.0.1', port: opts.upsPort || 8766, path: '/state', timeout: 2000, headers: { 'Accept': 'application/json', 'X-LOST-UPS': '1', 'Origin': 'http://localhost:' + port } }, r => {
+                let body = ''; r.setEncoding('utf8'); r.on('data', c => { body += c; if (body.length > 1048576) r.destroy(); });
+                r.on('end', () => { try { resolve(r.statusCode === 200 ? JSON.parse(body) : null); } catch (_) { resolve(null); } });
+                r.on('error', () => resolve(null));
+            });
+            req.on('timeout', () => req.destroy()); req.on('error', () => resolve(null));
+        });
+    }
+    // «статус» — единственный полный ответ: таймер Live, включённые модули, терминал, экран таймера, дисплей, ядро.
+    async function statusText() {
+        const modules = moduleManager.snapshot();
+        const ups = modules.ups && modules.ups.enabled !== false ? await readUPS() : null;
+        return formatStatus({ timer: clock.sample('live'), modules, components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : null, ups, core: { uptime: process.uptime() } });
+    }
     function setLiveSleep(on, source) {
         clock.setPaused(on, 'live'); syncClock(); if (curMode === 'live') sleepOn = curPaused; saveState(); publishClock();
         console.log(`[пульт] Live: ${on ? 'пауза' : 'старт'} (${source})`);
@@ -183,7 +200,7 @@ function start(port = 8765, opts = {}) {
     // ОДНА бесконечная строка: слова через пробел, без переносов — переносит по ширине тот, кто показывает
     // (матричный принтер — по краю листа, терминал — по ширине окна).
     //   верный код → «<время> accepted», где время = месяц (без нуля) день(2) час(2) минута (без нуля) :секунды(2) — 922041:52;
-    //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Пишется в любом режиме (Live и Dev), паузы не пишутся.
+    //   сбой → «SYSTEM FAILURE» каждую секунду, пока таймер не сбросят (не больше 108 раз). Только Live (Dev — для разработки), паузы не пишутся.
     const journalFile = path.join(__dirname, 'journal.txt');
     // журнал прежнего формата (с переносами по 80) — склеить в одну строку
     // Existing history is never rewritten; new words are appended below.
@@ -325,7 +342,7 @@ function start(port = 8765, opts = {}) {
                     syncClock(); sleepOn = curPaused; saveState(); publishClock(); return;
                 }
                 if (role === 'console' && data.type === 'numberSubmitted' && data.value === '4 8 15 16 23 42') {
-                    if (timerInfo().open) { journalAccepted(); clock.reset(); saveState(); publishClock(); }
+                    if (timerInfo().open) { if (curMode === 'live') journalAccepted(); clock.reset(); saveState(); publishClock(); }
                     return;
                 }
                 // Browser rendering reports are never a time source.
