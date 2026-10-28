@@ -63,7 +63,7 @@ test('status is the one full reply: Live timer, every switched-on module, termin
     const components = { terminal: { status: 'ready' }, timer: { status: 'waiting' }, display: { status: 'ready', name: 'Waveshare-625' } };
     assert.equal(formatStatus({ timer: { left: 1416, paused: false, phase: 'countdown' }, modules, components, ups }),
         'ТАЙМЕР: ОСТАЛОСЬ 023.00\nПИТАНИЕ: СЕТЬ · ЗАРЯД 100% · РЕЗЕРВ 78 МИН · НАГРУЗКА 6%\nVPN: NEW YORK\nAI: ПЕРЕПОДКЛЮЧЕНИЕ\niMESSAGE: ГОТОВ\nMAC MINI: ОШИБКА — НЕТ ДОСТУПА\n' +
-        'ЭКРАН ТАЙМЕРА: НЕ РАБОТАЕТ\nЭКРАН ТЕРМИНАЛА: РАБОТАЕТ\nДИСПЛЕЙ: WAVESHARE-625');
+        'ЭКРАН ТАЙМЕРА: НЕ РАБОТАЕТ\nЭКРАН ТЕРМИНАЛА: РАБОТАЕТ');
     assert.equal(formatStatus({ timer: { left: 200, paused: true, phase: 'countdown' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'ready', location: '' } }, ups: { online: true, vars: { 'ups.status': 'OB', 'battery.charge': '40' } } }),
         'ТАЙМЕР: ПАУЗА 003.00 · ВВОД КОДА\nПИТАНИЕ: БАТАРЕЯ · ЗАРЯД 40%\nVPN: ОТКЛЮЧЁН');
     assert.equal(formatStatus({ timer: { left: 0, phase: 'failure' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'unavailable' } }, ups: null }),

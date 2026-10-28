@@ -1,6 +1,6 @@
 'use strict';
 // Ответ пульта «статус» — единственный полный ответ: таймер Live, все включённые модули и работоспособность
-// терминала (окна терминала и таймера, дисплей). Сухо, машинно, заглавными — терминал мейнфрейма 70-х (решение владельца 28.10).
+// терминала (экраны таймера и терминала). Сухо, машинно, заглавными — терминал мейнфрейма 70-х (решение владельца 28.10).
 // Dev в пульте не участвует; выключенные модули не упоминаются.
 const STATUS = { ready: 'ГОТОВ', starting: 'ЗАПУСК', stopping: 'ОСТАНОВКА', error: 'ОШИБКА', not_installed: 'НЕ УСТАНОВЛЕН', unavailable: 'НЕТ ДАННЫХ', degraded: 'НЕТ СВЕЖИХ ДАННЫХ', connecting: 'СОЕДИНЕНИЕ', reconnecting: 'ПЕРЕПОДКЛЮЧЕНИЕ', revoked: 'ПАРА ОТОЗВАНА', disabled: 'ВЫКЛЮЧЕН' };
 const MODULES = [['muse', 'AI'], ['flame', 'СТАНЦИИ'], ['imessage', 'iMESSAGE'], ['shortcuts', 'MAC MINI']];
@@ -39,10 +39,7 @@ function formatStatus({ timer, modules = {}, components, ups }) {
     if (on('ups')) lines.push(powerLine(ups));
     if (on('vpn')) lines.push(vpnLine(modules.vpn));
     for (const [id, label] of MODULES) if (on(id)) lines.push(label + ': ' + state(modules[id]));
-    if (components) {
-        lines.push('ЭКРАН ТАЙМЕРА: ' + works(components.timer), 'ЭКРАН ТЕРМИНАЛА: ' + works(components.terminal));
-        if (components.display) lines.push('ДИСПЛЕЙ: ' + (components.display.status === 'ready' && components.display.name ? upper(components.display.name) : 'НЕТ'));
-    }
+    if (components) lines.push('ЭКРАН ТАЙМЕРА: ' + works(components.timer), 'ЭКРАН ТЕРМИНАЛА: ' + works(components.terminal));
     return lines.join('\n');
 }
 module.exports = { formatStatus, mmss };
