@@ -69,7 +69,8 @@ function validateConfig(cfg) {
     }
     return result;
 }
-function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, setTimer = setInterval, clearTimer = clearInterval } = {}) {
+// autoPoll: false — свой таймер не заводится, опрашивает общий цикл станции (cast-app/start.js, раз в 2 мин).
+function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval } = {}) {
     let cfg, installed = false;
     try { cfg = validateConfig(config || JSON.parse(fs.readFileSync(configFile, 'utf8'))); installed = true; } catch (_) {}
     let enabled = true, busy = false, timer = null, generation = 0, lastAttempt = -Infinity, activeAbort = null;
@@ -131,7 +132,7 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     function setEnabled(on) {
         if (typeof on !== 'boolean') return false;
         enabled = on; generation++; if (!on && activeAbort) activeAbort.abort(); if (timer !== null) clearTimer(timer); timer = null;
-        if (on && installed) { refresh({ force: true }); timer = setTimer(() => refresh(), intervalMs); timer?.unref?.(); }
+        if (on && installed) { refresh({ force: true }); if (autoPoll) { timer = setTimer(() => refresh(), intervalMs); timer?.unref?.(); } }
         return snapshot();
     }
     function close() { setEnabled(false); }

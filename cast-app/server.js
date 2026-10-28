@@ -184,11 +184,11 @@ function start(port = 8765, opts = {}) {
             req.on('timeout', () => req.destroy()); req.on('error', () => resolve(null));
         });
     }
-    // «статус» — единственный полный ответ: таймер Live, включённые модули, терминал, экран таймера, дисплей.
-    // Перед ответом все меняющиеся данные собираются заново (opts.refreshStatus, не дольше 15 с) — в ответе
-    // только что полученные показания, а не последние запомненные («VPN: … ПОКАЗАНИЯ УСТАРЕЛИ» 28.10).
+    // «статус» — единственный полный ответ: таймер Live, включённые модули, экраны таймера и терминала, дисплей.
+    // Ответ ждёт конца ближайшего общего цикла опроса (opts.nextPoll, раз в 2 мин; start.js) и уходит с только что
+    // собранными данными; отдельного опроса под «статус» нет. Зависший цикл держит ответ не дольше 150 с.
     async function statusText() {
-        if (opts.refreshStatus) await Promise.race([Promise.resolve().then(opts.refreshStatus).catch(() => {}), new Promise(r => setTimeout(r, 15000).unref())]);
+        if (opts.nextPoll) await Promise.race([Promise.resolve().then(opts.nextPoll).catch(() => {}), new Promise(r => setTimeout(r, 150000).unref())]);
         const modules = moduleManager.snapshot();
         const ups = modules.ups && modules.ups.enabled !== false ? await readUPS() : null;
         return formatStatus({ timer: clock.sample('live'), modules, components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : null, ups });

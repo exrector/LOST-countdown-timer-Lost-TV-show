@@ -31,7 +31,7 @@ function vpnLine(m) {
     if (m.status === 'ready') return 'VPN: ' + (m.location ? upper(m.location) : 'ОТКЛЮЧЁН');
     return 'VPN: ' + state(m);
 }
-const link = c => c && c.status === 'ready' ? 'НА СВЯЗИ' : 'НЕТ СВЯЗИ';
+const works = c => c && c.status === 'ready' ? 'РАБОТАЕТ' : 'НЕ РАБОТАЕТ';
 
 function formatStatus({ timer, modules = {}, components, ups }) {
     const on = id => modules[id] && modules[id].enabled !== false;
@@ -40,7 +40,7 @@ function formatStatus({ timer, modules = {}, components, ups }) {
     if (on('vpn')) lines.push(vpnLine(modules.vpn));
     for (const [id, label] of MODULES) if (on(id)) lines.push(label + ': ' + state(modules[id]));
     if (components) {
-        lines.push('ТЕРМИНАЛ: ' + link(components.terminal), 'ЭКРАН ТАЙМЕРА: ' + link(components.timer));
+        lines.push('ЭКРАН ТАЙМЕРА: ' + works(components.timer), 'ЭКРАН ТЕРМИНАЛА: ' + works(components.terminal));
         if (components.display) lines.push('ДИСПЛЕЙ: ' + (components.display.status === 'ready' && components.display.name ? upper(components.display.name) : 'НЕТ'));
     }
     return lines.join('\n');

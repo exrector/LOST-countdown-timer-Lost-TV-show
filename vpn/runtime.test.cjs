@@ -75,3 +75,11 @@ test('the 60 s poll timer firing a moment early still polls: readings never go s
     vpn.setEnabled(true); await new Promise(r => setImmediate(r));
     for (let i = 1; i <= 3; i++) { clock = i * 60000 - 5; await tick(); assert.equal(calls, i + 1, 'poll ' + i); assert.equal(vpn.snapshot().status, 'connected'); }
 });
+
+test('autoPoll false: no own timer — the station poll cycle drives the router reads', async () => {
+    let timers = 0, calls = 0;
+    const vpn = createVPN({ config, autoPoll: false, staleMs: 180000, run: async () => { calls++; return { stdout: 'Connected to NEW YORK in TUN mode' }; }, setTimer: () => { timers++; return 1; }, clearTimer: () => {} });
+    vpn.setEnabled(true); await new Promise(r => setImmediate(r));
+    assert.equal(timers, 0); assert.equal(calls, 1);
+    await vpn.refresh({ force: true }); assert.equal(calls, 2);
+});
