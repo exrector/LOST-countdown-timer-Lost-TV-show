@@ -4,7 +4,7 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),http
 const source=path.resolve(__dirname,'..');
 function request(port,route){return new Promise((resolve,reject)=>{http.get({host:'127.0.0.1',port,path:route},r=>{let body='';r.on('data',c=>body+=c);r.on('end',()=>resolve({status:r.statusCode,headers:r.headers,body}));}).on('error',reject);});}
 async function health(port){return JSON.parse((await request(port,'/__health')).body);}
-function boot(dir,liveInDev=false,upsPort=8766){return new Promise((resolve,reject)=>{const child=spawn(process.execPath,['-e',`let now=0;require('./cast-app/server').start(0,{host:'127.0.0.1',audioDevice:false,upsPort:${upsPort},liveInDev:${liveInDev},clockNow:()=>now}).then(c=>{process.send({port:c.server.address().port});process.on('message',m=>{now=m.now;process.send({ack:now})});process.on('SIGTERM',()=>{c.saveState();process.exit(0)});}).catch(e=>{console.error(e);process.exit(1)})`],{cwd:dir,stdio:['ignore','pipe','pipe','ipc']});let errors='';child.stderr.on('data',c=>errors+=c);child.once('message',m=>resolve({child,port:m.port}));child.once('error',reject);child.once('exit',c=>{if(c)reject(new Error('core exit '+c+': '+errors));});});}
+function boot(dir,liveInDev=false,upsPort=8766,extra=''){return new Promise((resolve,reject)=>{const child=spawn(process.execPath,['-e',`let now=0;require('./cast-app/server').start(0,{host:'127.0.0.1',audioDevice:false,upsPort:${upsPort},liveInDev:${liveInDev},${extra}clockNow:()=>now}).then(c=>{process.send({port:c.server.address().port});process.on('message',m=>{now=m.now;process.send({ack:now})});process.on('SIGTERM',()=>{c.saveState();process.exit(0)});}).catch(e=>{console.error(e);process.exit(1)})`],{cwd:dir,stdio:['ignore','pipe','pipe','ipc']});let errors='';child.stderr.on('data',c=>errors+=c);child.once('message',m=>resolve({child,port:m.port}));child.once('error',reject);child.once('exit',c=>{if(c)reject(new Error('core exit '+c+': '+errors));});});}
 function advance(child,now){return new Promise(resolve=>{child.once('message',resolve);child.send({now});});}
 function stop(child,signal='SIGTERM'){return new Promise(resolve=>{child.once('exit',resolve);child.kill(signal);});}
 function connect(port,role){return new Promise((resolve,reject)=>{const w=new WS('ws://127.0.0.1:'+port+'/bridge?role='+role);w.on('error',reject);w.once('open',()=>resolve(w));});}
@@ -109,4 +109,13 @@ test('journal records an accepted code in Dev as well as Live',async()=>{
   assert.match((await request(app.port,'/__journal?lines=2')).body,/^\d+:\d\d accepted$/);
   assert.equal((await health(app.port)).timer.mode,'dev');
  }finally{if(ws)ws.terminate();if(app)await stop(app.child);fs.rmSync(f.dir,{recursive:true,force:true});}
+});
+
+test('Mac mini commands module switched off: the terminal gets a refusal and nothing runs',async()=>{
+ const f=fixture({modules:{shortcuts:false}});const {child,port}=await boot(f.dir,false,8766,'moduleInstalled:{shortcuts:true},');const con=await connect(port,'console');const got=[];con.on('message',m=>{const d=JSON.parse(m);if(d.type==='__shortcut_result')got.push(d);});
+ try{
+  const m=(await health(port)).modules.shortcuts;assert.equal(m.enabled,false);assert.equal(m.installed,true);
+  con.send(JSON.stringify({type:'__shortcut_run',id:7,name:'LOST test: no such command'}));
+  await until(()=>got.length>0);assert.equal(got[0].text,'ошибка: модуль «Команды Mac mini» выключен');
+ }finally{con.close();await stop(child);}
 });

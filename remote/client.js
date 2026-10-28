@@ -46,7 +46,7 @@
     function menu() {
         var list = state.remote ? state.remote.commands.map(editor) : [];
         list.push({ label: 'КОД: 4 8 15 16 23 42', view: true, staticText: 'Код принимается только в последние 4 минуты цикла: сообщение из одних цифр.' });
-        return { description: 'Станция читает iMessage от разрешённых номеров (' + state.senders + ') и выполняет команду LOST по её словам или команду из «Команд» Mac mini с тем же названием (список — МЕНЮ → КОМАНДЫ MAC MINI, клавиша K). Ответ — сообщением с состоянием станции.', dir: list };
+        return { description: 'Станция читает iMessage от разрешённых номеров (' + state.senders + ') и выполняет команду LOST по её словам или команду из «Команд» Mac mini с тем же названием (список — МЕНЮ → МОДУЛИ → КОМАНДЫ MAC MINI, клавиша K). Ответ — сообщением с состоянием станции.', dir: list };
     }
     // Команды из «Команд» Mac mini. Запуск меняет что-то за пределами LOST, поэтому только Enter (подтверждение).
     function shortcuts() {

@@ -301,37 +301,48 @@
             if(id==='ups'&&window.LostUPS&&window.LostUPS.status().busy){ui.moduleError='ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ UPS';render();return;}
             ui.moduleError='';send({type:'__module',id:id,enabled:enabled});
         };}
-        function moduleDirectory(id,title){
+        // extra — собственное меню модуля: его пункты идут здесь же, под переключателем, и видны только пока модуль включён.
+        // В главном меню модулей нет.
+        function moduleDirectory(id,title,extra){
             var result={label:function(){var m=moduleInfo(id);return title+': '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?'ВКЛ':'ВЫКЛ');},pathLabel:title,dir:[]};
+            if(extra)result.onEnter=function(){
+                var tree=extra()||{dir:[]};result.description=tree.description;
+                result.dir=own.concat((tree.dir||[]).map(function(it){it.module=id;return it;}));
+            };
             if(id==='ups'||moduleInfo(id).installed)result.dir=[
                 {label:'ВКЛЮЧИТЬ',current:function(){return moduleInfo(id).enabled;},act:setModule(id,true)},
                 {label:'ВЫКЛЮЧИТЬ',current:function(){return !moduleInfo(id).enabled;},act:setModule(id,false)}
             ];
             result.dir.push({label:function(){var m=moduleInfo(id);return 'СОСТОЯНИЕ: '+(MODULE_STATUS[m.status]||m.status);},view:true,endpoint:'/__health',format:function(raw){
                 var m=(JSON.parse(raw).modules||{})[id] || moduleInfo(id);
-                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='imessage'?'Станция читает iMessage от разрешённых номеров и выполняет команды LOST или команды из «Команд» Mac mini. Списки — «ПУЛЬТ».':id==='flame'?'Информер станций DHARMA INITIATIVE: машины tailnet как станции, связь видна с Лебедя. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
+                return title+'\n\n'+(MODULE_STATUS[m.status]||m.status)+(m.error?'\n'+m.error:'')+'\n\n'+(id==='shortcuts'?'Команды из приложения «Команды» на Mac mini: запуск из терминала (K), по iMessage с точным названием и из «Команд» iPhone. Выключенный модуль ничего из «Команд» не запускает.':id==='imessage'?'Станция читает iMessage от разрешённых номеров и выполняет команды LOST или команды из «Команд» Mac mini. Списки — «ПУЛЬТ».':id==='flame'?'Информер станций DHARMA INITIATIVE: машины tailnet как станции, связь видна с Лебедя. Только чтение; Tailscale модуль не трогает.':id==='vpn'?'Модуль управляет мониторингом и меню LOST. Выключение модуля НЕ отключает VPN роутера.':id==='muse'?(m.installed?'Muse Gadget. Сохранённая пара; сеть через VPN роутера. RESET — запись; Enter — отправка. Диалог в основном терминале.':'Runtime mUse пока не установлен.'):'Управление агентом телеметрии LOST. Настройки самого ИБП сохраняются.');
             }});
+            var own=result.dir.slice();
             return result;
         }
-        var MODULES_DIR={label:'МОДУЛИ',dir:[moduleDirectory('ups','UPS'),moduleDirectory('muse','mUse'),moduleDirectory('vpn','VPN'),moduleDirectory('flame','СТАНЦИИ'),moduleDirectory('imessage','ПУЛЬТ iMESSAGE')]};
+        function openAI(){if(!window.LostMuse||!window.LostMuse.canOpen()){ui.hint='AI НЕДОСТУПЕН: ТЕРМИНАЛ ОСТАВЛЕН ДЛЯ КОДА';render();return;}open(false);window.LostMuse.open();}
+        // Команды из «Команд» Mac mini — модуль; K открывает его раздел из любого места. Список строится заново при каждом открытии и обновлении.
+        var SHORTCUTS=moduleDirectory('shortcuts','КОМАНДЫ MAC MINI',function(){return window.LostRemote&&window.LostRemote.shortcuts();});
+        var buildShortcuts=SHORTCUTS.onEnter;SHORTCUTS.key='K';
+        SHORTCUTS.onEnter=function(){buildShortcuts();send({type:'__shortcuts_refresh'});};
+        var MODULES_DIR={label:'МОДУЛИ',dir:[
+            moduleDirectory('ups','UPS',function(){return window.LostUPS&&window.LostUPS.menu();}),
+            moduleDirectory('muse','mUse',function(){return window.LostMuseMenu&&window.LostMuseMenu.menu(openAI);}),
+            moduleDirectory('vpn','VPN',function(){return window.LostVPN&&window.LostVPN.menu();}),
+            moduleDirectory('flame','СТАНЦИИ',function(){return {dir:[{label:'СТАНЦИИ',view:true,endpoint:'/__flame/state?refresh=1',format:function(raw){return window.LostFlame?window.LostFlame.format(raw):'ДАННЫЕ НЕДОСТУПНЫ';}}]};}),
+            moduleDirectory('imessage','ПУЛЬТ iMESSAGE',function(){return window.LostRemote&&window.LostRemote.menu();}),
+            SHORTCUTS
+        ]};
         var QUIT = { label: 'ВЫХОД', dir: [
             { label: 'ОТМЕНА', act: function () { back(); } },
             { label: 'ЗАВЕРШИТЬ LOST', key: 'Q', confirm: true, act: function () { send({ type: '__cmd', cmd: 'quit' }); } }
         ] };
-        // Команды из «Команд» Mac mini; K открывает раздел из любого места. Список строится заново при каждом открытии и обновлении.
-        var SHORTCUTS = { label: 'КОМАНДЫ MAC MINI', key: 'K', dir: [], onEnter: function () {
-            if (!window.LostRemote) return; var tree = window.LostRemote.shortcuts(); SHORTCUTS.dir = tree.dir; SHORTCUTS.description = tree.description;
-            send({ type: '__shortcuts_refresh' });
-        } };
         var ROOT = { label: 'МЕНЮ', dir: [
             { label: function () { return ui.paused ? 'СТАРТ' : 'ПАУЗА'; }, key: 'P', act: click('#pauseResume') },
             { label: function () { return 'РЕЖИМ: ' + (ui.mode === 'dev' ? 'DEV' : 'LIVE'); }, pathLabel: 'РЕЖИМ', key: 'D/L', dir: [
                 { label: 'LIVE', current: function () { return ui.mode === 'live'; }, act: mode('live') }, DEV
             ] },
             MODULES_DIR,
-            { label:function(){var m=moduleInfo('muse');return 'AI: '+(m.installed===false?'НЕ УСТАНОВЛЕН':m.enabled?(MODULE_STATUS[m.status]||m.status):'ВЫКЛ');}, pathLabel:'AI', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostMuseMenu){var tree=window.LostMuseMenu.menu(function(){if(!window.LostMuse||!window.LostMuse.canOpen()){ui.hint='AI НЕДОСТУПЕН: ТЕРМИНАЛ ОСТАВЛЕН ДЛЯ КОДА';render();return;}open(false);window.LostMuse.open();});own.dir=tree.dir;own.description=tree.description;} } },
-            SHORTCUTS,
-            { module:'imessage', label:'ПУЛЬТ', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostRemote){var tree=window.LostRemote.menu();own.dir=tree.dir;own.description=tree.description;} } },
             { label: 'ЖУРНАЛ', view: true },
             // Скрытые команды терминала — из реестра js/station-input.js: имя и пояснение каждой.
             { label: 'СКРЫТЫЕ КОМАНДЫ', view: true, staticText: function () {
@@ -343,14 +354,11 @@
                 var d = JSON.parse(raw), c = d.components || {}, m = d.modules || {}, names = { terminal: 'ТЕРМИНАЛ', timer: 'ЭКРАН ТАЙМЕРА', display: 'ДИСПЛЕЙ' };
                 var status = { ready: 'ГОТОВ', starting: 'ЗАПУСК', waiting: 'ОЖИДАНИЕ', recovering: 'ВОССТАНОВЛЕНИЕ', disabled:'ВЫКЛЮЧЕН', stopping:'ОСТАНОВКА',error:'ОШИБКА',not_installed:'НЕ УСТАНОВЛЕН', degraded: 'НЕТ АКТУАЛЬНЫХ ДАННЫХ', unavailable: 'НЕДОСТУПЕН' };
                 // Модули — по их собственному состоянию (раньше VPN и др. искались среди компонентов и всегда были «ОЖИДАНИЕ»).
-                var mods = { ups: 'ЭНЕРГОКОНТУР', muse: 'AI', vpn: 'VPN', flame: 'СТАНЦИИ', imessage: 'ПУЛЬТ iMESSAGE' };
+                var mods = { ups: 'ЭНЕРГОКОНТУР', muse: 'AI', vpn: 'VPN', flame: 'СТАНЦИИ', imessage: 'ПУЛЬТ iMESSAGE', shortcuts: 'КОМАНДЫ MAC MINI' };
                 return 'ЯДРО             ' + (status[d.core.status] || d.core.status) + '\nРЕЖИМ            ' + d.timer.mode.toUpperCase() + '\nТАЙМЕР           ' + (d.timer.paused ? 'ПАУЗА' : 'ИДЁТ') + '\n\n' +
                     Object.keys(names).map(function (k) { return names[k].padEnd(17) + (status[c[k] && c[k].status] || 'ОЖИДАНИЕ'); }).join('\n') + '\n\n' +
                     Object.keys(mods).filter(function (k) { return m[k]; }).map(function (k) { return mods[k].padEnd(17) + (m[k].enabled === false ? 'ВЫКЛЮЧЕН' : status[m[k].status] || String(m[k].status || 'ОЖИДАНИЕ').toUpperCase()) + (m[k].location ? ' · ' + m[k].location : ''); }).join('\n');
             } },
-            { module:'vpn', label:function(){return window.LostVPN?window.LostVPN.title():'VPN';}, pathLabel:'VPN', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostVPN){var tree=window.LostVPN.menu();own.dir=tree.dir;own.description=tree.description;} } },
-            { module:'flame', label:'СТАНЦИИ', pathLabel:'СТАНЦИИ', view:true, endpoint:'/__flame/state?refresh=1', format:function(raw){ return window.LostFlame ? window.LostFlame.format(raw) : 'ДАННЫЕ НЕДОСТУПНЫ'; } },
-            { module:'ups', label:'ЭНЕРГОКОНТУР', dir:[], onEnter:function(){ var own=path[path.length-1];if(window.LostUPS){var tree=window.LostUPS.menu();own.dir=tree.dir;own.description=tree.description;} } },
             QUIT
         ] };
 
@@ -358,7 +366,7 @@
 
         var box = document.createElement('div'); box.className = 'ctl';
         var win = document.createElement('div'); win.className = 'win'; box.appendChild(win);
-        // base — глубина, с которой ← закрывает меню: 1 — корень, 2 — меню открыто сразу на разделе (K).
+        // base — глубина, с которой ← закрывает меню: 1 — корень, 3 — меню открыто сразу на разделе модуля (K).
         var path = [ROOT], sel = 0, base = 1;
         function items() { var n = path[path.length - 1]; return n.view || n.editor ? [] : n.dir.filter(function (it) { return (!it.devOnly || ui.mode === 'dev') && (!it.module || moduleInfo(it.module).enabled); }); }
         function text(v) { return typeof v === 'function' ? v() : v; }
@@ -459,7 +467,7 @@
         window.addEventListener('lost-muse-open', function(){open(false);});
         window.addEventListener('lost-remote-set', function(e){ if(e.detail) send({type:'__remote_set',id:e.detail.id,words:e.detail.words,requestId:e.detail.requestId}); });
         window.addEventListener('lost-shortcut-run', function(e){ if(e.detail) send({type:'__shortcut_run',id:e.detail.id,name:e.detail.name}); });
-        window.addEventListener('lost-remote', function(){ if(path[path.length-1]===SHORTCUTS&&window.LostRemote){var tree=window.LostRemote.shortcuts();SHORTCUTS.dir=tree.dir;SHORTCUTS.description=tree.description;} render(); });
+        window.addEventListener('lost-remote', function(){ if(path[path.length-1]===SHORTCUTS)buildShortcuts(); render(); });
         ui.render = render;
         ui.onMode = function () {
             if (ui.mode !== 'dev' && path.indexOf(DEV) !== -1) { path = [ROOT, modeDir()]; sel = 0; }
@@ -472,7 +480,10 @@
         function modeDir() { return ROOT.dir.filter(function (n) { return n.dir && n.dir.indexOf(DEV) !== -1; })[0]; }
         function openShortcuts() {
             if (isOpen() && path[path.length - 1] === SHORTCUTS) return open(false);
-            open(true); path = [ROOT, SHORTCUTS]; base = 2; sel = 0; SHORTCUTS.onEnter(); render();
+            // ← и Esc закрывают меню сразу; курсор — на первой команде, если модуль включён, иначе на переключателе.
+            open(true); path = [ROOT, MODULES_DIR, SHORTCUTS]; base = 3; SHORTCUTS.onEnter();
+            var list = items(), first = list.findIndex(function (n) { return n.module === 'shortcuts'; });
+            sel = Math.max(0, first >= 0 ? first : list.findIndex(function (n) { return n.current && n.current(); })); render();
         }
         function openQuit() {
             if (isOpen() && path[path.length - 1] === QUIT) return QUIT.dir[1].act();
