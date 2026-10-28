@@ -238,6 +238,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
     var preview = false
     var desktopMode = false
     var desktopKeyDown = false
+    var lastDesktopToggle = Date.distantPast
     var hotKey: EventHotKeyRef?
     var hotKeyHandler: EventHandlerRef?
     var localKeyMonitor: Any?
@@ -337,7 +338,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
                 guard let context = context, let event = event else { return OSStatus(eventNotHandledErr) }
                 let app = Unmanaged<StationApp>.fromOpaque(context).takeUnretainedValue()
                 if GetEventKind(event) == UInt32(kEventHotKeyReleased) { app.desktopKeyDown = false }
-                else if !app.desktopKeyDown { app.desktopKeyDown = true; app.showDesktop() }
+                else if !app.desktopKeyDown { app.desktopKeyDown = true; app.toggleDesktop("global") }
                 return noErr
             }, events.count, buffer.baseAddress, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
         }
@@ -346,13 +347,35 @@ final class StationApp: NSObject, NSApplicationDelegate {
             NSLog("LOST: global PF6 unavailable (%d); local PF6 and Dock remain available", registered)
             localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 if event.keyCode == UInt16(kVK_F6) && event.modifierFlags.intersection([.command,.control,.option,.shift]).isEmpty {
-                    if !event.isARepeat { self?.showDesktop() }; return nil
+                    if !event.isARepeat { self?.toggleDesktop("local") }; return nil
                 }
                 return event
             }
         }
     }
     var stationShown: Bool { !desktopMode && !NSApp.isHidden }
+    // PF6 (PF18 on the station keyboard) is a global hot key, delivered while LOST is hidden too:
+    // it hides the station and brings it back. 2026-10-29: the first toggle was reverted after empty
+    // screens that turned out to be a hung "Installer Progress" holding focus, so every press is logged
+    // (native-keys.log) and a second press within 0.5 s is ignored.
+    func toggleDesktop(_ source: String) {
+        let now = Date(), shown = stationShown
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "-"
+        let ignored = now.timeIntervalSince(lastDesktopToggle) < 0.5
+        logKey("PF6 \(source) shown=\(shown) desktopMode=\(desktopMode) hidden=\(NSApp.isHidden) front=\(front)" + (ignored ? " ignored" : shown ? " -> desktop" : " -> station"))
+        if ignored { return }
+        lastDesktopToggle = now
+        if shown { showDesktop() } else { activateStation() }
+    }
+    func logKey(_ line: String) {
+        guard let statusURL = statusURL else { return }
+        let url = statusURL.deletingLastPathComponent().appendingPathComponent("native-keys.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        guard let data = (stamp + " " + line + "\n").data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile(); handle.write(data); handle.closeFile()
+        } else { try? data.write(to: url) }
+    }
     @objc func showDesktop() {
         microphone.cancel()
         desktopMode = true
@@ -374,7 +397,7 @@ final class StationApp: NSObject, NSApplicationDelegate {
         if let page = pages["console"] { page.window.makeFirstResponder(page.web) }
         tick()
     }
-    // Leaving the desktop needs an explicit request: Dock icon / LOST.app (reopen), the menu item or the distributed notification.
+    // Leaving the desktop needs an explicit request: PF6 again, Dock icon / LOST.app (reopen), the menu item or the distributed notification.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { activateStation(); return false }
     @objc func screensChanged() { layout() }
     func layout() {

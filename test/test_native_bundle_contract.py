@@ -62,10 +62,12 @@ class NativeBundleContractTests(unittest.TestCase):
         self.assertIn("{op:'chat-open'}", client)
         self.assertIn("{op:'chat-close'}", client)
 
-    def test_pf6_only_hides_the_station(self):
+    def test_pf6_toggles_and_logs_every_press(self):
         main = (ROOT / "native/Sources/main.swift").read_text()
-        self.assertNotIn("toggleDesktop", main)
-        self.assertIn("app.desktopKeyDown = true; app.showDesktop()", main)
+        self.assertIn('app.desktopKeyDown = true; app.toggleDesktop("global")', main)
+        self.assertIn("if shown { showDesktop() } else { activateStation() }", main)
+        self.assertIn("now.timeIntervalSince(lastDesktopToggle) < 0.5", main)
+        self.assertIn('appendingPathComponent("native-keys.log")', main)
 
     def test_keyboard_layout_indicator_is_read_only_and_uses_macos_source(self):
         source = (ROOT / "native/Sources/main.swift").read_text()
