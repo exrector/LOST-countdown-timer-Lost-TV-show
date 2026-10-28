@@ -7,7 +7,7 @@
     if (!document.body || !document.body.classList.contains('console-page')) return;
     var input = document.querySelector('.my-console');
     if (!input) return;
-    var commands = new HiddenCommands(), actions = Object.create(null), keyboardLocked = false, swallowedEnter = false;
+    var commands = new HiddenCommands(), actions = Object.create(null), abouts = Object.create(null), keyboardLocked = false, swallowedEnter = false;
     // A command typed while the code has priority answers in the same line instead of vanishing.
     var notice = '', noticeTimer = null;
     function setNotice(text) {
@@ -29,7 +29,9 @@
     }
     function reset() { commands.reset(); render(); }
     root.LostConsoleInput = {
-        register: function (name, action) { commands.register(name); actions[name.toUpperCase()] = action; },
+        // about — пояснение для меню «СКРЫТЫЕ КОМАНДЫ»; список строится из реестра, новые команды попадают туда сами.
+        register: function (name, action, about) { commands.register(name); actions[name.toUpperCase()] = action; abouts[name.toUpperCase()] = about || ''; },
+        list: function () { return commands.names.map(function (name) { return { name: name, about: abouts[name] }; }); },
         reset: reset, refresh: render, codeOpen: function () { return codeEnabled; }
     };
     function block(e) { e.preventDefault(); e.stopImmediatePropagation(); }
