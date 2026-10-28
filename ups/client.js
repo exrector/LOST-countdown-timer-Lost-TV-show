@@ -42,7 +42,7 @@
   activeReads.slice().forEach(function(controller){controller.abort();});
   state=null;lastResponse=0;lastError='';line.hidden=!on;
   if(!on){changed();return;}
-  renderLine();poll();pollTimer=setInterval(poll,5000);lineTimer=setInterval(renderLine,1000);
+  renderLine();poll();pollTimer=setInterval(poll,30000);lineTimer=setInterval(renderLine,10000); // данные ИБП меняются раз в 2 мин (общий цикл станции)
  }
  window.addEventListener('lost-modules',function(e){setEnabled(!(e.detail&&e.detail.ups&&e.detail.ups.enabled===false));});
 

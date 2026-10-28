@@ -13,7 +13,7 @@ test('low reserve and runtime thresholds only become critical on battery',()=>{
  }
 });
 test('disconnected agent, stale samples and server errors hide old numbers',()=>{
- for(const [s,response,now] of [[state(),80000,100001],[state(),120000,120001],[{...state(),online:false},100000,100001]]){
+ for(const [s,response,now] of [[state(),0,100001],[state(),120000,120001],[{...state(),online:false},100000,100001],[{...state(),pollInterval:120000},280000,280001]]){
   const v=view(s,response,now);assert.equal(v.kind,'stale');assert.equal(v.cells[0][1],'LOST');assert.equal(v.cells[1][1],'---');assert.equal(v.cells[2][1],'---');
  }
 });
@@ -22,4 +22,11 @@ test('missing runtime is unknown; actual zero remains zero and voltage is not in
  assert.equal(view(state('OB',{'battery.runtime':'0','input.voltage':'0'}),100000,100001).cells[2][1],'~000m');
  assert.equal(view(state('OB',{'input.voltage':'0'}),100000,100001).cells[3][1],'0 → 230V');
  assert.equal(view(state(''),100000,100001).cells[0][1],'UNKNOWN');
+});
+test('agent polled by the 2-minute station cycle: a sample stays fresh for 1.5 intervals, the window may read every 30 s',()=>{
+ const s={...state(),pollInterval:120000};
+ assert.equal(view(s,250000,279999).kind,'');
+ assert.equal(view(s,250000,280001).kind,'stale');
+ assert.equal(view({...s,updatedAt:100000},100000,190001).kind,'stale','the window has not heard from the agent for 90 s');
+ assert.equal(view({...s,updatedAt:100000},100000,189999).kind,'');
 });

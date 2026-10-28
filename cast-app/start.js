@@ -141,7 +141,7 @@ async function tick() {
         core.updateMuse(museRuntime.read());
         core.updateVPN(vpnRuntime.snapshot());
         core.updateFlame(flameRuntime.snapshot());
-        if (now - lastScreensAt > 10000) {
+        if (now - lastScreensAt > 30000) { // список экранов — запуск osascript; раз в 30 с
             lastScreensAt = now; const next = await readScreens(); if (next) screens = next;
         }
         const display = timerDisplay();
@@ -205,7 +205,8 @@ events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.r
         try { castSession = await require('./cast').castSite(cfg.chromecast, 'http://' + core.ip + ':' + core.port + '/index.html?mode=' + core.getMode()); }
         catch (_) { console.error('[cast] подключение недоступно'); }
     }
-    await tick(); setInterval(tick, 2000); pollCycle(); setInterval(pollCycle, POLL_MS); // первый цикл — сразу при запуске
+    // Надзор раз в 5 с: повтор восстановления окна — 5 с, «окно молчит» — 45 с (RecoveryController).
+    await tick(); setInterval(tick, 5000); pollCycle(); setInterval(pollCycle, POLL_MS); // первый цикл — сразу при запуске
     if (!nativeUI && process.env.LOST_SUPERVISED === '1') {
         run('/usr/bin/open', [path.join(ROOT, 'LOST.app')], { timeout: 5000 }).catch(() => {});
     }

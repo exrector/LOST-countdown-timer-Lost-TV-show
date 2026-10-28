@@ -77,5 +77,6 @@
  function value(status){return status==='connected'?String(state.location||'ПОДКЛЮЧЁН').toUpperCase():status==='disconnected'?'ОТКЛЮЧЁН':status==='connecting'?'ПОДКЛЮЧЕНИЕ':'НЕТ ДАННЫХ';}
  window.LostVPN={menu:menu,title:title,execute:execute,status:function(){return state;}};
  window.addEventListener('lost-modules',function(e){var m=e.detail&&e.detail.vpn;if(m){state.enabled=m.enabled;paint();if(m.enabled)poll();}});
- paint();poll();timer=setInterval(poll,5000);window.addEventListener('pagehide',function(){clearInterval(timer);});
+ paint();poll();timer=setInterval(poll,30000); // данные VPN меняются раз в 2 мин (общий цикл станции)
+ window.addEventListener('pagehide',function(){clearInterval(timer);});
 })();
