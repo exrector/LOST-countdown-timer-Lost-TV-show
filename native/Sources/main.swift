@@ -87,11 +87,18 @@ final class StationAudio {
         let startTime = AVAudioTime(hostTime: host)
         for key in ordered {
             guard let node = nodes[key] else { continue }
+            // isRunning can still be true while Core Audio is rebuilding the graph
+            // (another process starting voice processing on this output). The
+            // configuration-change notification arrives later; until then play raises.
+            if let failure = LOSTCatchException({ node.play(at: startTime) }) {
+                record(["event": "play-error", "key": key, "error": failure])
+                stopAll(); engine.stop(); start()
+                return
+            }
             if let buffer = buffers[key] {
                 let duration = Double(buffer.frameLength) / buffer.format.sampleRate
                 activeUntil[key] = host + AVAudioTime.hostTime(forSeconds: duration)
             }
-            node.play(at: startTime)
             record(["event": "scheduled", "key": key, "hostStart": host,
                     "requestedAt": batch[key]?["requestedAt"] ?? 0, "left": batch[key]?["left"] ?? -1,
                     "volume": node.volume, "leadMs": (AVAudioTime.seconds(forHostTime: host) - AVAudioTime.seconds(forHostTime: mach_absolute_time())) * 1000])

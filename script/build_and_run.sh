@@ -9,7 +9,10 @@ case "$MODE" in run|--debug|--logs|--telemetry|--verify|--build-only|--preview) 
 # the code-signing resource seal after transfer to the Intel station.
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$ROOT/native/.module-cache"
-xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation "$ROOT/native/Sources/main.swift" "$ROOT/native/Sources/StationMicrophone.swift" -o "$BUNDLE/Contents/MacOS/LOSTNative"
+# Swift cannot catch NSException; a one-function Objective-C shim does (see LOSTObjC.h).
+OBJ="$(mktemp -d)"; trap 'rm -rf "$OBJ"' EXIT
+xcrun clang -c -fobjc-arc -O2 -target "$TARGET_ARCH-apple-macosx12.0" "$ROOT/native/Sources/LOSTObjC.m" -o "$OBJ/LOSTObjC.o"
+xcrun swiftc -module-cache-path "$ROOT/native/.module-cache" -swift-version 5 -O -target "$TARGET_ARCH-apple-macosx12.0" -framework AppKit -framework WebKit -framework Carbon -framework AVFoundation -import-objc-header "$ROOT/native/Sources/LOSTObjC.h" "$ROOT/native/Sources/main.swift" "$ROOT/native/Sources/StationMicrophone.swift" "$OBJ/LOSTObjC.o" -o "$BUNDLE/Contents/MacOS/LOSTNative"
 if [ -f "$ROOT/native/Resources/LOST.icns" ]; then
  mkdir -p "$BUNDLE/Contents/Resources"; cp "$ROOT/native/Resources/LOST.icns" "$BUNDLE/Contents/Resources/LOST.icns"
 fi
@@ -32,7 +35,11 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
-/usr/bin/codesign --force --sign - "$BUNDLE"
+# An ad-hoc signature's default designated requirement is the cdhash, which changes
+# on every rebuild, and macOS then revokes the microphone grant. Pin it to the bundle
+# identifier so a rebuilt LOST keeps its permission.
+/usr/bin/codesign --force --sign - --identifier com.exrector.lost.native \
+ --requirements '=designated => identifier "com.exrector.lost.native"' "$BUNDLE"
 case "$MODE" in
  --build-only) echo "$BUNDLE" ;;
  --preview) node "$ROOT/script/preview.cjs" "$BUNDLE" "$ROOT" "${LOST_PREVIEW_DIR:-$ROOT/.preview}" ;;
