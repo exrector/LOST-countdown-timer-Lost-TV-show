@@ -19,6 +19,13 @@ class NativeBundleContractTests(unittest.TestCase):
         self.assertIn("<key>NSMicrophoneUsageDescription</key>", source)
         self.assertIn("<key>CFBundleShortVersionString</key><string>1.1</string>", source)
 
+    def test_microphone_hotplug_uses_notification_names_available_to_monterey_swift(self):
+        source = (ROOT / "native/Sources/StationMicrophone.swift").read_text()
+        self.assertIn('Notification.Name("AVCaptureDeviceWasConnectedNotification")', source)
+        self.assertIn('Notification.Name("AVCaptureDeviceWasDisconnectedNotification")', source)
+        self.assertNotIn("AVCaptureDevice.wasConnectedNotification", source)
+        self.assertNotIn("AVCaptureDevice.wasDisconnectedNotification", source)
+
     def test_keyboard_layout_indicator_is_read_only_and_uses_macos_source(self):
         source = (ROOT / "native/Sources/main.swift").read_text()
         console = (ROOT / "console.html").read_text()
