@@ -56,16 +56,18 @@ test('help lists LOST commands with their words, the code and the Mac mini comma
     assert.deepEqual(calls, []);
 });
 
-test('status: timer, power, VPN, AI and the windows; switched-off modules are not mentioned', () => {
+test('status is the one full reply: Live timer, every switched-on module, terminal health; dry upper-case lines', () => {
     const ups = { online: true, vars: { 'ups.status': 'OL', 'battery.charge': '100', 'battery.runtime': '4650', 'ups.load': '6' } };
-    const modules = { ups: { enabled: true, status: 'ready' }, vpn: { enabled: true, status: 'ready', location: 'NEW YORK' }, muse: { enabled: true, status: 'ready' }, flame: { enabled: true, status: 'ready' } };
-    const components = { terminal: { status: 'ready' }, timer: { status: 'ready' } };
-    assert.equal(formatStatus({ timer: { mode: 'live', left: 1416, paused: false, phase: 'countdown' }, modules, components, ups }),
-        'LOST · LIVE\nТаймер: идёт, осталось 24 мин\nПитание: сеть · заряд 100 % · резерв 78 мин · нагрузка 6 %\nVPN: CONNECTED: NEW YORK\nAI (Kay): готов\nТерминал: на связи · экран таймера: на связи');
-    assert.equal(formatStatus({ timer: { mode: 'live', left: 200, paused: true, phase: 'countdown' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'ready', location: '' }, muse: { enabled: false } }, ups: { online: true, vars: { 'ups.status': 'OB DISCHRG', 'battery.charge': '40' } } }),
-        'LOST · LIVE\nТаймер: пауза, осталось 3:20 — можно вводить код\nПитание: БАТАРЕЯ · заряд 40 %\nVPN: DISCONNECTED');
-    assert.equal(formatStatus({ timer: { mode: 'dev', left: -5, phase: 'failure' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'unavailable' } }, ups: null }),
-        'LOST · DEV\nТаймер: СБОЙ — нужен код 4 8 15 16 23 42\nПитание: нет данных ИБП\nVPN: NO DATA');
+    const modules = { ups: { enabled: true, status: 'ready' }, vpn: { enabled: true, status: 'ready', location: 'New York' }, muse: { enabled: true, status: 'reconnecting' },
+        flame: { enabled: false, status: 'disabled' }, imessage: { enabled: true, status: 'ready' }, shortcuts: { enabled: true, status: 'error', error: 'нет доступа' } };
+    const components = { terminal: { status: 'ready' }, timer: { status: 'waiting' }, display: { status: 'ready', name: 'Waveshare-625' } };
+    assert.equal(formatStatus({ timer: { left: 1416, paused: false, phase: 'countdown' }, modules, components, ups, core: { uptime: 8040 } }),
+        'ТАЙМЕР: ОСТАЛОСЬ 023.36\nПИТАНИЕ: СЕТЬ · ЗАРЯД 100% · РЕЗЕРВ 077.30 · НАГРУЗКА 6%\nVPN: NEW YORK\nAI: ПЕРЕПОДКЛЮЧЕНИЕ\nПУЛЬТ: ГОТОВ\nMAC MINI: ОШИБКА — НЕТ ДОСТУПА\n' +
+        'ТЕРМИНАЛ: НА СВЯЗИ\nЭКРАН ТАЙМЕРА: НЕТ СВЯЗИ\nДИСПЛЕЙ: WAVESHARE-625\nЯДРО: 2 Ч 14 МИН');
+    assert.equal(formatStatus({ timer: { left: 200, paused: true, phase: 'countdown' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'ready', location: '' } }, ups: { online: true, vars: { 'ups.status': 'OB', 'battery.charge': '40' } } }),
+        'ТАЙМЕР: ПАУЗА 003.20 · ВВОД КОДА\nПИТАНИЕ: БАТАРЕЯ · ЗАРЯД 40%\nVPN: ОТКЛЮЧЁН');
+    assert.equal(formatStatus({ timer: { left: 0, phase: 'failure' }, modules: { ups: { enabled: true }, vpn: { enabled: true, status: 'unavailable' } }, ups: null }),
+        'ТАЙМЕР: СБОЙ\nПИТАНИЕ: НЕТ ДАННЫХ\nVPN: НЕТ ДАННЫХ');
 });
 
 test('words are edited as one line, persist and survive reload; bad edits keep the old words', () => {

@@ -1,46 +1,49 @@
 'use strict';
-// Ответ пульта «статус»: состояние станции несколькими строками — таймер, питание, VPN, AI, связь окон.
-// Только то, что ядро знает само; выключенные модули не упоминаются.
-const STATUS = { ready: 'готов', starting: 'запуск', stopping: 'остановка', error: 'ошибка', not_installed: 'не установлен', unavailable: 'нет данных', degraded: 'нет актуальных данных' };
-const clock = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+// Ответ пульта «статус» — единственный полный ответ: таймер Live, все включённые модули и работоспособность
+// терминала. Сухо, машинно, заглавными — терминал мейнфрейма 70-х (решение владельца 28.10).
+// Dev в пульте не участвует; выключенные модули не упоминаются.
+const STATUS = { ready: 'ГОТОВ', starting: 'ЗАПУСК', stopping: 'ОСТАНОВКА', error: 'ОШИБКА', not_installed: 'НЕ УСТАНОВЛЕН', unavailable: 'НЕТ ДАННЫХ', degraded: 'НЕТ СВЕЖИХ ДАННЫХ', connecting: 'СОЕДИНЕНИЕ', reconnecting: 'ПЕРЕПОДКЛЮЧЕНИЕ', revoked: 'ПАРА ОТОЗВАНА', disabled: 'ВЫКЛЮЧЕН' };
+const MODULES = [['muse', 'AI'], ['flame', 'СТАНЦИИ'], ['imessage', 'ПУЛЬТ'], ['shortcuts', 'MAC MINI']];
+// Время — как на таймере станции: МММ.СС (006.00 — шесть минут, 000.06 — шесть секунд), без единиц.
+const mmss = s => { s = Math.max(0, Math.floor(Number(s) || 0)); return String(Math.floor(s / 60)).padStart(3, '0') + '.' + String(s % 60).padStart(2, '0'); };
+const upper = v => String(v).toUpperCase();
 
-function timerLine({ mode, left, paused, phase }) {
-    const head = 'LOST · ' + String(mode || 'live').toUpperCase();
-    if (phase && phase !== 'countdown') return head + '\nТаймер: СБОЙ — нужен код 4 8 15 16 23 42';
-    if (left == null) return head + '\nТаймер: нет данных';
-    const open = left > 0 && left <= 240;
-    const rest = open ? clock(left) + ' — можно вводить код' : Math.ceil(left / 60) + ' мин';
-    return head + '\nТаймер: ' + (paused ? 'пауза, ' : 'идёт, ') + 'осталось ' + rest;
+// live — clock.sample('live')
+function timerLine({ left, paused, phase }) {
+    if (phase && phase !== 'countdown') return 'ТАЙМЕР: СБОЙ';
+    if (left == null) return 'ТАЙМЕР: НЕТ ДАННЫХ';
+    const rest = mmss(left) + (left > 0 && left <= 240 ? ' · ВВОД КОДА' : '');
+    return 'ТАЙМЕР: ' + (paused ? 'ПАУЗА ' : 'ОСТАЛОСЬ ') + rest;
 }
 // ups — ответ агента ИБП (/state) или null, если его не спросить.
 function powerLine(ups) {
-    if (!ups || !ups.online || !ups.vars) return 'Питание: нет данных ИБП';
+    if (!ups || !ups.online || !ups.vars) return 'ПИТАНИЕ: НЕТ ДАННЫХ';
     const v = ups.vars, flags = String(v['ups.status'] || '').split(/\s+/);
-    const source = flags.includes('OB') ? 'БАТАРЕЯ' : flags.includes('OL') ? 'сеть' : String(v['ups.status'] || '?');
-    const parts = ['Питание: ' + source];
-    if (v['battery.charge'] != null) parts.push('заряд ' + v['battery.charge'] + ' %');
-    if (v['battery.runtime'] != null) parts.push('резерв ' + Math.round(Number(v['battery.runtime']) / 60) + ' мин');
-    if (v['ups.load'] != null) parts.push('нагрузка ' + v['ups.load'] + ' %');
-    return parts.join(' · ');
+    const parts = [flags.includes('OB') ? 'БАТАРЕЯ' : flags.includes('OL') ? 'СЕТЬ' : upper(v['ups.status'] || '?')];
+    if (v['battery.charge'] != null) parts.push('ЗАРЯД ' + v['battery.charge'] + '%');
+    if (v['battery.runtime'] != null) parts.push('РЕЗЕРВ ' + mmss(v['battery.runtime']));
+    if (v['ups.load'] != null) parts.push('НАГРУЗКА ' + v['ups.load'] + '%');
+    return 'ПИТАНИЕ: ' + parts.join(' · ');
 }
-function moduleLine(label, m) {
-    if (!m || m.enabled === false) return null;
-    return label + ': ' + (STATUS[m.status] || m.status || 'нет данных') + (m.error ? ' (' + m.error + ')' : '');
-}
+function state(m) { return (STATUS[m.status] || upper(m.status || 'НЕТ ДАННЫХ')) + (m.error ? ' — ' + upper(m.error) : ''); }
 function vpnLine(m) {
-    if (!m || m.enabled === false) return null;
-    if (m.status === 'ready') return 'VPN: ' + (m.location ? 'CONNECTED: ' + m.location : 'DISCONNECTED');
-    return 'VPN: ' + (m.status === 'unavailable' ? 'NO DATA' : (STATUS[m.status] || m.status));
+    if (m.status === 'ready') return 'VPN: ' + (m.location ? upper(m.location) : 'ОТКЛЮЧЁН');
+    return 'VPN: ' + state(m);
 }
-function windowsLine(components = {}) {
-    const one = c => c && c.status === 'ready' ? 'на связи' : 'нет связи';
-    return 'Терминал: ' + one(components.terminal) + ' · экран таймера: ' + one(components.timer);
+const link = c => c && c.status === 'ready' ? 'НА СВЯЗИ' : 'НЕТ СВЯЗИ';
+function uptime(s) { s = Math.floor(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + ' Ч ' : '') + m + ' МИН'; }
+
+function formatStatus({ timer, modules = {}, components, ups, core }) {
+    const on = id => modules[id] && modules[id].enabled !== false;
+    const lines = [timerLine(timer || {})];
+    if (on('ups')) lines.push(powerLine(ups));
+    if (on('vpn')) lines.push(vpnLine(modules.vpn));
+    for (const [id, label] of MODULES) if (on(id)) lines.push(label + ': ' + state(modules[id]));
+    if (components) {
+        lines.push('ТЕРМИНАЛ: ' + link(components.terminal), 'ЭКРАН ТАЙМЕРА: ' + link(components.timer));
+        if (components.display) lines.push('ДИСПЛЕЙ: ' + (components.display.status === 'ready' && components.display.name ? upper(components.display.name) : 'НЕТ'));
+    }
+    if (core && core.uptime != null) lines.push('ЯДРО: ' + uptime(core.uptime));
+    return lines.join('\n');
 }
-function formatStatus({ timer, modules = {}, components, ups }) {
-    const lines = [timerLine(timer)];
-    if (modules.ups && modules.ups.enabled !== false) lines.push(powerLine(ups));
-    lines.push(vpnLine(modules.vpn), moduleLine('AI (Kay)', modules.muse));
-    if (components) lines.push(windowsLine(components));
-    return lines.filter(Boolean).join('\n');
-}
-module.exports = { formatStatus };
+module.exports = { formatStatus, mmss };
