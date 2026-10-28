@@ -18,13 +18,24 @@ private final class MicrophoneNoRedirects: NSObject, URLSessionTaskDelegate {
     }
 }
 
-final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
+final class StationMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+    // Apple voice processing (exrector/apple-voice-processing) publishes the cleaned
+    // microphone as this Loopback device and rewrites its status every 5 s while audio
+    // flows. Without a fresh status the raw default microphone is recorded instead.
+    private static let processedName = "Apple Voice Processed Mic"
+    private static let processorStatus = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/AppleVoiceProcessor/status.json")
+    // muse/chat_adapter.py accepts exactly 16-kHz mono signed-16-bit PCM WAV.
+    private static let rate = 16000.0
+    private static let maxSeconds = 45.0
     private let update: ([String: Any]) -> Void
     private let endpoint: URL?
     private let origin: String?
-    private var recorder: AVAudioRecorder?
-    private var directory: URL?
-    private var fileURL: URL?
+    private let captureQueue = DispatchQueue(label: "com.exrector.lost.microphone")
+    private var capture: AVCaptureSession?
+    private var dataOutput: AVCaptureAudioDataOutput?
+    private var pcm = Data() // held in memory only, never written to disk
+    private var deviceName = ""
     private var meterTimer: Timer?
     private var uploadTask: URLSessionUploadTask?
     private var disconnectObserver: NSObjectProtocol?
@@ -76,12 +87,10 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
 
     deinit {
         meterTimer?.invalidate()
-        recorder?.delegate = nil
-        recorder?.stop()
+        capture?.stopRunning()
         uploadTask?.cancel()
         if let observer = disconnectObserver { NotificationCenter.default.removeObserver(observer) }
         if let observer = connectObserver { NotificationCenter.default.removeObserver(observer) }
-        if let directory = directory { try? FileManager.default.removeItem(at: directory) }
     }
 
     func command(_ command: [String: Any]) {
@@ -105,16 +114,31 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
     }
 
     func snapshot() -> [String: Any] {
-        let device = AVCaptureDevice.default(for: .audio)
-        let available = device != nil
-        var value: [String: Any] = ["available": available, "supported": true, "recording": recording,
+        // The meter publishes ten times a second while recording; keep the chosen device then.
+        let name = recording ? deviceName : (captureDevice()?.localizedName ?? "")
+        var value: [String: Any] = ["available": !name.isEmpty, "supported": true, "recording": recording,
                                    "level": level, "elapsed": elapsed, "uploading": uploading,
-                                   "requesting": requesting, "finished": finished, "draftReady": draft != nil, "device": device?.localizedName ?? "", "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "permissionRequests": permissionRequests, "lastCommand": lastCommand]
+                                   "requesting": requesting, "finished": finished, "draftReady": draft != nil, "device": name, "authorization": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "permissionRequests": permissionRequests, "lastCommand": lastCommand]
         value["error"] = errorText ?? ""
         return value
     }
 
     private func publish() { update(snapshot()) }
+
+    private func processorHealthy() -> Bool {
+        guard let data = try? Data(contentsOf: Self.processorStatus),
+              let status = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              status["state"] as? String == "recording", let stamp = status["updatedAt"] as? String,
+              let updated = ISO8601DateFormatter().date(from: stamp) else { return false }
+        return Date().timeIntervalSince(updated) < 15
+    }
+
+    private func captureDevice() -> AVCaptureDevice? {
+        if processorHealthy(), let processed = AVCaptureDevice.devices(for: .audio).first(where: { $0.localizedName == Self.processedName }) {
+            return processed
+        }
+        return AVCaptureDevice.default(for: .audio)
+    }
 
     private func authorize() {
         guard !requesting else { publish(); return }
@@ -137,23 +161,23 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
     }
 
     private func start() {
-        guard !recording, !requesting, !uploading, recorder == nil else { publish(); return }
+        guard !recording, !requesting, !uploading, capture == nil else { publish(); return }
         generation += 1
         let current = generation
         draft = nil
         finished = false; errorText = nil; elapsed = 0; level = 0; wantRecord = true
         guard endpoint != nil, origin != nil else { fail("Недоступен локальный мост голосового ввода"); return }
-        guard let device = AVCaptureDevice.default(for: .audio) else { fail("Микрофон не подключён"); return }
+        guard let device = captureDevice() else { fail("Микрофон не подключён"); return }
         deviceID = device.uniqueID
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: beginRecording(current)
+        case .authorized: beginRecording(current, device)
         case .notDetermined:
             requesting = true; permissionRequests += 1; publish()
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] allowed in
                 DispatchQueue.main.async {
                     guard let self = self, self.generation == current, self.wantRecord else { return }
                     self.requesting = false
-                    if allowed { self.beginRecording(current) }
+                    if allowed { self.beginRecording(current, device) }
                     else { self.fail("macOS не разрешила доступ к микрофону") }
                 }
             }
@@ -162,34 +186,55 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         }
     }
 
-    private func beginRecording(_ current: Int) {
+    private func beginRecording(_ current: Int, _ device: AVCaptureDevice) {
         guard current == generation, wantRecord else { return }
-        guard AVCaptureDevice.default(for: .audio) != nil else { fail("Микрофон отключён"); return }
-        do {
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lost-muse-voice-" + UUID().uuidString, isDirectory: true)
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-            directory = dir
-            let url = dir.appendingPathComponent("voice.wav")
-            fileURL = url
-            let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16000.0,
-                AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
-            let capture = try AVAudioRecorder(url: url, settings: settings)
-            capture.delegate = self; capture.isMeteringEnabled = true; recorder = capture
-            guard capture.prepareToRecord(), capture.record(forDuration: 45) else { fail("Не удалось начать запись с микрофона"); return }
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            recording = capture.isRecording; requesting = false; shouldSend = true; startedAt = Date()
-            guard recording else { fail("Микрофон не начал запись"); return }
-            meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                guard let self = self, self.recording, let capture = self.recorder else { return }
-                capture.updateMeters()
-                self.elapsed = min(45, capture.currentTime)
-                let db = capture.averagePower(forChannel: 0)
-                self.level = max(0, min(1, pow(10, db / 20)))
-                self.publish()
-            }
-            publish()
-        } catch { fail("Не удалось подготовить запись микрофона") }
+        let session = AVCaptureSession()
+        let output = AVCaptureAudioDataOutput()
+        // Core Audio converts the device stream (48 kHz on the processed mic) to the bridge format.
+        output.audioSettings = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: Self.rate,
+            AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false]
+        output.setSampleBufferDelegate(self, queue: captureQueue)
+        guard let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input), session.canAddOutput(output) else {
+            fail("Не удалось подготовить запись микрофона"); return
+        }
+        session.addInput(input); session.addOutput(output)
+        pcm = Data(); capture = session; dataOutput = output; deviceName = device.localizedName
+        session.startRunning()
+        guard session.isRunning else { fail("Микрофон не начал запись"); return }
+        recording = true; requesting = false; shouldSend = true; startedAt = Date()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self, self.recording else { return }
+            self.publish()
+        }
+        publish()
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let format = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+              let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        let length = CMBlockBufferGetDataLength(block)
+        guard length > 0 else { return }
+        let valid = asbd.mFormatID == kAudioFormatLinearPCM && asbd.mSampleRate == Self.rate && asbd.mChannelsPerFrame == 1
+            && asbd.mBitsPerChannel == 16 && asbd.mFormatFlags & (kAudioFormatFlagIsFloat | kAudioFormatFlagIsBigEndian) == 0
+        var bytes = Data(count: length)
+        let status = bytes.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: $0.baseAddress!) }
+        DispatchQueue.main.async { [weak self] in self?.receive(bytes, valid: valid && status == kCMBlockBufferNoErr, from: output) }
+    }
+
+    private func receive(_ bytes: Data, valid: Bool, from output: AVCaptureOutput) {
+        guard output === dataOutput else { return }
+        guard valid else { fail("Микрофон выдал неожиданный формат. Запись отменена"); return }
+        let room = max(0, Int(Self.rate * Self.maxSeconds) * 2 - pcm.count)
+        pcm.append(bytes.prefix(room))
+        elapsed = Double(pcm.count) / (Self.rate * 2)
+        var sum = 0.0, count = 0
+        bytes.withUnsafeBytes { raw in
+            for sample in raw.bindMemory(to: Int16.self) { let v = Double(sample) / 32768; sum += v * v; count += 1 }
+        }
+        level = count > 0 ? Float(min(1, sqrt(sum / Double(count)))) : 0
+        if recording && room <= bytes.count { stopRecording() }
     }
 
     private func stopRecording() {
@@ -197,16 +242,17 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
         if requesting {
             generation += 1; requesting = false; finished = true; publish(); return
         }
-        guard let capture = recorder else { return }
+        guard let session = capture, recording else { return }
         shouldSend = true
-        elapsed = max(elapsed, capture.currentTime)
         recording = false; level = 0
         meterTimer?.invalidate(); meterTimer = nil
-        capture.stop()
-        // stop() finalizes the WAV; delegate and fallback share an identity guard.
-        DispatchQueue.main.async { [weak self, weak capture] in
-            guard let self = self, let capture = capture, self.recorder === capture else { return }
-            self.finalize(capture, successful: true)
+        session.stopRunning()
+        // Buffers already on the capture queue still hop to main; let them land first.
+        captureQueue.async { [weak self, weak session] in
+            DispatchQueue.main.async {
+                guard let self = self, let session = session, self.capture === session else { return }
+                self.finish()
+            }
         }
         publish()
     }
@@ -214,7 +260,7 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
     private func cancelCapture(error: String?) {
         generation += 1; wantRecord = false; requesting = false; shouldSend = false; draft = nil
         meterTimer?.invalidate(); meterTimer = nil
-        recorder?.delegate = nil; recorder?.stop(); recorder = nil
+        capture?.stopRunning(); capture = nil; dataOutput = nil
         uploadTask?.cancel(); uploadTask = nil
         recording = false; uploading = false; level = 0; finished = true; errorText = error
         cleanup(); publish()
@@ -222,41 +268,31 @@ final class StationMicrophone: NSObject, AVAudioRecorderDelegate {
 
     private func fail(_ message: String) { cancelCapture(error: message) }
 
-    private func cleanup() {
-        if let directory = directory { try? FileManager.default.removeItem(at: directory) }
-        directory = nil; fileURL = nil; startedAt = nil
-    }
+    private func cleanup() { pcm = Data(); startedAt = nil }
 
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.audioRecorderDidFinishRecording(recorder, successfully: flag) }; return }
-        finalize(recorder, successful: flag)
-    }
-
-    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.audioRecorderEncodeErrorDidOccur(recorder, error: error) }; return }
-        guard self.recorder === recorder else { return }
-        fail("Ошибка микрофона. Запись не отправлена")
-    }
-
-    private func finalize(_ capture: AVAudioRecorder, successful: Bool) {
-        guard recorder === capture else { return }
-        elapsed = max(elapsed, capture.currentTime)
-        if let startedAt = startedAt { elapsed = min(45, max(elapsed, Date().timeIntervalSince(startedAt))) }
-        recorder = nil; recording = false; requesting = false; wantRecord = false; level = 0; finished = true
+    private func finish() {
+        let held = startedAt.map { Date().timeIntervalSince($0) } ?? 0
+        capture = nil; dataOutput = nil; recording = false; requesting = false; wantRecord = false; level = 0; finished = true
         meterTimer?.invalidate(); meterTimer = nil
-        capture.delegate = nil
-        guard successful, shouldSend else { fail("Запись не завершена. Сообщение не отправлено"); return }
+        guard shouldSend else { fail("Запись не завершена. Сообщение не отправлено"); return }
+        if pcm.isEmpty && held >= 0.15 { fail("Микрофон не передал звук. Сообщение не отправлено"); return }
         guard elapsed >= 0.15 else { cleanup(); errorText = nil; publish(); return }
-        guard let url = fileURL else { fail("Запись недоступна"); return }
-        do {
-            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size > 44, size <= maxBytes else { fail("Недопустимая длина голосовой записи"); return }
-            let data = try Data(contentsOf: url)
-            guard data.count == size, data.starts(with: Data("RIFF".utf8)), data.count >= 12,
-                  data.subdata(in: 8..<12) == Data("WAVE".utf8) else { fail("Не удалось завершить WAV-запись"); return }
-            cleanup()
-            draft = data; errorText = nil; publish()
-        } catch { fail("Не удалось прочитать голосовую запись") }
+        let data = Self.wav(pcm)
+        cleanup()
+        guard data.count > 44, data.count <= maxBytes else { fail("Недопустимая длина голосовой записи"); return }
+        draft = data; errorText = nil; publish()
+    }
+
+    // Canonical 44-byte PCM header: Python's wave module rejects extensible/odd layouts.
+    private static func wav(_ pcm: Data) -> Data {
+        var data = Data(capacity: 44 + pcm.count)
+        func text(_ value: String) { data.append(contentsOf: Array(value.utf8)) }
+        func u32(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        func u16(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        text("RIFF"); u32(UInt32(36 + pcm.count)); text("WAVE")
+        text("fmt "); u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate) * 2); u16(2); u16(16)
+        text("data"); u32(UInt32(pcm.count)); data.append(pcm)
+        return data
     }
 
     private func sendDraft() {
