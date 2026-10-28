@@ -68,3 +68,10 @@ test('router forced command validates complete input and arguments before dispat
     assert.match(invoke('connect New York').stdout, /ARG:New York/);
     assert.match(invoke('exclusions-add general example.com').stdout, /ARG:example.com \*\.example.com/);
 });
+
+test('the 60 s poll timer firing a moment early still polls: readings never go stale between polls', async () => {
+    let clock = 0, calls = 0, tick = null;
+    const vpn = createVPN({ config, now: () => clock, run: async () => { calls++; return { stdout: 'Connected to NEW YORK in TUN mode' }; }, setTimer: fn => { tick = fn; return 1; }, clearTimer: () => {} });
+    vpn.setEnabled(true); await new Promise(r => setImmediate(r));
+    for (let i = 1; i <= 3; i++) { clock = i * 60000 - 5; await tick(); assert.equal(calls, i + 1, 'poll ' + i); assert.equal(vpn.snapshot().status, 'connected'); }
+});

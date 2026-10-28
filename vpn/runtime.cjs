@@ -104,8 +104,11 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
             throw Error('router_unavailable');
         }
     }
+    // Повтор не раньше, чем через полинтервала: таймер срабатывает чуть раньше intervalMs после прошлой попытки,
+    // и при строгом «< intervalMs» каждый второй опрос пропускался — опрос шёл раз в 120 с, а показания
+    // старше staleMs (90 с) «устаревали» (28.10, ответ «статус»: VPN: НЕТ ДАННЫХ — ПОКАЗАНИЯ VPN УСТАРЕЛИ).
     async function refresh({ force = false } = {}) {
-        if (!enabled || !installed || busy || !force && now() - lastAttempt < intervalMs) return snapshot();
+        if (!enabled || !installed || busy || !force && now() - lastAttempt < intervalMs / 2) return snapshot();
         busy = true; const ownGeneration = generation;
         try { await readStatus(ownGeneration); } catch (_) {} finally { busy = false; }
         return snapshot();
