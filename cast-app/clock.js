@@ -49,11 +49,17 @@ class StationClock {
         }
     }
 
-    sample() {
+    // mode — какой таймер: по умолчанию текущий; пульт всегда просит 'live' (Dev — только для разработки).
+    _slot(mode) {
+        if (mode !== 'live' && mode !== 'dev') throw new RangeError('Unknown clock mode');
+        return this._slots[mode];
+    }
+
+    sample(mode = this._mode) {
         this._settle();
-        const slot = this._slots[this._mode];
+        const slot = this._slot(mode);
         return {
-            mode: this._mode,
+            mode,
             left: Math.max(0, Math.ceil(slot.left)),
             rawLeft: slot.left,
             paused: slot.paused,
@@ -80,17 +86,17 @@ class StationClock {
         this._mode = mode;
     }
 
-    setPaused(paused) {
+    setPaused(paused, mode = this._mode) {
         this._settle();
-        this._slots[this._mode].paused = Boolean(paused);
+        this._slot(mode).paused = Boolean(paused);
     }
 
-    reset(seconds = DEFAULT_SECONDS) {
+    reset(seconds = DEFAULT_SECONDS, mode = this._mode) {
         if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0 || !Number.isInteger(seconds)) {
             throw new RangeError('Reset seconds must be a finite nonnegative integer');
         }
         this._settle();
-        const slot = this._slots[this._mode];
+        const slot = this._slot(mode);
         slot.left = seconds;
         slot.cycle += 1;
     }

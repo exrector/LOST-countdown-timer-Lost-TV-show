@@ -28,30 +28,32 @@ test('Kay: the question goes to the shared chat marked [iMessage]; the reply aft
         if (t === 6) s.phase = 'idle';
     } });
     const kay = createKay({ send: m.send, chat: m.chat, ...fast });
-    assert.equal(await kay.ask('как дела?'), 'Kay: Первая часть\n\nВторая часть');
+    assert.equal(await kay.ask('как дела?'), 'KAY: Первая часть\n\nВторая часть');
     assert.deepEqual(m.sent, ['[iMessage] как дела?']);
     const home = muse({ step: (s, t) => { if (t === 2) { s.messages.push({ id: 'a', role: 'assistant', text: 'Да' }); s.phase = 'idle'; } } });
-    assert.equal(await createKay({ send: home.send, chat: home.chat, ...fast }).ask('ты тут?', 'сеть'), 'Kay: Да');
+    assert.equal(await createKay({ send: home.send, chat: home.chat, ...fast }).ask('ты тут?', 'сеть'), 'KAY: Да');
     assert.deepEqual(home.sent, ['[Команды iPhone] ты тут?']);
 });
 
 test('Kay: busy, offline, Muse error, silence and timeout give one clear answer', async () => {
-    assert.match(await createKay({ ...muse({ send: { ok: false, error: 'busy' } }), ...fast }).ask('x'), /^Kay занят/);
-    assert.equal(await createKay({ ...muse({ send: { ok: false, error: 'not_connected' } }), ...fast }).ask('x'), 'Kay не на связи.');
-    assert.match(await createKay({ ...muse({}), ready: () => false, ...fast }).ask('x'), /^Kay не на связи: модуль AI выключен/);
+    assert.match(await createKay({ ...muse({ send: { ok: false, error: 'busy' } }), ...fast }).ask('x'), /^KAY: ЗАНЯТ$/);
+    assert.equal(await createKay({ ...muse({ send: { ok: false, error: 'not_connected' } }), ...fast }).ask('x'), 'KAY: НЕТ СВЯЗИ');
+    let t0 = 0; const offline = muse({});
+    assert.equal(await createKay({ send: offline.send, chat: offline.chat, ready: () => false, pollMs: 1000, wait: async ms => { t0 += ms; }, now: () => t0 }).ask('x'), 'KAY: НЕТ СВЯЗИ');
+    assert.equal(t0, 30000, 'waits 30 s for Muse to reconnect');assert.equal(offline.sent.length, 0);
     const failing = muse({ step: (s, t) => { if (t === 2) { s.phase = 'error'; s.error = 'Muse не завершил ответ за 90 секунд'; } } });
-    assert.equal(await createKay({ send: failing.send, chat: failing.chat, ...fast }).ask('x'), 'Kay: ошибка — Muse не завершил ответ за 90 секунд.');
+    assert.equal(await createKay({ send: failing.send, chat: failing.chat, ...fast }).ask('x'), 'KAY: ОШИБКА — MUSE НЕ ЗАВЕРШИЛ ОТВЕТ ЗА 90 СЕКУНД');
     const silent = muse({ step: (s, t) => { if (t === 2) s.phase = 'idle'; } });
-    assert.equal(await createKay({ send: silent.send, chat: silent.chat, ...fast }).ask('x'), 'Kay ничего не ответил.');
+    assert.equal(await createKay({ send: silent.send, chat: silent.chat, ...fast }).ask('x'), 'KAY: НЕТ ОТВЕТА');
     let clock = 0; const stuck = muse({});
-    assert.match(await createKay({ send: stuck.send, chat: stuck.chat, pollMs: 0, wait: async () => { clock += 30000; }, now: () => clock, timeoutMs: 120000 }).ask('x'), /^Kay не ответил за 2 мин/);
+    assert.match(await createKay({ send: stuck.send, chat: stuck.chat, pollMs: 0, wait: async () => { clock += 30000; }, now: () => clock, timeoutMs: 120000 }).ask('x'), /^KAY: НЕТ ОТВЕТА ЗА 2 МИН$/);
 });
 
 test('a long Kay reply is cut with a pointer to the station', async () => {
     const m = muse({ step: (s, t) => { if (t === 2) { s.messages.push({ id: 'a', role: 'assistant', text: 'я'.repeat(5000) }); s.phase = 'idle'; } } });
     const answer = await createKay({ send: m.send, chat: m.chat, ...fast }).ask('x');
     assert.ok(answer.length < 3600);
-    assert.match(answer, /… \(полностью — в AI на станции\)$/);
+    assert.match(answer, /… \(ПОЛНОСТЬЮ — В AI\)$/);
 });
 
 test('the remote sends «kay: …» to Kay before any command words; Kay\'s answer goes without the status block', async () => {
@@ -59,7 +61,13 @@ test('the remote sends «kay: …» to Kay before any command words; Kay\'s answ
     const actions = new Proxy({}, { get: (_, id) => () => { calls.push(id); return ''; } });
     const r = createRemote({ actions, kay: { ask: async q => 'Kay: принял «' + q + '»' } });
     assert.deepEqual(await r.run('кай: поставь стоп и статус', 'imessage', '+7'), { text: 'Kay: принял «поставь стоп и статус»', bare: true });
-    assert.deepEqual(await createRemote({ actions }).run('kay: x', 'imessage'), { text: 'Kay не подключён.', bare: true });
+    assert.deepEqual(await createRemote({ actions }).run('kay: x', 'imessage'), { text: 'KAY: НЕ ПОДКЛЮЧЁН', bare: true });
     assert.deepEqual(calls, []);
-    assert.match(r.run('help', 'imessage').text, /• KAY: «kay: вопрос» или «кай: вопрос»/);
+    assert.match(r.run('help', 'imessage').text, /\nKAY: KAY: ВОПРОС\n/);
+});
+
+test('a question that arrives while Muse reconnects waits for the link instead of answering НЕТ СВЯЗИ', async () => {
+    let t = 0; const m = muse({ step: (s, n) => { if (n === 2) { s.phase = 'idle'; s.messages.push({ id: 'a1', role: 'assistant', text: 'На связи' }); } } });
+    const answer = await createKay({ send: m.send, chat: m.chat, ready: () => t >= 12000, pollMs: 1000, wait: async ms => { t += ms; }, now: () => t }).ask('привет');
+    assert.equal(answer, 'KAY: На связи');assert.equal(m.sent.length, 1);
 });
