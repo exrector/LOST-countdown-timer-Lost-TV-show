@@ -119,3 +119,21 @@ test('Mac mini commands module switched off: the terminal gets a refusal and not
   await until(()=>got.length>0);assert.equal(got[0].text,'ошибка: модуль «Команды Mac mini» выключен');
  }finally{con.close();await stop(child);}
 });
+
+test('remote replies are one short line: status, pause, start, code, with the minutes left',async()=>{
+ const f=fixture({audio:'off',mode:'live',live:{left:1140,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
+ const cmd=async t=>(await request(port,'/__cmd?text='+encodeURIComponent(t))).body;
+ try{
+  assert.equal(await cmd('статус'),'LIVE 19');
+  assert.equal(await cmd('4 8 15 16 23 42'),'КОД НЕ ПРИНЯТ 19');
+  assert.equal(await cmd('пауза'),'ПАУЗА 19');
+  assert.equal(await cmd('статус'),'LIVE ПАУЗА 19');
+  assert.equal(await cmd('старт'),'СТАРТ 19');
+  assert.match(await cmd('LOST test: abracadabra'),/^Не понял «LOST test: abracadabra»\. Список команд — «help»\.$/);
+ }finally{await stop(child);}
+});
+test('the right code in the last four minutes answers КОД ПРИНЯТ with the new 108 minutes',async()=>{
+ const f=fixture({audio:'off',mode:'live',live:{left:200,paused:false},dev:{left:6480,paused:true}});const {child,port}=await boot(f.dir);
+ try{assert.equal((await request(port,'/__cmd?text='+encodeURIComponent('4 8 15 16 23 42'))).body,'КОД ПРИНЯТ 108');}
+ finally{await stop(child);fs.rmSync(f.dir,{recursive:true,force:true});}
+});

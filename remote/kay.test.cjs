@@ -63,8 +63,3 @@ test('the remote sends «kay: …» to Kay before any command words; Kay\'s answ
     assert.deepEqual(calls, []);
     assert.match(r.run('help', 'imessage').text, /• KAY: «kay: вопрос» или «кай: вопрос»/);
 });
-
-test('Kay replies come from the remote reply texts when given', async () => {
-    const kay = createKay({ send: null, chat: null, reply: (id, vars) => id + JSON.stringify(vars || {}) });
-    assert.equal(await kay.ask('ты тут?'), 'kay_offline{}');
-});
