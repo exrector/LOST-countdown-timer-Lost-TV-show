@@ -185,10 +185,9 @@ function start(port = 8765, opts = {}) {
         });
     }
     // «статус» — единственный полный ответ: таймер Live, включённые модули, экраны таймера и терминала, дисплей.
-    // Ответ ждёт конца ближайшего общего цикла опроса (opts.nextPoll, раз в 2 мин; start.js) и уходит с только что
-    // собранными данными; отдельного опроса под «статус» нет. Зависший цикл держит ответ не дольше 150 с.
+    // Отвечает сразу тем, что уже собрал общий цикл опроса (start.js, раз в 2 мин): данные не старше цикла,
+    // своего опроса и ожидания у «статуса» нет (решение владельца 28.10). Агент ИБП отдаёт свои последние показания.
     async function statusText() {
-        if (opts.nextPoll) await Promise.race([Promise.resolve().then(opts.nextPoll).catch(() => {}), new Promise(r => setTimeout(r, 150000).unref())]);
         const modules = moduleManager.snapshot();
         const ups = modules.ups && modules.ups.enabled !== false ? await readUPS() : null;
         return formatStatus({ timer: clock.sample('live'), modules, components: opts.getRuntimeStatus ? opts.getRuntimeStatus() : null, ups });
