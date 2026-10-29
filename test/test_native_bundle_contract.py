@@ -69,6 +69,10 @@ class NativeBundleContractTests(unittest.TestCase):
         self.assertIn("now.timeIntervalSince(lastDesktopToggle) < 0.5", main)
         self.assertIn('appendingPathComponent("native-keys.log")', main)
 
+    def test_shown_station_reclaims_focus(self):
+        main = (ROOT / "native/Sources/main.swift").read_text()
+        self.assertIn("if stationShown && !NSApp.isActive {", main)
+
     def test_keyboard_layout_indicator_is_read_only_and_uses_macos_source(self):
         source = (ROOT / "native/Sources/main.swift").read_text()
         console = (ROOT / "console.html").read_text()
