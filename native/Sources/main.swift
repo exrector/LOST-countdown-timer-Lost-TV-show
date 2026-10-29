@@ -468,6 +468,14 @@ final class StationApp: NSObject, NSApplicationDelegate {
     }
     func tick() {
         if !ownerAlive() { ending = true; NSApp.terminate(nil); return }
+        // 2026-10-29: after an unclean shutdown macOS 12 leaves its boot progress app (Installer
+        // Progress, background-only, no visible window) frontmost; our windows stay on top but keys
+        // reach nobody. While the station is shown it must also be the active app.
+        if stationShown && !NSApp.isActive {
+            logKey("focus reclaimed from \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "-")")
+            NSApp.activate(ignoringOtherApps: true)
+            pages["console"]?.window.makeKeyAndOrderFront(nil)
+        }
         publishInputSource()
         guard let statusURL = statusURL else { return }
         // Same-user control file also works from SSH without GUI automation permissions.
