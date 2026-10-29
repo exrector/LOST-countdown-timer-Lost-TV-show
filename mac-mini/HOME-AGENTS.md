@@ -104,3 +104,5 @@
 
 ---
 _Создан 2026-10-29 (Claude)._
+
+- 2026-10-29 14:27 — установлена версия `lost-boot-guard`, которая только чистит `/var/db/PanicReporter` при каждой загрузке (исходник: `/usr/local/libexec/lost-boot-guard.sh`, копия в репозитории LOST `script/mini-boot-guard/`). Удаление службы: `sudo sh ~/LOST-bootguard/uninstall.sh`.
