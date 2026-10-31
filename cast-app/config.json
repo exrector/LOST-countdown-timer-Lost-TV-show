@@ -8,7 +8,9 @@
     "height": 720,
     "scale": 1.04
   },
-  "sleepFrom": [],
+  "sleepFrom": [
+    "+79523713710"
+  ],
   "renderer": "native",
   "liveInDev": true
 }
