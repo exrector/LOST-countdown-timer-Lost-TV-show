@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Lost Timer - Main</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+        
+        <script src="js/jquery-3.5.1.min.js"></script>
+        <link href="css/lost-timer.css" rel="stylesheet" type="text/css">
+        
+        <script src="js/lost-timer.js"></script>
+        <script>
+            let consoleWindow = null;
+            let consoleBuffer = '';
+            
+            $(function() {
+                const urlParams = new URLSearchParams(window.location.search);
+
+                // URL param or default 108 min
+                const urlSeconds = urlParams.get('seconds') ? parseInt(urlParams.get('seconds')) : null;
+                const initialSec = urlSeconds || 60 * 108;
+
+                // Pre-fill custom minutes input with current value
+                const isKiosk = urlParams.get('kiosk') === 'true';
+                var timerHeight;
+
+                if (isKiosk) {
+                    timerHeight = Math.floor(($(window).width() - 65) / 3.1);
+                    $('body').addClass('kiosk');
+                    $('.timer-modes').hide();
+                } else {
+                    timerHeight = $(window).width() > 700 ? 200 : 70;
+                }
+
+                function sendConsoleState() {
+                    if (!consoleWindow || consoleWindow.closed) return;
+
+                    consoleWindow.postMessage({
+                        type: 'consoleState',
+                        enabled: timer.totalSeconds <= 240 && timer.totalSeconds > 0,
+                        remainingTime: timer.totalSeconds,
+                        value: consoleBuffer
+                    }, '*');
+                }
+
+                const timer = new lostTimer({
+                    initialSeconds: initialSec,
+                    mode: urlParams.get('mode'),
+                    height: timerHeight,
+                    onTick: sendConsoleState
+                });
+
+                // Open the console as a normal tab so Chrome can cast it.
+                document.getElementById('openConsole').addEventListener('click', () => {
+                    consoleWindow = window.open('console.html?cast=true', 'LostChromecastConsole');
+                    if (!consoleWindow) {
+                        alert('Chrome заблокировал вкладку консоли. Разрешите всплывающие окна для этого файла.');
+                        return;
+                    }
+                    consoleWindow.focus();
+                });
+
+                // Keep the timer visible on the Mac. During the final four minutes,
+                // typing here is mirrored to the console tab being cast.
+                document.addEventListener('keydown', (event) => {
+                    const consoleEnabled = timer.totalSeconds <= 240 && timer.totalSeconds > 0;
+                    if (!consoleEnabled || event.metaKey || event.ctrlKey || event.altKey) return;
+
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        const submittedValue = consoleBuffer;
+                        consoleBuffer = '';
+                        sendConsoleState();
+                        if (submittedValue === timer.theNumbersString) {
+                            timer.reset();
+                        }
+                        return;
+                    }
+
+                    if (event.key === 'Backspace') {
+                        event.preventDefault();
+                        consoleBuffer = consoleBuffer.slice(0, -1);
+                        sendConsoleState();
+                        return;
+                    }
+
+                    if (/^[0-9 ]$/.test(event.key)) {
+                        event.preventDefault();
+                        consoleBuffer += event.key;
+                        sendConsoleState();
+                    }
+                });
+
+                // Pause / Resume button
+                document.getElementById('pauseResume').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    timer.pauseResume();
+                    e.target.textContent = timer.paused ? '▶ Старт' : '⏸ Пауза';
+                });
+
+                // Fullscreen button
+                document.getElementById('fullscreen').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (!document.fullscreenElement) {
+                        document.documentElement.requestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                });
+                document.addEventListener('fullscreenchange', () => {
+                    document.getElementById('fullscreen').textContent =
+                        document.fullscreenElement ? '⛶ Свернуть' : '⛶ Полный экран';
+                });
+
+                // Listen for messages from console window
+                window.addEventListener('message', (event) => {
+                    if (!event.data || !event.data.type) return;
+
+                    if (event.data.type === 'consoleReady') {
+                        consoleWindow = event.source;
+                        sendConsoleState();
+                    }
+
+                    if (event.data.type === 'numberSubmitted' &&
+                        event.data.value === timer.theNumbersString) {
+                        consoleBuffer = '';
+                        timer.reset();
+                    }
+                });
+
+                // Scale timer to fit viewport
+                function scaleTimer() {
+                    var el = document.querySelector('.lost-timer');
+                    if (!el) return;
+                    el.style.transform = '';
+                    var scale = (window.innerWidth / el.offsetWidth) * 0.98;
+                    el.style.transform = 'scale(' + scale + ')';
+                    el.style.transformOrigin = 'center center';
+                }
+                setTimeout(scaleTimer, 100);
+                window.addEventListener('resize', scaleTimer);
+
+                // Show menu when mouse near bottom edge
+                document.addEventListener('mousemove', function(e) {
+                    var menu = document.querySelector('.timer-modes');
+                    if (e.clientY > window.innerHeight - 20) {
+                        menu.style.bottom = '0';
+                    } else {
+                        menu.style.bottom = '';
+                    }
+                });
+            });
+        </script>
+    </head>
+    <body class="timer-page">
+        <div class="my-timer-container">
+            <div class="lost-timer">
+            </div>
+        </div>
+
+        <div class="timer-modes">
+            <div class="timer-mode">
+                <a href="#" id="openConsole">📺 Открыть консоль Chromecast</a>
+            </div>
+            <div class="timer-mode">
+                <a href="#" id="pauseResume">⏸ Пауза</a>
+            </div>
+            <div class="timer-mode">
+                <a href="#" id="fullscreen">⛶ Полный экран</a>
+            </div>
+            <div class="timer-mode">
+                <a href="?mode=dev">Dev Mode</a>
+            </div>
+            <div class="timer-mode">
+                <a href="?mode=live">Live Mode</a>
+            </div>
+        </div>
+    </body>
+</html>

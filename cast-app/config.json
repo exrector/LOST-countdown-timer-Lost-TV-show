@@ -8,7 +8,9 @@
     "height": 720,
     "scale": 1.04
   },
-  "sleepFrom": [],
+  "sleepFrom": [
+    "[номер владельца]"
+  ],
   "renderer": "native",
   "liveInDev": true
 }
