@@ -697,6 +697,13 @@
     // издалека; чёрное поле при этом остаётся, цифры таймера под ним не мелькают. Кегль — как у паузы.
     // Если одновременно пауза — плашка VPN уходит выше, обе читаются. Выключенный модуль VPN тревог не даёт.
     var VPN_POLL_MS = 15000; // окна читают только готовый снимок ядра (/__vpn/state), роутер не опрашивают
+    // Звук тревоги (2026-11-13): assets/sounds/vpnalarm.mp3 — один мягкий сигнал ~743 Гц, 0,52 с, вырезан из
+    // «seat-belt unfastened» владельца. Период мигания = ритм исходного сигнала (~1,47 с) → 1,5 с.
+    // Фаза мигания привязана к часам (Date.now() % VPN_BLINK_MS), поэтому оба экрана мигают вместе,
+    // а сигнал звучит ровно в начале каждой вспышки. Играет только страница таймера (иначе звук двоится),
+    // через выбранный в LOST вывод звука; «ЗВУК: ВЫКЛ» — тишина. На паузе станции (MAINFRAME STANDBY,
+    // в т.ч. «Сон» по iMessage) плашка мигает молча, чтобы ночью VPN не будил.
+    var VPN_BLINK_MS = 1500, VPN_SOUND = 'vpnalarm';
     (function stationNotices() {
         var st = document.createElement('style');
         st.textContent = '@keyframes lostPzBlink{50%{opacity:0}}' +
@@ -725,7 +732,7 @@
             '@keyframes lostVpnBlink{0%{color:#ff3b30;text-shadow:0 0 10px rgba(255,59,48,.75)}' +
             '50%{color:#3d0c09;text-shadow:none}}' +
             '.pz.vpn{z-index:61}' +
-            '.pz.vpn .win{animation:lostVpnBlink 1.2s step-end infinite}' +
+            '.pz.vpn .win{animation:lostVpnBlink ' + VPN_BLINK_MS / 1000 + 's step-end infinite}' +
             '.pz.vpn .cur{animation:none}' +
             // вместе с паузой — плашка VPN в верхней части экрана
             'html.lost-paused .pz.vpn{align-items:flex-start;padding-top:9vh;box-sizing:border-box}';
@@ -809,11 +816,14 @@
                 if (want) show(true);
             }
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { if (want) show(true); });
-            return { show: show, setText: setText };
+            // фаза CSS-мигания — от часов: вспышка начинается на границе периода, как и сигнал
+            function phase(ms) { if (box && box.firstChild) box.firstChild.style.animationDelay = -(Date.now() % ms) + 'ms'; }
+            return { show: show, setText: setText, phase: phase, isOn: function () { return want; } };
         }
 
-        var pause = makeNotice(PAUSE_NOTE, '');
+        var pause = makeNotice(PAUSE_NOTE, ''), paused = false;
         function showPause(on) {
+            paused = !!on;
             pause.show(on);
             document.documentElement.classList.toggle('lost-paused', !!on);
         }
@@ -829,12 +839,28 @@
                 .then(function (r) { if (!r.ok) throw Error(r.status); return r.json(); })
                 .then(function (s) {
                     var a = s && s.alert;
-                    if (a && a.text) { vpnNotice.setText(String(a.text).slice(0, 40)); vpnNotice.show(true); }
+                    if (a && a.text) { var was = vpnNotice.isOn(); vpnNotice.setText(String(a.text).slice(0, 40)); vpnNotice.show(true); vpnNotice.phase(VPN_BLINK_MS); if (!was) vpnBeats(); }
                     else vpnNotice.show(false);
                 })
                 // ядро не ответило (перезапуск LOST) — плашку не трогаем: о VPN это ничего не говорит
                 .catch(function () {})
                 .then(function () { clearTimeout(t); vpnBusy = false; });
+        }
+        // Сигнал в такт: таймер выставляется на ближайшую границу периода по часам, а не setInterval,
+        // чтобы не уплывать от CSS-мигания. Пока плашки нет — цикл не крутится.
+        var beatTimer = null;
+        function vpnBeep() {
+            if (role !== 'tv' || paused || audioMode === 'off') return;
+            if (window.LostStation && window.LostStation.audio) { if (nativeSound()) window.LostStation.audio({ op: 'play', key: VPN_SOUND, requestedAt: Date.now() / 1000 }); return; }
+            if (audioMode === 'mac') { send({ type: '__sound', op: 'play', key: VPN_SOUND }); return; }
+            try { var a = vpnBeep.audio || (vpnBeep.audio = new Audio('assets/sounds/' + VPN_SOUND + '.mp3')); a.currentTime = 0; var p = a.play(); if (p && p.catch) p.catch(function () {}); } catch (_) {}
+        }
+        function vpnBeats() {
+            clearTimeout(beatTimer); beatTimer = null;
+            if (!vpnNotice.isOn()) return;
+            var wait = VPN_BLINK_MS - (Date.now() % VPN_BLINK_MS);
+            if (wait < 40) { vpnBeep(); wait += VPN_BLINK_MS; } // уже на границе — сигнал сейчас
+            beatTimer = setTimeout(function () { if (vpnNotice.isOn()) vpnBeep(); vpnBeats(); }, wait);
         }
         pollVPN(); setInterval(pollVPN, VPN_POLL_MS);
 

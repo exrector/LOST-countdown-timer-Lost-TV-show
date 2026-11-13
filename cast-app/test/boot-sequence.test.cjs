@@ -46,7 +46,10 @@ test('стартовый звук является неизменным одоб
   assert.match(bridge, /startupAudio\('stop'\); startupAudio\('play'\);/);
   assert.match(bridge, /key: 'harddrive'/);
   const nativeSource = fs.readFileSync(path.join(root, 'native/Sources/main.swift'), 'utf8');
-  assert.match(nativeSource, /let keys = \[[^\n]*"harddrive"/);
+  // 2026-11-13: native decodes every *.mp3 in assets/sounds (harddrive.mp3 included); the old list is the fallback.
+  assert.match(nativeSource, /contentsOfDirectory\(atPath: root\.path\)/);
+  assert.match(nativeSource, /hasSuffix\("\.mp3"\)/);
+  assert.match(nativeSource, /fallbackKeys = \[[^\n]*"harddrive"/);
 });
 
 test('Canvas не оставляет терминал без логотипа и скрывается в AI', () => {

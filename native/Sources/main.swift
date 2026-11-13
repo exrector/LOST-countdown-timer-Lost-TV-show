@@ -9,7 +9,11 @@ final class StationAudio {
     // harddrive.mp3 сопровождает весь старт терминала: текстовую диагностику и
     // построчную развёртку DHARMA. Как и остальные эффекты, он декодируется один
     // раз и играет через общий AVAudioEngine без перепадов громкости WebKit.
-    let keys = ["alarm", "beep", "discharge", "harddrive", "keypress", "reset", "spinup", "systemfailure", "thud", "tick", "timeout"]
+    // 2026-11-13: список больше не зашит — декодируются все *.mp3 из assets/sounds (имя файла = ключ).
+    // Новый звук (например vpnalarm.mp3 для тревоги VPN) добавляется файлом, без пересборки приложения.
+    // Прежний список — на случай, если папку прочитать не удалось.
+    static let fallbackKeys = ["alarm", "beep", "discharge", "harddrive", "keypress", "reset", "spinup", "systemfailure", "thud", "tick", "timeout"]
+    let keys: [String]
     let engine = AVAudioEngine()
     var nodes: [String: AVAudioPlayerNode] = [:]
     var buffers: [String: AVAudioPCMBuffer] = [:]
@@ -21,6 +25,12 @@ final class StationAudio {
     var enabled = true
     init() {
         let root = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("assets/sounds")
+        let found = ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [])
+            .filter { $0.hasSuffix(".mp3") && !$0.hasPrefix(".") }
+            .map { String($0.dropLast(4)) }
+            .filter { $0.range(of: "^[a-z0-9_-]{1,40}$", options: .regularExpression) != nil }
+            .sorted()
+        keys = found.isEmpty ? StationAudio.fallbackKeys : found
         for key in keys {
             do {
                 let file = try AVAudioFile(forReading: root.appendingPathComponent(key + ".mp3"))
