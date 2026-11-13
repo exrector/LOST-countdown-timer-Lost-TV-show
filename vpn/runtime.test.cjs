@@ -239,3 +239,32 @@ test('bottom VPN line carries only its own short label, nothing appended', () =>
     assert.ok(!/createTextNode|LAST FAULT|lastFault|state\.fault/.test(paint), 'paint() must not add anything to the VPN line');
     assert.match(paint, /'CONNECTED: '\+String\(state\.location\|\|'UNKNOWN'\)\.toUpperCase\(\):status==='disconnected'\?'DISCONNECTED':status==='connecting'\?'CONNECTING':'NO DATA'/);
 });
+// 2026-11-13: «ЛОКАЦИИ» — выбор локации из меню. Образец — настоящий вывод list-locations с роутера.
+const { parseLocations } = require('./runtime.cjs');
+test('locations: real router list → 81 pickable entries, nearest first, values pass the router check', () => {
+    const list = parseLocations(fs.readFileSync(path.join(__dirname, 'fixtures/list-locations-20261113.txt'), 'utf8'));
+    assert.equal(list.length, 81);
+    assert.deepEqual(list[0], { iso: 'SE', country: 'Sweden', city: 'Stockholm', ping: 14, value: 'Stockholm' });
+    const ny = list.find(l => l.city === 'New York'); assert.equal(ny.country, 'United States'); assert.equal(ny.value, 'New York');
+    // диакритика: страна с одной локацией → ISO-код (проверку роутера не ослабляем)
+    assert.equal(list.find(l => l.city === 'Chișinău').value, 'MD'); assert.equal(list.find(l => l.city === 'São Paulo').value, 'BR');
+    for (const l of list) { assert.equal(commandFor('connect', l.value), 'connect ' + l.value); assert.ok(/^[a-zA-Z0-9][a-zA-Z0-9 ()'.-]*$/.test(l.value), l.value); }
+    // ни одна строка меню не длиннее того, что проверено на экране 1024×600
+    assert.ok(Math.max(...list.map(l => (l.city + ', ' + l.country + ' · ' + l.ping + ' MS').length)) <= 40);
+});
+test('locations: a city with diacritics in a multi-location country is left out, never sent half-matched', () => {
+    const text = 'ISO   COUNTRY              CITY                           PING ESTIMATE\nDE    Germany              Frankfurt                      37\nDE    Germany              Köln                           40\n';
+    assert.deepEqual(parseLocations(text).map(l => l.value), ['Frankfurt']);
+    assert.deepEqual(parseLocations('garbage'), []);
+});
+test('locations command returns parsed entries alongside the text', async () => {
+    const out = fs.readFileSync(path.join(__dirname, 'fixtures/list-locations-20261113.txt'), 'utf8');
+    const vpn = createVPN({ config, run: async (_f, a) => ({ stdout: a.at(-1) === 'locations' ? out : 'Connected to NEW YORK in TUN mode' }) });
+    const r = await vpn.execute('locations'); assert.equal(r.ok, true); assert.equal(r.locations.length, 81); assert.ok(r.output.includes('Stockholm'));
+});
+test('menu: ЛОКАЦИИ is a pick list with confirmation, not a read-only view', () => {
+    const client = fs.readFileSync(path.join(__dirname, 'client.js'), 'utf8');
+    assert.ok(!/read\('ЛОКАЦИИ','locations'\)/.test(client));
+    assert.match(client, /locationsDir\(confirm\)/);
+    assert.match(client, /confirm\(label,'connect -l "'\+l\.value\+'"','connect',l\.value\)/);
+});

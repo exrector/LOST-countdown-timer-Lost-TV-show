@@ -21,6 +21,10 @@
   catch(_){state=Object.assign({},state,{status:'unavailable',location:'',updatedAt:0,error:'Статус роутера недоступен'});}
   finally{clearTimeout(timeout);polling=false;paint();}
  }
+ async function request(command){var c=new AbortController(),timeout=setTimeout(function(){c.abort();},65000);
+  try{var res=await fetch('/__vpn/command',{method:'POST',headers:{'Content-Type':'application/json','X-LOST-VPN':'1'},body:JSON.stringify(command),signal:c.signal});var data=await res.json();if(data.state){state=data.state;paint();}if(!res.ok||!data.ok)throw Error(data.error||'router_unavailable');return data;}
+  finally{clearTimeout(timeout);}
+ }
  async function execute(command){var c=new AbortController(),timeout=setTimeout(function(){c.abort();},65000);
   try{var res=await fetch('/__vpn/command',{method:'POST',headers:{'Content-Type':'application/json','X-LOST-VPN':'1'},body:JSON.stringify(command),signal:c.signal});var data=await res.json();if(data.state){state=data.state;paint();}if(!res.ok||!data.ok)throw Error(data.error||'router_unavailable');return data.output||'Команда выполнена';}
   catch(e){var errors={busy:'Другая команда ещё выполняется',disabled:'Модуль VPN выключен',not_installed:'Доступ к роутеру не настроен',invalid_value:'Недопустимое значение',invalid_action:'Команда не поддерживается',router_unavailable:'Роутер недоступен или не подтвердил выполнение'};return 'ОШИБКА: '+(errors[e.message]||'Не удалось подтвердить результат. Проверьте состояние перед повтором.');}
@@ -64,7 +68,7 @@
     confirm('ФИНЛЯНДИЯ','connect -l Finland','connect','Finland'),
     entry('ДРУГАЯ ЛОКАЦИЯ','connect -l …',function(v){return{action:'connect',value:v};},'Город, страна или ISO-код. Подключение изменится для всех устройств за роутером.','New York'),
     confirm('ОТКЛЮЧИТЬ VPN','disconnect','disconnect',undefined,'Устройства за роутером вернутся к обычному интернет-соединению.')]},
-   read('ЛОКАЦИИ','locations'),
+   locationsDir(confirm),
    {label:'ИСКЛЮЧЕНИЯ САЙТОВ',dir:exclusions},
    {label:'НАСТРОЙКИ',dir:settings},
    {label:'ДИАГНОСТИКА',dir:[read('ТУННЕЛЬ И DNS','guard'),read('ВЕРСИЯ CLI','version'),read('ПОДПИСКА','license'),read('ПРОВЕРИТЬ ОБНОВЛЕНИЕ','check-update'),read('ВЫГРУЗИТЬ ЖУРНАЛЫ','export-logs')]},
@@ -72,6 +76,29 @@
     confirm('ОБНОВИТЬ CLI','update -y','update',undefined,'Обновление может прервать работу VPN на роутере.'),
     info('ВХОД В УЧЁТНУЮ ЗАПИСЬ','Интерактивный вход выполняется через SSH на роутере. Учётная запись уже настроена; LOST не создаёт новую сессию авторизации.'),
     confirm('ВЫХОД ИЗ УЧЁТНОЙ ЗАПИСИ','logout','logout',undefined,'После выхода VPN не подключится до повторного входа через SSH.')]}]};
+ }
+ // 2026-11-13 (владелец): «ЛОКАЦИИ» — не просмотр текста, а выбор. При каждом входе раздел берёт свежий список
+ // с роутера (adguardvpn-cli list-locations, ядро разбирает его в parseLocations — по возрастанию пинга), каждая
+ // строка — пункт с тем же подтверждением ОТМЕНА / ВЫПОЛНИТЬ, что у остальных команд, меняющих VPN.
+ // Подпись: ГОРОД, СТРАНА · ПИНГ MS. Текущая локация помечена «•» в начале строки.
+ function locationsDir(confirm){
+  var node={label:'ЛОКАЦИИ',description:'Список с роутера, ближние сверху. Выбор → ENTER на «ВЫПОЛНИТЬ» → adguardvpn-cli connect -l. Подключение сменится для всех устройств за роутером.',dir:[{label:'ЗАГРУЗКА СПИСКА…'}]};
+  node.onEnter=function(){
+   node.dir=[{label:'ЗАГРУЗКА СПИСКА…'}];
+   request({action:'locations'}).then(function(data){
+    var list=data&&data.locations;
+    if(!list||!list.length){node.dir=[{label:'СПИСОК НЕДОСТУПЕН — ← И ОТКРОЙТЕ СНОВА'}];return;}
+    var here=String(state.location||'').toUpperCase();
+    node.dir=list.map(function(l){
+     var name=String(l.city).toUpperCase()+', '+String(l.country).toUpperCase();
+     var label=(String(l.city).toUpperCase()===here?'• ':'')+name+(l.ping!=null?' · '+l.ping+' MS':'');
+     var item=confirm(label,'connect -l "'+l.value+'"','connect',l.value);
+     item.pathLabel=String(l.city).toUpperCase();
+     return item;
+    });
+   }).catch(function(){node.dir=[{label:'СПИСОК НЕДОСТУПЕН — ← И ОТКРОЙТЕ СНОВА'}];});
+  };
+  return node;
  }
  // Подпись пункта в корне меню — как «ЗВУК: ДИНАМИКИ»: раздел и текущее состояние.
  function title(){

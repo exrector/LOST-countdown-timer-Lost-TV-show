@@ -40,6 +40,31 @@ function parseHealth(text) {
     if (!/^[a-z_]+$/.test(kv.state || '')) return null;
     return { state: kv.state, since: /^\d+$/.test(kv.since || '') ? Number(kv.since) * 1000 : 0, alive: kv.monitor === 'alive', events };
 }
+// 2026-11-13: локации для меню — каждая строка list-locations становится пунктом «выбрать → подтвердить».
+// Колонки находятся по заголовку (ISO / COUNTRY / CITY / PING), а не по пробелам: в названиях бывают пробелы.
+// value — то, что уйдёт в «connect -l»: имя города, если оно проходит ту же проверку, что и на роутере;
+// иначе (диакритика: Chișinău, São Paulo) — ISO-код, но только если у страны одна локация, чтобы не попасть
+// в чужой город. Остальное в меню не попадает — проверку роутера ради этого не ослабляем.
+const LOCATION_VALUE = /^[a-zA-Z0-9][a-zA-Z0-9 ()'.-]*$/;
+function parseLocations(text) {
+    const lines = stripANSI(text).split('\n');
+    const head = lines.findIndex(l => /^ISO\s+COUNTRY\s+CITY\s+PING/.test(l));
+    if (head < 0) return [];
+    const h = lines[head], col = name => h.indexOf(name);
+    const cCountry = col('COUNTRY'), cCity = col('CITY'), cPing = col('PING');
+    const rows = [];
+    for (const line of lines.slice(head + 1)) {
+        if (!/^[A-Z]{2}\s/.test(line)) { if (rows.length && !line.trim()) break; continue; }
+        const chars = Array.from(line); // кодовые точки: «ș», «ã» — по одной клетке, как в выводе CLI
+        const cut = (a, b) => chars.slice(a, b).join('').trim();
+        const iso = cut(0, cCountry), country = cut(cCountry, cCity), city = cut(cCity, cPing), ping = Number(cut(cPing));
+        if (!/^[A-Z]{2}$/.test(iso) || !country || !city) continue;
+        rows.push({ iso, country, city, ping: Number.isFinite(ping) ? ping : null });
+    }
+    const perIso = rows.reduce((m, r) => (m[r.iso] = (m[r.iso] || 0) + 1, m), {});
+    return rows.map(r => ({ ...r, value: LOCATION_VALUE.test(r.city) && r.city.length <= 100 ? r.city : perIso[r.iso] === 1 ? r.iso : null }))
+        .filter(r => r.value);
+}
 function domain(value) {
     if (typeof value !== 'string' || value.length > 253 || /[\s/@:*?\\]/.test(value)) throw Error('invalid_value');
     const ascii = domainToASCII(value.toLowerCase());
@@ -218,7 +243,7 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
             if (!['status', 'locations', 'license', 'config', 'guard', 'version', 'check-update', 'exclusions-show', 'export-logs'].includes(action)) {
                 try { await readStatus(ownGeneration); } catch (_) {}
             }
-            busy = false; return { ok: true, output: safeOutput(output), state: snapshot() };
+            busy = false; return { ok: true, output: safeOutput(output), ...(action === 'locations' ? { locations: parseLocations(output) } : {}), state: snapshot() };
         } catch (_) { busy = false; return { ok: false, error: 'router_unavailable', state: snapshot() }; }
         finally { busy = false; }
     }
@@ -231,4 +256,4 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     function close() { setEnabled(false); }
     return { snapshot, refresh, execute, setEnabled, close, testAlert };
 }
-module.exports = { createVPN, parseHealth, parseStatus, stripANSI, safeOutput, commandFor, validateConfig };
+module.exports = { createVPN, parseLocations, parseHealth, parseStatus, stripANSI, safeOutput, commandFor, validateConfig };
