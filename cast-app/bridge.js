@@ -690,8 +690,14 @@
     // W = система ждёт) и короткая строка оператору. SELF-TEST и STAND BY — живой язык тех машин;
     // про паузу прямо не сказано. ТЕКСТ МЕНЯТЬ ЗДЕСЬ.
     var PAUSE_NOTE = 'MAINFRAME STANDBY';
-    var PAUSE_WIDTH = 0.72; // какую долю ширины экрана занимает плашка — размер шрифта считается от неё
-    (function pauseNotice() {
+    var PAUSE_WIDTH = 0.72; // какую долю ширины экрана занимает плашка паузы — размер шрифта считается от неё
+    // 2026-11-13: та же плашка — тревога VPN (AdGuard VPN роутера). Тексты и пороги решает ядро
+    // (vpn/runtime.cjs → snapshot().alert): VPN LINK DOWN — сразу, VPN RECONNECTING — дольше 3 мин,
+    // VPN NO DATA — дольше 5 мин. Отличие от паузы — мигает вся надпись с рамкой, чтобы бросаться в глаза
+    // издалека; чёрное поле при этом остаётся, цифры таймера под ним не мелькают. Кегль — как у паузы.
+    // Если одновременно пауза — плашка VPN уходит выше, обе читаются. Выключенный модуль VPN тревог не даёт.
+    var VPN_POLL_MS = 15000; // окна читают только готовый снимок ядра (/__vpn/state), роутер не опрашивают
+    (function stationNotices() {
         var st = document.createElement('style');
         st.textContent = '@keyframes lostPzBlink{50%{opacity:0}}' +
             '.pz{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;' +
@@ -714,29 +720,21 @@
             '.pz .win::after{content:"";position:absolute;pointer-events:none;' +
             'top:var(--pz-top,0);bottom:var(--pz-bottom,0);left:var(--pz-left,0);right:var(--pz-right,0);' +
             'background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}' +
-            '.pz .cur{animation:lostPzBlink 1s step-end infinite}';
+            '.pz .cur{animation:lostPzBlink 1s step-end infinite}' +
+            // VPN: выше паузы по слою; мигает краска знаков (надпись и рамка), поле остаётся чёрным
+            '@keyframes lostVpnBlink{0%{color:#ff3b30;text-shadow:0 0 10px rgba(255,59,48,.75)}' +
+            '50%{color:#3d0c09;text-shadow:none}}' +
+            '.pz.vpn{z-index:61}' +
+            '.pz.vpn .win{animation:lostVpnBlink 1.2s step-end infinite}' +
+            '.pz.vpn .cur{animation:none}' +
+            // вместе с паузой — плашка VPN в верхней части экрана
+            'html.lost-paused .pz.vpn{align-items:flex-start;padding-top:9vh;box-sizing:border-box}';
         document.head.appendChild(st);
 
-        var box;
-        function build() {
-            box = document.createElement('div'); box.className = 'pz';
-            var win = document.createElement('pre'); win.className = 'win';
-            // курсор — такой же знак внутри рамки, иначе он торчал бы за чёрным полем
-            // поля по краям одинаковые: слева три клетки, справа пробел + курсор + пробел — фраза ровно по центру
-            var inner = PAUSE_NOTE.length + 6, bar = function (l, r) { return l + new Array(inner + 1).join('\u2550') + r; };
-            var cur = document.createElement('span'); cur.className = 'cur'; cur.textContent = '\u2588';
-            var probe = document.createElement('span'); probe.style.cssText = 'display:inline-block;width:0;height:0';
-            win.appendChild(probe); // по нему fit() находит базовую линию первой строки
-            win.appendChild(document.createTextNode(bar('\u2554', '\u2557') + '\n\u2551   ' + PAUSE_NOTE + ' '));
-            win.appendChild(cur);
-            win.appendChild(document.createTextNode(' \u2551\n' + bar('\u255a', '\u255d')));
-            box.appendChild(win); document.body.appendChild(box);
-            fit();
-        }
         // Краска знака: где на самом деле лежат штрихи относительно начала знака и базовой линии.
         // TextMetrics в WebKit на знаках рамки врёт, поэтому знак рисуется на холсте и пиксели считаются.
         function ink(ch, fs) {
-            var cv = fit.cv || (fit.cv = document.createElement('canvas'));
+            var cv = ink.cv || (ink.cv = document.createElement('canvas'));
             var w = Math.ceil(fs * 2), h = Math.ceil(fs * 3), x0 = Math.round(fs / 2), y0 = Math.round(fs * 2);
             cv.width = w; cv.height = h;
             var g = cv.getContext('2d');
@@ -749,50 +747,103 @@
             }
             return r < 0 ? null : { left: l - x0, right: r + 1 - x0, ascent: y0 - t, descent: b + 1 - y0 };
         }
-        // ширина строки известна в знаках, у Courier знак равен 0.6em (+0.06em разрядки) —
-        // значит размер шрифта считается прямо из ширины экрана, без потолка в пикселях
-        function fit() {
-            if (!box) return;
-            var win = box.firstChild;
-            var chars = PAUSE_NOTE.length + 8; // ║ + три клетки + текст + пробел + курсор + пробел + ║
-            var ADV = 0.66; // знак Courier = 0.6em + 0.06em разрядки
-            var fs = PAUSE_WIDTH * window.innerWidth / (chars * ADV);
-            win.style.fontSize = fs + 'px';
-            // Чёрное поле срезается ровно до внешнего края штрихов рамки. Отступы хранятся в em:
-            // при смене размера они верны без нового замера, а спрятанная плашка (display:none) замер пропускает.
-            try {
-                var rect = win.getBoundingClientRect();
-                if (!rect.width || !rect.height) return;
-                var h = ink('\u2550', fs), v = ink('\u2551', fs); if (!h || !v) return;
-                // базовая линия первой строки — по пустому inline-block в её начале, а не по метрикам шрифта
-                var base = win.firstChild.getBoundingClientRect().bottom - rect.top, line = rect.height / 3;
-                var em = function (px) { return Math.max(0, px) / fs + 'em'; };
-                win.style.setProperty('--pz-top', em(base - h.ascent));
-                win.style.setProperty('--pz-bottom', em(rect.height - (base + 2 * line + h.descent)));
-                win.style.setProperty('--pz-left', em(v.left));
-                // справа к последнему знаку добавлена разрядка — она тоже срезается
-                win.style.setProperty('--pz-right', em(rect.width - (rect.width / chars * (chars - 1) + v.right)));
-                fit.done = true;
-            } catch (e) { /* старый браузер — поле просто будет по строке */ }
-        }
-        var want = false;
-        function show(on) {
-            want = !!on;
-            if (!document.body) return; // состояние могло прийти раньше, чем появилась страница — покажем на DOMContentLoaded
-            if (!box) build();
-            box.classList.toggle('on', want);
-            fit(); // экран мог смениться, пока плашка была скрыта
-            // плашку могло скрыть открытое меню: замер — когда она станет видна
-            if (want && !fit.done) setTimeout(function () { if (want) show(true); }, 500);
-        }
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { show(want); });
 
-        if (role === 'console') { ui.onPause = show; return; } // терминал: состояние приходит в __state
+        // Одна плашка: текст в двойной рамке с курсором. extra — доп. класс (vpn).
+        function makeNotice(text, extra) {
+            var box = null, want = false, done = false;
+            function build() {
+                box = document.createElement('div'); box.className = 'pz' + (extra ? ' ' + extra : '');
+                var win = document.createElement('pre'); win.className = 'win';
+                // курсор — такой же знак внутри рамки, иначе он торчал бы за чёрным полем
+                // поля по краям одинаковые: слева три клетки, справа пробел + курсор + пробел — фраза ровно по центру
+                var inner = text.length + 6, bar = function (l, r) { return l + new Array(inner + 1).join('═') + r; };
+                var cur = document.createElement('span'); cur.className = 'cur'; cur.textContent = '█';
+                var probe = document.createElement('span'); probe.style.cssText = 'display:inline-block;width:0;height:0';
+                win.appendChild(probe); // по нему fit() находит базовую линию первой строки
+                win.appendChild(document.createTextNode(bar('╔', '╗') + '\n║   ' + text + ' '));
+                win.appendChild(cur);
+                win.appendChild(document.createTextNode(' ║\n' + bar('╚', '╝')));
+                box.appendChild(win); document.body.appendChild(box);
+                void box.offsetWidth; // плашка, созданная по требованию, тоже появляется плавно
+                fit();
+            }
+            // Кегль всех плашек одинаковый — от ширины плашки паузы. Ширина строки известна в знаках,
+            // у Courier знак равен 0.6em (+0.06em разрядки) — размер шрифта считается прямо из ширины экрана.
+            function fit() {
+                if (!box) return;
+                var win = box.firstChild;
+                var chars = text.length + 8; // ║ + три клетки + текст + пробел + курсор + пробел + ║
+                var ADV = 0.66; // знак Courier = 0.6em + 0.06em разрядки
+                var fs = PAUSE_WIDTH * window.innerWidth / ((PAUSE_NOTE.length + 8) * ADV);
+                win.style.fontSize = fs + 'px';
+                // Чёрное поле срезается ровно до внешнего края штрихов рамки. Отступы хранятся в em:
+                // при смене размера они верны без нового замера, а спрятанная плашка (display:none) замер пропускает.
+                try {
+                    var rect = win.getBoundingClientRect();
+                    if (!rect.width || !rect.height) return;
+                    var h = ink('═', fs), v = ink('║', fs); if (!h || !v) return;
+                    // базовая линия первой строки — по пустому inline-block в её начале, а не по метрикам шрифта
+                    var base = win.firstChild.getBoundingClientRect().bottom - rect.top, line = rect.height / 3;
+                    var em = function (px) { return Math.max(0, px) / fs + 'em'; };
+                    win.style.setProperty('--pz-top', em(base - h.ascent));
+                    win.style.setProperty('--pz-bottom', em(rect.height - (base + 2 * line + h.descent)));
+                    win.style.setProperty('--pz-left', em(v.left));
+                    // справа к последнему знаку добавлена разрядка — она тоже срезается
+                    win.style.setProperty('--pz-right', em(rect.width - (rect.width / chars * (chars - 1) + v.right)));
+                    done = true;
+                } catch (e) { /* старый браузер — поле просто будет по строке */ }
+            }
+            function show(on) {
+                want = !!on;
+                if (!document.body) return; // состояние могло прийти раньше, чем появилась страница — покажем на DOMContentLoaded
+                if (!box) { if (!want) return; build(); }
+                box.classList.toggle('on', want);
+                fit(); // экран мог смениться, пока плашка была скрыта
+                // плашку могло скрыть открытое меню: замер — когда она станет видна
+                if (want && !done) setTimeout(function () { if (want) show(true); }, 500);
+            }
+            function setText(t) {
+                if (t === text) return;
+                text = t; done = false;
+                if (box) { box.parentNode.removeChild(box); box = null; }
+                if (want) show(true);
+            }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { if (want) show(true); });
+            return { show: show, setText: setText };
+        }
+
+        var pause = makeNotice(PAUSE_NOTE, '');
+        function showPause(on) {
+            pause.show(on);
+            document.documentElement.classList.toggle('lost-paused', !!on);
+        }
+
+        // Тревога VPN — на обоих экранах. Снимок ядра уже содержит решение (alert) — окно только рисует.
+        var vpnNotice = makeNotice('VPN', 'vpn'), vpnBusy = false;
+        function pollVPN() {
+            if (vpnBusy || typeof fetch !== 'function') return;
+            vpnBusy = true;
+            var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+            var t = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
+            fetch('/__vpn/state', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+                .then(function (r) { if (!r.ok) throw Error(r.status); return r.json(); })
+                .then(function (s) {
+                    var a = s && s.alert;
+                    if (a && a.text) { vpnNotice.setText(String(a.text).slice(0, 40)); vpnNotice.show(true); }
+                    else vpnNotice.show(false);
+                })
+                // ядро не ответило (перезапуск LOST) — плашку не трогаем: о VPN это ничего не говорит
+                .catch(function () {})
+                .then(function () { clearTimeout(t); vpnBusy = false; });
+        }
+        pollVPN(); setInterval(pollVPN, VPN_POLL_MS);
+
+        if (role === 'console') { ui.onPause = showPause; return; } // терминал: состояние паузы приходит в __state
 
         // Страница таймера: следим за самой кнопкой — она меняется при любом способе паузы
         function watch() {
             var b = document.getElementById('pauseResume'); if (!b) return setTimeout(watch, 300);
-            function check() { show(b.textContent.indexOf('Старт') !== -1); reportState(); }
+            function check() { showPause(b.textContent.indexOf('Старт') !== -1); reportState(); }
             new MutationObserver(check).observe(b, { childList: true, characterData: true, subtree: true });
             check();
         }

@@ -28,7 +28,7 @@ test('command validation rejects shell input, option injection and credentials s
 });
 test('poll is cached, uses strict SSH identity and no fallback; failed poll is unknown, not disconnected', async () => {
     let clock = 1000, fail = false; const calls = [];
-    const vpn = createVPN({ config, now: () => clock, run: async (...args) => { calls.push(args); if (fail) throw Error('private error'); return { stdout: 'Connected to NEW YORK in TUN mode' }; } });
+    const vpn = createVPN({ config, now: () => clock, retryDelayMs: 0, run: async (...args) => { calls.push(args); if (fail) throw Error('private error'); return { stdout: 'Connected to NEW YORK in TUN mode' }; } });
     assert.equal((await vpn.refresh()).status, 'connected');
     await vpn.refresh(); assert.equal(calls.length, 1);
     assert.equal(calls[0][0], '/usr/bin/ssh'); assert.ok(calls[0][1].includes('StrictHostKeyChecking=yes')); assert.ok(calls[0][1].includes('IdentitiesOnly=yes')); assert.ok(calls[0][1].includes('UserKnownHostsFile=/fixture/known_hosts'));
@@ -82,4 +82,61 @@ test('autoPoll false: no own timer — the station poll cycle drives the router 
     vpn.setEnabled(true); await new Promise(r => setImmediate(r));
     assert.equal(timers, 0); assert.equal(calls, 1);
     await vpn.refresh({ force: true }); assert.equal(calls, 2);
+});
+
+// 2026-11-13: повтор чтения, журнал причин NO DATA и решение о красной плашке VPN.
+test('one failed read is retried once; a transient SSH glitch does not turn into NO DATA', async () => {
+    let n = 0; const logs = [], sleeps = [];
+    const vpn = createVPN({ config, log: t => logs.push(t), sleep: async ms => { sleeps.push(ms); }, run: async () => { n++; if (n === 1) { const e = Error('x'); e.code = 255; e.stderr = 'ssh: connect to host router.test port 2222: Operation timed out\n'; throw e; } return { stdout: 'Connected to NEW YORK in TUN mode' }; } });
+    const s = await vpn.refresh({ force: true });
+    assert.equal(s.status, 'connected'); assert.equal(n, 2); assert.deepEqual(sleeps, [4000]);
+    assert.ok(logs.some(t => t.includes('повтор') && t.includes('ssh код 255') && t.includes('Operation timed out')));
+    assert.ok(logs.includes('[vpn] connected NEW YORK'));
+});
+test('two failures in a row: NO DATA with the reason in the log, never in the snapshot', async () => {
+    const logs = [];
+    const vpn = createVPN({ config, log: t => logs.push(t), sleep: async () => {}, run: async () => { const e = Error('private'); e.killed = true; throw e; } });
+    const s = await vpn.refresh({ force: true });
+    assert.equal(s.status, 'unavailable'); assert.equal(s.alert, null);
+    assert.ok(logs.some(t => t.startsWith('[vpn] нет данных') && t.includes('таймаут')));
+    assert.ok(!JSON.stringify(s).includes('private'));
+});
+test('unrecognised router output is logged with its first line', async () => {
+    const logs = [];
+    const vpn = createVPN({ config, retryDelayMs: 0, log: t => logs.push(t), run: async () => ({ stdout: 'You are not logged in\nmore' }) });
+    await vpn.refresh({ force: true });
+    assert.ok(logs.some(t => t.includes('непонятный ответ') && t.includes('You are not logged in')));
+});
+test('state changes are logged once, not every poll', async () => {
+    let clock = 0; const logs = [];
+    const vpn = createVPN({ config, now: () => clock, log: t => logs.push(t), run: async () => ({ stdout: 'Connected to HELSINKI in TUN mode' }) });
+    await vpn.refresh({ force: true }); clock += 120000; await vpn.refresh({ force: true }); clock += 120000; await vpn.refresh({ force: true });
+    assert.equal(logs.filter(t => t === '[vpn] connected HELSINKI').length, 1);
+});
+test('alert: DISCONNECTED at once, CONNECTING after 3 min, NO DATA after 5 min, nothing when connected or module off', async () => {
+    let clock = 1000, out = 'Disconnected', fail = false;
+    const vpn = createVPN({ config, now: () => clock, staleMs: 180000, retryDelayMs: 0, run: async () => { if (fail) throw Error('x'); return { stdout: out }; } });
+    assert.deepEqual((await vpn.refresh({ force: true })).alert, { code: 'down', text: 'VPN LINK DOWN' });
+    out = 'Connecting...'; clock += 1000;
+    assert.equal((await vpn.refresh({ force: true })).alert, null);
+    clock += 120000; assert.equal((await vpn.refresh({ force: true })).alert, null);      // 2 мин подключения — ещё норма
+    clock += 61000; assert.equal((await vpn.refresh({ force: true })).alert.code, 'connecting');
+    out = 'Connected to NEW YORK in TUN mode'; clock += 1000;
+    assert.equal((await vpn.refresh({ force: true })).alert, null);
+    fail = true; clock += 1000;
+    assert.equal((await vpn.refresh({ force: true })).alert, null);                       // разовое NO DATA — без тревоги
+    clock += 299000; assert.equal(vpn.snapshot().alert, null);
+    clock += 2000; assert.deepEqual(vpn.snapshot().alert, { code: 'nodata', text: 'VPN NO DATA' });
+    vpn.setEnabled(false); assert.equal(vpn.snapshot().alert, null);
+});
+test('stale readings count NO DATA from the last good read', async () => {
+    let clock = 0;
+    const vpn = createVPN({ config, now: () => clock, staleMs: 180000, run: async () => ({ stdout: 'Connected to NEW YORK in TUN mode' }) });
+    await vpn.refresh({ force: true });
+    clock = 181000; assert.equal(vpn.snapshot().status, 'unavailable'); assert.equal(vpn.snapshot().alert, null);
+    clock = 301000; assert.equal(vpn.snapshot().alert.code, 'nodata');
+});
+test('not installed: never alerts', () => {
+    const vpn = createVPN({ configFile: '/nonexistent/vpn.json', now: () => 10 ** 9 });
+    assert.equal(vpn.snapshot().alert, null);
 });

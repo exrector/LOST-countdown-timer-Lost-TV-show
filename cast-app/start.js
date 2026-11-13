@@ -100,7 +100,8 @@ const museRuntime = require('../muse/supervisor.cjs').createMuse({ root: ROOT })
 // раз в 2 мин, без своих таймеров. «статус» пульта сразу отвечает тем, что собрал последний цикл (решение владельца 28.10). Срок годности показаний — полтора цикла. Вне цикла: надзор за окнами (2 с) и экранами
 // (10 с) — это перезапуск упавших окон, а не опрос; состояние AI — чтение файла его же процесса.
 const POLL_MS = 120000;
-const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5 });
+// log: смены состояния VPN и причины NO DATA — в core.log (2026-11-13)
+const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5, log: text => console.log(text) });
 const flameRuntime = require('../flame/runtime.cjs').createFlame({ autoPoll: false });
 const applyUPSService = createUPSService({ root: ROOT });
 async function applyModule(id, enabled) {

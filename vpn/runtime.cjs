@@ -70,16 +70,47 @@ function validateConfig(cfg) {
     return result;
 }
 // autoPoll: false — свой таймер не заводится, опрашивает общий цикл станции (cast-app/start.js, раз в 2 мин).
-function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval } = {}) {
+// 2026-11-13: красная плашка «VPN» на экранах станции. Решение о тревоге принимает ядро (snapshot().alert),
+//   окна только рисуют. Пороги: DISCONNECTED — сразу (роутер прямо говорит, что VPN выключен, а kill switch
+//   держит дом без интернета); CONNECTING — дольше connectingAlertMs (короткое переподключение — норма);
+//   NO DATA — дольше noDataAlertMs: это может быть сбой связи mini → роутер, а не самого VPN, поэтому позже.
+//   Неудачное чтение статуса повторяется один раз через retryDelayMs — разовый сбой SSH больше не даёт
+//   «NO DATA» на весь двухминутный цикл. Каждая смена состояния и причина отказа пишутся в журнал (log),
+//   раньше причины NO DATA нигде не оставалось.
+const ALERT_TEXT = { down: 'VPN LINK DOWN', connecting: 'VPN RECONNECTING', nodata: 'VPN NO DATA' };
+function failureReason(error) {
+    if (!error) return 'неизвестно';
+    if (error.name === 'AbortError') return 'прервано';
+    if (error.killed || error.signal === 'SIGTERM') return 'таймаут';
+    const err = stripANSI(error.stderr || '').trim().split('\n').filter(x => x && !/post-quantum|store now|openssh\.com\/pq|may need to be upgraded/i.test(x)).pop() || '';
+    return ('ssh код ' + (error.code ?? '?') + (err ? ': ' + err : '')).slice(0, 200);
+}
+function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval, log = () => {}, retryDelayMs = 4000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), connectingAlertMs = 180000, noDataAlertMs = 300000 } = {}) {
     let cfg, installed = false;
     try { cfg = validateConfig(config || JSON.parse(fs.readFileSync(configFile, 'utf8'))); installed = true; } catch (_) {}
     let enabled = true, busy = false, timer = null, generation = 0, lastAttempt = -Infinity, activeAbort = null;
-    let state = { status: 'unavailable', location: '', updatedAt: 0, error: installed ? null : 'VPN-доступ не настроен' };
+    // since — когда началось текущее состояние (для порогов тревоги); при старте ядра — момент старта.
+    let state = { status: 'unavailable', location: '', updatedAt: 0, since: now(), error: installed ? null : 'VPN-доступ не настроен' };
+    let lastLogged = '';
+    function note(text) { if (text !== lastLogged) { lastLogged = text; try { log('[vpn] ' + text); } catch (_) {} } }
+    function alertFor(value) {
+        if (!installed || !enabled) return null;
+        const age = now() - (value.since || 0);
+        if (value.status === 'disconnected') return { code: 'down', text: ALERT_TEXT.down };
+        if (value.status === 'connecting' && age >= connectingAlertMs) return { code: 'connecting', text: ALERT_TEXT.connecting };
+        if (value.status === 'unavailable' && age >= noDataAlertMs) return { code: 'nodata', text: ALERT_TEXT.nodata };
+        return null;
+    }
     function snapshot() {
-        const value = { installed, enabled, ...state, busy };
-        if (!enabled) return { ...value, status: 'disabled', location: '', error: null };
-        if (['connected', 'disconnected', 'connecting'].includes(value.status) && now() - value.updatedAt > staleMs) return { ...value, status: 'unavailable', location: '', error: 'Показания VPN устарели' };
-        return value;
+        let value = { installed, enabled, ...state, busy };
+        if (!enabled) return { ...value, status: 'disabled', location: '', error: null, alert: null };
+        // устаревшие показания = NO DATA с момента последнего удачного чтения
+        if (['connected', 'disconnected', 'connecting'].includes(value.status) && now() - value.updatedAt > staleMs) value = { ...value, status: 'unavailable', location: '', since: value.updatedAt, error: 'Показания VPN устарели' };
+        return { ...value, alert: alertFor(value) };
+    }
+    function setState(next) {
+        const since = next.status === state.status ? state.since : now();
+        state = { ...next, since };
     }
     async function remote(command) {
         if (!installed) throw Error('not_installed');
@@ -90,19 +121,20 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
             return stripANSI(result.stdout);
         } catch (error) {
             if (command === 'status' && parseStatus(error.stdout)?.status === 'disconnected') return stripANSI(error.stdout);
-            throw Error('router_unavailable');
+            const failure = Error('router_unavailable'); failure.reason = failureReason(error); throw failure;
         } finally { if (activeAbort === controller) activeAbort = null; }
     }
-    async function readStatus(ownGeneration) {
+    // record=false — попытка, после которой будет повтор: показания не портятся раньше времени.
+    async function readStatus(ownGeneration, record = true) {
         lastAttempt = now();
         try {
             const output = await remote('status'), parsed = parseStatus(output);
-            if (!parsed) throw Error('unknown_status');
-            if (enabled && generation === ownGeneration) state = { ...parsed, updatedAt: now(), error: null };
+            if (!parsed) { const e = Error('unknown_status'); e.reason = 'непонятный ответ роутера: ' + JSON.stringify(output.trim().split('\n')[0] || '').slice(0, 160); throw e; }
+            if (enabled && generation === ownGeneration) { setState({ ...parsed, updatedAt: now(), error: null }); note(parsed.status + (parsed.location ? ' ' + parsed.location : '')); }
             return output;
-        } catch (_) {
-            if (enabled && generation === ownGeneration) state = { status: 'unavailable', location: '', updatedAt: now(), error: 'Не удалось прочитать состояние VPN роутера' };
-            throw Error('router_unavailable');
+        } catch (error) {
+            if (record && enabled && generation === ownGeneration) { setState({ status: 'unavailable', location: '', updatedAt: now(), error: 'Не удалось прочитать состояние VPN роутера' }); note('нет данных — ' + (error.reason || error.message)); }
+            const failure = Error('router_unavailable'); failure.reason = error.reason || error.message; throw failure;
         }
     }
     // Повтор не раньше, чем через полинтервала: таймер срабатывает чуть раньше intervalMs после прошлой попытки,
@@ -111,7 +143,15 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     async function refresh({ force = false } = {}) {
         if (!enabled || !installed || busy || !force && now() - lastAttempt < intervalMs / 2) return snapshot();
         busy = true; const ownGeneration = generation;
-        try { await readStatus(ownGeneration); } catch (_) {} finally { busy = false; }
+        try {
+            try { await readStatus(ownGeneration, retryDelayMs <= 0); }
+            catch (error) {
+                if (retryDelayMs <= 0) throw error;
+                try { log('[vpn] чтение статуса не удалось (' + (error.reason || error.message) + '), повтор через ' + Math.round(retryDelayMs / 1000) + ' с'); } catch (_) {}
+                await sleep(retryDelayMs);
+                if (enabled && generation === ownGeneration) await readStatus(ownGeneration);
+            }
+        } catch (_) {} finally { busy = false; }
         return snapshot();
     }
     async function execute(action, value) {
