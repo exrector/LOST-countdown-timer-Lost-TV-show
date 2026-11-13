@@ -733,7 +733,6 @@
             '50%{color:#3d0c09;text-shadow:none}}' +
             '.pz.vpn{z-index:61}' +
             '.pz.vpn .win{animation:lostVpnBlink ' + VPN_BLINK_MS / 1000 + 's step-end infinite}' +
-            '.pz.vpn .cur{animation:none}' +
             // вместе с паузой — плашка VPN в верхней части экрана
             'html.lost-paused .pz.vpn{align-items:flex-start;padding-top:9vh;box-sizing:border-box}';
         document.head.appendChild(st);
@@ -755,8 +754,11 @@
             return r < 0 ? null : { left: l - x0, right: r + 1 - x0, ascent: y0 - t, descent: b + 1 - y0 };
         }
 
-        // Одна плашка: текст в двойной рамке с курсором. extra — доп. класс (vpn).
-        function makeNotice(text, extra) {
+        // Одна плашка: текст в двойной рамке. extra — доп. класс (vpn). cursor=false — без курсора:
+        // у мигающей плашки VPN курсор лишний (владелец, 2026-11-13); на его месте пробел, поля по краям
+        // одинаковые (по три клетки), ширина рамки та же, надпись ровно по центру.
+        function makeNotice(text, extra, cursor) {
+            cursor = cursor !== false;
             var box = null, want = false, done = false;
             function build() {
                 box = document.createElement('div'); box.className = 'pz' + (extra ? ' ' + extra : '');
@@ -768,7 +770,7 @@
                 var probe = document.createElement('span'); probe.style.cssText = 'display:inline-block;width:0;height:0';
                 win.appendChild(probe); // по нему fit() находит базовую линию первой строки
                 win.appendChild(document.createTextNode(bar('╔', '╗') + '\n║   ' + text + ' '));
-                win.appendChild(cur);
+                win.appendChild(cursor ? cur : document.createTextNode(' '));
                 win.appendChild(document.createTextNode(' ║\n' + bar('╚', '╝')));
                 box.appendChild(win); document.body.appendChild(box);
                 void box.offsetWidth; // плашка, созданная по требованию, тоже появляется плавно
@@ -829,7 +831,7 @@
         }
 
         // Тревога VPN — на обоих экранах. Снимок ядра уже содержит решение (alert) — окно только рисует.
-        var vpnNotice = makeNotice('VPN', 'vpn'), vpnBusy = false;
+        var vpnNotice = makeNotice('VPN', 'vpn', false), vpnBusy = false;
         function pollVPN() {
             if (vpnBusy || typeof fetch !== 'function') return;
             vpnBusy = true;
