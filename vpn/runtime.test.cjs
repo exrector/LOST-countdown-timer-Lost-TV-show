@@ -152,3 +152,16 @@ test('test alert shows the plate for the given seconds without touching the VPN'
     assert.equal(vpn.testAlert(301), false); assert.equal(vpn.testAlert(10, 'boom'), false); assert.equal(vpn.testAlert('x'), false);
     assert.equal(calls, before); assert.ok(logs.some(t => t.includes('проверка плашки')));
 });
+// 2026-11-13: окно не должно само «состаривать» показания — ядро читает роутер раз в 120 с, а окно
+// с порогом 90 с показывало NO DATA ~30 с из каждых 120 при живом VPN. Свежесть решает только ядро.
+test('window trusts the core freshness: no own age threshold on updatedAt in vpn/client.js', () => {
+    const client = fs.readFileSync(path.join(__dirname, 'client.js'), 'utf8');
+    assert.ok(!/Date\.now\(\)\s*-\s*state\.updatedAt/.test(client), 'client must not age readings itself');
+    assert.match(client, /function shown\(\)\{return \['connected','disconnected','connecting'\]\.includes\(state\.status\)/);
+});
+test('core keeps a reading fresh for the whole 120 s station cycle (staleMs 180 s)', async () => {
+    let clock = 0;
+    const vpn = createVPN({ config, now: () => clock, staleMs: 180000, run: async () => ({ stdout: 'Connected to NEW YORK in TUN mode' }) });
+    await vpn.refresh({ force: true });
+    for (const t of [90000, 110000, 119000, 179000]) { clock = t; assert.equal(vpn.snapshot().status, 'connected', 'at ' + t); }
+});

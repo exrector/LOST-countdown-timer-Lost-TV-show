@@ -4,9 +4,13 @@
  var state={status:'unavailable',installed:false,enabled:true}, polling=false, timer=null;
  var services=document.querySelector('.service-line');if(!services){services=document.createElement('div');services.className='service-line';document.body.appendChild(services);}
  var line=document.createElement('div');line.className='vpn-line';line.setAttribute('aria-label','AdGuard VPN роутера');services.appendChild(line);
+ // 2026-11-13: NO DATA мигал ~30 с из каждых 120 с при живом VPN. Окно считало показания старыми через 90 с,
+ // а ядро с 28.10 читает роутер раз в 120 с (общий цикл станции) — между 90-й и 120-й секундой строка
+ // показывала NO DATA. Свежесть решает только ядро (vpn/runtime.cjs, staleMs = 180 с: вернёт unavailable);
+ // окно показывает его статус как есть, а NO DATA — только если сам снимок ядра не получен.
+ function shown(){return ['connected','disconnected','connecting'].includes(state.status)?state.status:'unavailable';}
  function paint(){
-  var known=state.updatedAt && Date.now()-state.updatedAt<90000;
-  var status=known?state.status:'unavailable';
+  var status=shown();
   line.className='vpn-line '+status;line.hidden=state.enabled===false;
   // нижняя строка — по-английски, как показания UPS и консоли мейнфреймов: VPN: CONNECTED: NEW YORK
   line.textContent='VPN: ';var b=document.createElement('b');b.textContent=status==='connected'?'CONNECTED: '+String(state.location||'UNKNOWN').toUpperCase():status==='disconnected'?'DISCONNECTED':status==='connecting'?'CONNECTING':'NO DATA';line.appendChild(b);
@@ -71,7 +75,7 @@
  }
  // Подпись пункта в корне меню — как «ЗВУК: ДИНАМИКИ»: раздел и текущее состояние.
  function title(){
-  var known=state.updatedAt && Date.now()-state.updatedAt<90000, status=known?state.status:'unavailable';
+  var status=shown();
   return 'VPN: '+value(status);
  }
  function value(status){return status==='connected'?String(state.location||'ПОДКЛЮЧЁН').toUpperCase():status==='disconnected'?'ОТКЛЮЧЁН':status==='connecting'?'ПОДКЛЮЧЕНИЕ':'НЕТ ДАННЫХ';}
