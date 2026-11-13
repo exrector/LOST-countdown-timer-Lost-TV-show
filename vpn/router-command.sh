@@ -20,6 +20,18 @@ case "$original" in
   sed -E '/[Pp]assword|[Uu]sername|[Tt]oken|[Ss]ecret|[Cc]redential/c\[СКРЫТО]' "$temp"
   exit $?;;
  guard) exec /opt/bin/agvpn-guard status;;
+ # 2026-11-13: health — только чтение. Вывод монитора AdGuard VPN (adguard-vpn-monitor на роутере): подтверждённое
+ # состояние туннеля/kill switch/DNS, жив ли монитор и последние переходы (event=<epoch> <было> <стало> <длительность с>).
+ # LOST видит сбои туннеля, при которых CLI пишет «Connected». Пути зашиты (тест подменяет их в своей копии).
+ health)
+  dir=/opt/var/lib/adguard-vpn-monitor; logs=/opt/var/log/keenetic-outages
+  [ -r "$dir/current-state" ] || exit 1
+  grep -E '^(state|since|updated)=' "$dir/current-state"
+  pid=$(cat "$dir/pid" 2>/dev/null)
+  case "$pid" in ''|*[!0-9]*) echo monitor=dead;; *) if kill -0 "$pid" 2>/dev/null; then echo monitor=alive; else echo monitor=dead; fi;; esac
+  for f in "$logs/adguard-events-$(date -d @$(( $(date +%s) - 2678400 )) +%Y-%m 2>/dev/null).tsv" "$logs/adguard-events-$(date +%Y-%m).tsv"; do [ -r "$f" ] && cat "$f"; done 2>/dev/null |
+   awk -F'\t' '$3=="transition" && $2 ~ /^[0-9]+$/ && $6 ~ /^[0-9]+$/ {print "event=" $2 " " $4 " " $5 " " $6}' | tail -n 6
+  exit 0;;
  version) exec "$cli" --version;;
  check-update) exec "$cli" check-update;;
  fastest) exec "$cli" connect --fastest -y;;

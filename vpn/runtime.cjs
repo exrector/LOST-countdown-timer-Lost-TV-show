@@ -17,6 +17,28 @@ function parseStatus(text) {
     if (/^(?:Connecting|Reconnecting)(?:\s|\.|$)/i.test(text)) return { status: 'connecting', location: '' };
     return null;
 }
+// 2026-11-13: здоровье туннеля от монитора роутера (команда health). CLI пишет «Connected», даже когда
+// заграница через туннель не отвечает; монитор (adguard-vpn-monitor, проверка раз в 30 с, подтверждение двумя
+// проверками) это видит. Здесь — только состояния, которые означают проблему именно VPN: туннель, kill switch, DNS.
+// provider_path_unavailable (нет провайдера) и split_bypass_failure (не открываются исключения .ru) — не сюда.
+const FAULTS = {
+    adguard_tunnel_failure_split_alive: 'tunnel', adguard_total_failure: 'tunnel', adguard_route_missing: 'tunnel',
+    adguard_killswitch_missing: 'killswitch', adguard_dns_failure: 'dns',
+};
+const FAULT_LINE = { tunnel: 'TUNNEL FAILURE', killswitch: 'KILL SWITCH OFF', dns: 'DNS FAILURE' };
+const LAST_FAULT_MS = 3600000; // строка час помнит последний сбой — минутные сбои проходят между опросами
+function parseHealth(text) {
+    const kv = {}, events = [];
+    for (const line of stripANSI(text).split('\n')) {
+        const m = line.trim().match(/^([a-z_]+)=(.*)$/); if (!m) continue;
+        if (m[1] === 'event') {
+            const [at, from, to, dur] = m[2].trim().split(/\s+/);
+            if (/^\d+$/.test(at) && /^\d+$/.test(dur) && /^[a-z_]+$/.test(from) && /^[a-z_]+$/.test(to)) events.push({ at: Number(at) * 1000, from, to, duration: Number(dur) * 1000 });
+        } else kv[m[1]] = m[2].trim();
+    }
+    if (!/^[a-z_]+$/.test(kv.state || '')) return null;
+    return { state: kv.state, since: /^\d+$/.test(kv.since || '') ? Number(kv.since) * 1000 : 0, alive: kv.monitor === 'alive', events };
+}
 function domain(value) {
     if (typeof value !== 'string' || value.length > 253 || /[\s/@:*?\\]/.test(value)) throw Error('invalid_value');
     const ascii = domainToASCII(value.toLowerCase());
@@ -40,7 +62,7 @@ const settings = {
     'set-bound-if-override': /^[a-zA-Z0-9_.:-]{0,32}$/,
 };
 function commandFor(action, value) {
-    if (['status', 'locations', 'license', 'config', 'guard', 'version', 'check-update', 'fastest', 'last', 'disconnect', 'update', 'logout', 'export-logs'].includes(action)) {
+    if (['status', 'health', 'locations', 'license', 'config', 'guard', 'version', 'check-update', 'fastest', 'last', 'disconnect', 'update', 'logout', 'export-logs'].includes(action)) {
         if (value !== undefined && value !== null && value !== '') throw Error('invalid_value');
         return action;
     }
@@ -77,7 +99,7 @@ function validateConfig(cfg) {
 //   Неудачное чтение статуса повторяется один раз через retryDelayMs — разовый сбой SSH больше не даёт
 //   «NO DATA» на весь двухминутный цикл. Каждая смена состояния и причина отказа пишутся в журнал (log),
 //   раньше причины NO DATA нигде не оставалось.
-const ALERT_TEXT = { down: 'VPN LINK DOWN', connecting: 'VPN RECONNECTING', nodata: 'VPN NO DATA' };
+const ALERT_TEXT = { down: 'VPN LINK DOWN', connecting: 'VPN RECONNECTING', nodata: 'VPN NO DATA', tunnel: 'VPN TUNNEL FAILURE', killswitch: 'VPN KILL SWITCH OFF', dns: 'VPN DNS FAILURE' };
 function failureReason(error) {
     if (!error) return 'неизвестно';
     if (error.name === 'AbortError') return 'прервано';
@@ -92,6 +114,24 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     // since — когда началось текущее состояние (для порогов тревоги); при старте ядра — момент старта.
     let state = { status: 'unavailable', location: '', updatedAt: 0, since: now(), error: installed ? null : 'VPN-доступ не настроен' };
     let lastLogged = '', testUntil = 0, testText = ALERT_TEXT.down;
+    // health — последнее прочитанное здоровье туннеля: { state, since, alive, events, checkedAt }
+    let health = null, lastHealthNote = '';
+    function healthNote(text) { if (text !== lastHealthNote) { lastHealthNote = text; try { log('[vpn] ' + text); } catch (_) {} } }
+    function faultNow(value) {
+        if (value.status !== 'connected' || !health || !health.alive || now() - health.checkedAt > staleMs) return null;
+        const code = FAULTS[health.state]; return code ? { code, text: FAULT_LINE[code], state: health.state, since: health.since } : null;
+    }
+    function lastFault() {
+        if (!health) return null;
+        for (let i = health.events.length - 1; i >= 0; i--) {
+            const e = health.events[i];
+            if (FAULTS[e.from] && e.to === 'healthy') {
+                if (now() - e.at > LAST_FAULT_MS) return null;
+                return { code: FAULTS[e.from], text: FAULT_LINE[FAULTS[e.from]], startedAt: e.at - e.duration, endedAt: e.at, duration: e.duration };
+            }
+        }
+        return null;
+    }
     // Проверка плашки без выключения VPN роутера (через него идёт интернет дома): на seconds секунд
     // snapshot().alert показывает тревогу с пометкой test. Сам VPN и показания не трогаются.
     function testAlert(seconds, code = 'down') {
@@ -105,15 +145,17 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         if (now() < testUntil) return { code: 'test', text: testText };
         const age = now() - (value.since || 0);
         if (value.status === 'disconnected') return { code: 'down', text: ALERT_TEXT.down };
+        if (value.fault) return { code: value.fault.code, text: ALERT_TEXT[value.fault.code] };
         if (value.status === 'connecting' && age >= connectingAlertMs) return { code: 'connecting', text: ALERT_TEXT.connecting };
         if (value.status === 'unavailable' && age >= noDataAlertMs) return { code: 'nodata', text: ALERT_TEXT.nodata };
         return null;
     }
     function snapshot() {
         let value = { installed, enabled, ...state, busy };
-        if (!enabled) return { ...value, status: 'disabled', location: '', error: null, alert: null };
+        if (!enabled) return { ...value, status: 'disabled', location: '', error: null, alert: null, fault: null, lastFault: null };
         // устаревшие показания = NO DATA с момента последнего удачного чтения
         if (['connected', 'disconnected', 'connecting'].includes(value.status) && now() - value.updatedAt > staleMs) value = { ...value, status: 'unavailable', location: '', since: value.updatedAt, error: 'Показания VPN устарели' };
+        value = { ...value, fault: faultNow(value), lastFault: lastFault() };
         return { ...value, alert: alertFor(value) };
     }
     function setState(next) {
@@ -148,6 +190,18 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     // Повтор не раньше, чем через полинтервала: таймер срабатывает чуть раньше intervalMs после прошлой попытки,
     // и при строгом «< intervalMs» каждый второй опрос пропускался — опрос шёл раз в 120 с, а показания
     // старше staleMs (90 с) «устаревали» (28.10, ответ «статус»: VPN: НЕТ ДАННЫХ — ПОКАЗАНИЯ VPN УСТАРЕЛИ).
+    // Здоровье туннеля — вторым коротким запросом в том же цикле, только после удачного статуса. Ошибка здесь
+    // не портит статус: без монитора LOST просто видит то же, что раньше (только CLI).
+    async function readHealth(ownGeneration) {
+        try {
+            const parsed = parseHealth(await remote('health'));
+            if (!parsed) throw Object.assign(Error('unknown_health'), { reason: 'непонятный ответ монитора' });
+            if (enabled && generation === ownGeneration) {
+                health = { ...parsed, checkedAt: now() };
+                healthNote(parsed.alive ? 'туннель: ' + parsed.state : 'монитор VPN на роутере не работает (последнее: ' + parsed.state + ')');
+            }
+        } catch (error) { healthNote('здоровье туннеля недоступно — ' + (error.reason || error.message)); }
+    }
     async function refresh({ force = false } = {}) {
         if (!enabled || !installed || busy || !force && now() - lastAttempt < intervalMs / 2) return snapshot();
         busy = true; const ownGeneration = generation;
@@ -159,6 +213,7 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
                 await sleep(retryDelayMs);
                 if (enabled && generation === ownGeneration) await readStatus(ownGeneration);
             }
+            if (enabled && generation === ownGeneration) await readHealth(ownGeneration);
         } catch (_) {} finally { busy = false; }
         return snapshot();
     }
@@ -186,4 +241,4 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     function close() { setEnabled(false); }
     return { snapshot, refresh, execute, setEnabled, close, testAlert };
 }
-module.exports = { createVPN, parseStatus, stripANSI, safeOutput, commandFor, validateConfig };
+module.exports = { createVPN, parseHealth, parseStatus, stripANSI, safeOutput, commandFor, validateConfig };
