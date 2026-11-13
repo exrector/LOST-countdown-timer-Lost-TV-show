@@ -216,13 +216,6 @@ test('disconnected wins over a tunnel fault; an old health reading expires with 
     const u = stand({ health: H('adguard_tunnel_failure_split_alive') }); await u.vpn.refresh({ force: true });
     u.tick(181000); assert.equal(u.vpn.snapshot().fault, null);
 });
-test('a fault that started and ended between two polls is remembered for an hour (LAST FAULT)', async () => {
-    const t = stand({ health: H('healthy', 'event=1794571990 healthy adguard_tunnel_failure_split_alive 12346\nevent=1794572051 adguard_tunnel_failure_split_alive healthy 61\n') });
-    const s = await t.vpn.refresh({ force: true });
-    assert.equal(s.alert, null); assert.equal(s.fault, null);
-    assert.deepEqual(s.lastFault, { code: 'tunnel', text: 'TUNNEL FAILURE', startedAt: 1794571990000, endedAt: 1794572051000, duration: 61000 });
-    t.tick(3600000); await t.vpn.refresh({ force: true }); assert.equal(t.vpn.snapshot().lastFault, null);
-});
 test('router forced command: health is read-only, exact, and reads the monitor files', t => {
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'lost-vpn-health-')); t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
     fs.mkdirSync(path.join(folder, 'lib')); fs.mkdirSync(path.join(folder, 'logs'));
@@ -237,4 +230,12 @@ test('router forced command: health is read-only, exact, and reads the monitor f
     assert.equal(r.stdout, 'state=healthy\nsince=10\nupdated=20\nmonitor=alive\nevent=100 healthy adguard_dns_failure 90\nevent=200 adguard_dns_failure healthy 100\n');
     for (const bad of ['health x', 'health;id', 'health\n']) assert.equal(invoke(bad).status, 64, bad);
     assert.equal(commandFor('health'), 'health'); assert.throws(() => commandFor('health', 'x'));
+});
+// 2026-11-13: строка VPN внизу терминала — одна короткая надпись. Хвост «· LAST FAULT …» растянул страницу
+// 1024×600 до 1037 px и дал полосы прокрутки (владелец). Сбои туннеля — только плашкой, строку не трогать.
+test('bottom VPN line carries only its own short label, nothing appended', () => {
+    const client = fs.readFileSync(path.join(__dirname, 'client.js'), 'utf8');
+    const paint = client.slice(client.indexOf('function paint(){'), client.indexOf('async function poll()'));
+    assert.ok(!/createTextNode|LAST FAULT|lastFault|state\.fault/.test(paint), 'paint() must not add anything to the VPN line');
+    assert.match(paint, /'CONNECTED: '\+String\(state\.location\|\|'UNKNOWN'\)\.toUpperCase\(\):status==='disconnected'\?'DISCONNECTED':status==='connecting'\?'CONNECTING':'NO DATA'/);
 });

@@ -25,8 +25,9 @@ const FAULTS = {
     adguard_tunnel_failure_split_alive: 'tunnel', adguard_total_failure: 'tunnel', adguard_route_missing: 'tunnel',
     adguard_killswitch_missing: 'killswitch', adguard_dns_failure: 'dns',
 };
+// Сбой показывается только плашкой (ALERT_TEXT). Нижняя строка VPN не меняется — она уже была и должна
+// влезать в экран 1024×600 (владелец, 2026-11-13: хвост «LAST FAULT» в строке вызвал полосы прокрутки, убран).
 const FAULT_LINE = { tunnel: 'TUNNEL FAILURE', killswitch: 'KILL SWITCH OFF', dns: 'DNS FAILURE' };
-const LAST_FAULT_MS = 3600000; // строка час помнит последний сбой — минутные сбои проходят между опросами
 function parseHealth(text) {
     const kv = {}, events = [];
     for (const line of stripANSI(text).split('\n')) {
@@ -121,17 +122,6 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         if (value.status !== 'connected' || !health || !health.alive || now() - health.checkedAt > staleMs) return null;
         const code = FAULTS[health.state]; return code ? { code, text: FAULT_LINE[code], state: health.state, since: health.since } : null;
     }
-    function lastFault() {
-        if (!health) return null;
-        for (let i = health.events.length - 1; i >= 0; i--) {
-            const e = health.events[i];
-            if (FAULTS[e.from] && e.to === 'healthy') {
-                if (now() - e.at > LAST_FAULT_MS) return null;
-                return { code: FAULTS[e.from], text: FAULT_LINE[FAULTS[e.from]], startedAt: e.at - e.duration, endedAt: e.at, duration: e.duration };
-            }
-        }
-        return null;
-    }
     // Проверка плашки без выключения VPN роутера (через него идёт интернет дома): на seconds секунд
     // snapshot().alert показывает тревогу с пометкой test. Сам VPN и показания не трогаются.
     function testAlert(seconds, code = 'down') {
@@ -152,10 +142,10 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     }
     function snapshot() {
         let value = { installed, enabled, ...state, busy };
-        if (!enabled) return { ...value, status: 'disabled', location: '', error: null, alert: null, fault: null, lastFault: null };
+        if (!enabled) return { ...value, status: 'disabled', location: '', error: null, alert: null, fault: null };
         // устаревшие показания = NO DATA с момента последнего удачного чтения
         if (['connected', 'disconnected', 'connecting'].includes(value.status) && now() - value.updatedAt > staleMs) value = { ...value, status: 'unavailable', location: '', since: value.updatedAt, error: 'Показания VPN устарели' };
-        value = { ...value, fault: faultNow(value), lastFault: lastFault() };
+        value = { ...value, fault: faultNow(value) };
         return { ...value, alert: alertFor(value) };
     }
     function setState(next) {

@@ -11,17 +11,10 @@
  function shown(){return ['connected','disconnected','connecting'].includes(state.status)?state.status:'unavailable';}
  function paint(){
   var status=shown();
-  // 2026-11-13: сбой туннеля по монитору роутера (state.fault) — красным вместо CONNECTED: TUNNEL FAILURE: NEW YORK.
-  // Сбой, который начался и кончился между опросами (state.lastFault, помнится час), — приглушённым хвостом:
-  // CONNECTED: NEW YORK · LAST FAULT 15:13 1 MIN — чтобы минутный сбой был виден, проходя мимо.
-  var fault=status==='connected'&&state.fault&&state.fault.text;
-  line.className='vpn-line '+(fault?'disconnected':status);line.hidden=state.enabled===false;
+  line.className='vpn-line '+status;line.hidden=state.enabled===false;
   // нижняя строка — по-английски, как показания UPS и консоли мейнфреймов: VPN: CONNECTED: NEW YORK
-  var place=String(state.location||'UNKNOWN').toUpperCase();
-  line.textContent='VPN: ';var b=document.createElement('b');b.textContent=fault?String(fault).toUpperCase()+': '+place:status==='connected'?'CONNECTED: '+place:status==='disconnected'?'DISCONNECTED':status==='connecting'?'CONNECTING':'NO DATA';line.appendChild(b);
-  var last=!fault&&status==='connected'&&state.lastFault;
-  if(last&&last.startedAt){var d=new Date(last.startedAt),hm=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);line.appendChild(document.createTextNode(' · LAST FAULT '+hm+' '+Math.max(1,Math.round((last.duration||0)/60000))+' MIN'));}
-  line.title=fault?'Монитор роутера: '+(state.fault.state||''):last?'Последний сбой туннеля: '+String(last.text||'')+', начался '+new Date(last.startedAt).toLocaleTimeString():state.error||'AdGuard VPN на роутере';
+  line.textContent='VPN: ';var b=document.createElement('b');b.textContent=status==='connected'?'CONNECTED: '+String(state.location||'UNKNOWN').toUpperCase():status==='disconnected'?'DISCONNECTED':status==='connecting'?'CONNECTING':'NO DATA';line.appendChild(b);
+  line.title=state.error||'AdGuard VPN на роутере';
  }
  async function poll(){if(polling||state.enabled===false)return;polling=true;var c=new AbortController(),timeout=setTimeout(function(){c.abort();},5000);
   try{var res=await fetch('/__vpn/state',{cache:'no-store',signal:c.signal});if(!res.ok)throw Error();state=await res.json();}
@@ -85,7 +78,7 @@
   var status=shown();
   return 'VPN: '+value(status);
  }
- function value(status){var f=status==='connected'&&state.fault&&state.fault.code;if(f)return {tunnel:'СБОЙ ТУННЕЛЯ',killswitch:'KILL SWITCH ВЫКЛ',dns:'СБОЙ DNS'}[f]||'СБОЙ';return status==='connected'?String(state.location||'ПОДКЛЮЧЁН').toUpperCase():status==='disconnected'?'ОТКЛЮЧЁН':status==='connecting'?'ПОДКЛЮЧЕНИЕ':'НЕТ ДАННЫХ';}
+ function value(status){return status==='connected'?String(state.location||'ПОДКЛЮЧЁН').toUpperCase():status==='disconnected'?'ОТКЛЮЧЁН':status==='connecting'?'ПОДКЛЮЧЕНИЕ':'НЕТ ДАННЫХ';}
  window.LostVPN={menu:menu,title:title,execute:execute,status:function(){return state;}};
  window.addEventListener('lost-modules',function(e){var m=e.detail&&e.detail.vpn;if(m){state.enabled=m.enabled;paint();if(m.enabled)poll();}});
  paint();poll();timer=setInterval(poll,30000); // данные VPN меняются раз в 2 мин (общий цикл станции)
