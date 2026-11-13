@@ -11,6 +11,15 @@ function createVPNGateway({ vpn, port }) {
             if (req.method !== 'GET') { req.resume(); reply(res, 405, { error: 'method_not_allowed' }); return true; }
             reply(res, 200, vpn.snapshot()); return true;
         }
+        // 2026-11-13: проверка плашки тревоги — только с самого mini (localhost), VPN роутера не трогает.
+        // curl -H 'Host: localhost:8765' 'http://127.0.0.1:8765/__vpn/test-alert?seconds=60&code=down'  (seconds=0 — снять)
+        if (route === '/__vpn/test-alert') {
+            req.resume();
+            if (req.method !== 'GET' || req.headers.origin) { reply(res, 405, { error: 'method_not_allowed' }); return true; }
+            const q = new URL(req.url, 'http://localhost').searchParams;
+            const ok = typeof vpn.testAlert === 'function' && vpn.testAlert(q.get('seconds') ?? '60', q.get('code') || 'down');
+            reply(res, ok ? 200 : 400, ok ? { ok: true, state: vpn.snapshot() } : { error: 'invalid_value' }); return true;
+        }
         if (route !== '/__vpn/command') { req.resume(); reply(res, 404, { error: 'not_found' }); return true; }
         if (req.method !== 'POST') { req.resume(); reply(res, 405, { error: 'method_not_allowed' }); return true; }
         if (!origins.has(req.headers.origin) || req.headers['x-lost-vpn'] !== '1' || !/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) { req.resume(); reply(res, 403, { error: 'invalid_request' }); return true; }

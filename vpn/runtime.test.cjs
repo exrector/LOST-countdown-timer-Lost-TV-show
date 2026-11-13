@@ -140,3 +140,15 @@ test('not installed: never alerts', () => {
     const vpn = createVPN({ configFile: '/nonexistent/vpn.json', now: () => 10 ** 9 });
     assert.equal(vpn.snapshot().alert, null);
 });
+
+test('test alert shows the plate for the given seconds without touching the VPN', async () => {
+    let clock = 0, calls = 0; const logs = [];
+    const vpn = createVPN({ config, now: () => clock, log: t => logs.push(t), run: async () => { calls++; return { stdout: 'Connected to NEW YORK in TUN mode' }; } });
+    await vpn.refresh({ force: true }); const before = calls;
+    assert.equal(vpn.testAlert(60, 'nodata'), true);
+    assert.deepEqual(vpn.snapshot().alert, { code: 'test', text: 'VPN NO DATA' }); assert.equal(vpn.snapshot().status, 'connected');
+    clock += 61000; assert.equal(vpn.snapshot().alert, null);
+    vpn.testAlert(60); assert.equal(vpn.snapshot().alert.text, 'VPN LINK DOWN'); vpn.testAlert(0); assert.equal(vpn.snapshot().alert, null);
+    assert.equal(vpn.testAlert(301), false); assert.equal(vpn.testAlert(10, 'boom'), false); assert.equal(vpn.testAlert('x'), false);
+    assert.equal(calls, before); assert.ok(logs.some(t => t.includes('проверка плашки')));
+});

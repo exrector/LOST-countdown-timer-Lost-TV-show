@@ -91,10 +91,18 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     let enabled = true, busy = false, timer = null, generation = 0, lastAttempt = -Infinity, activeAbort = null;
     // since — когда началось текущее состояние (для порогов тревоги); при старте ядра — момент старта.
     let state = { status: 'unavailable', location: '', updatedAt: 0, since: now(), error: installed ? null : 'VPN-доступ не настроен' };
-    let lastLogged = '';
+    let lastLogged = '', testUntil = 0, testText = ALERT_TEXT.down;
+    // Проверка плашки без выключения VPN роутера (через него идёт интернет дома): на seconds секунд
+    // snapshot().alert показывает тревогу с пометкой test. Сам VPN и показания не трогаются.
+    function testAlert(seconds, code = 'down') {
+        const s = Number(seconds); if (!Number.isFinite(s) || s < 0 || s > 300 || !Object.hasOwn(ALERT_TEXT, code)) return false;
+        testUntil = s ? now() + s * 1000 : 0; testText = ALERT_TEXT[code]; try { log('[vpn] проверка плашки: ' + (s ? testText + ' на ' + s + ' с' : 'снята')); } catch (_) {}
+        return true;
+    }
     function note(text) { if (text !== lastLogged) { lastLogged = text; try { log('[vpn] ' + text); } catch (_) {} } }
     function alertFor(value) {
         if (!installed || !enabled) return null;
+        if (now() < testUntil) return { code: 'test', text: testText };
         const age = now() - (value.since || 0);
         if (value.status === 'disconnected') return { code: 'down', text: ALERT_TEXT.down };
         if (value.status === 'connecting' && age >= connectingAlertMs) return { code: 'connecting', text: ALERT_TEXT.connecting };
@@ -176,6 +184,6 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         return snapshot();
     }
     function close() { setEnabled(false); }
-    return { snapshot, refresh, execute, setEnabled, close };
+    return { snapshot, refresh, execute, setEnabled, close, testAlert };
 }
 module.exports = { createVPN, parseStatus, stripANSI, safeOutput, commandFor, validateConfig };
