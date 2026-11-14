@@ -268,3 +268,42 @@ test('menu: ЛОКАЦИИ is a pick list with confirmation, not a read-only vie
     assert.match(client, /locationsDir\(confirm\)/);
     assert.match(client, /confirm\(label,'connect -l "'\+l\.value\+'"','connect',l\.value\)/);
 });
+
+// 2026-11-14: автосмена города — только в той же стране, после затяжного сбоя, с лимитами.
+function autoRouter({ city = 'NEW YORK', health = 'adguard_tunnel_failure_split_alive', calls }) {
+    const locations = fs.readFileSync(path.join(__dirname, 'fixtures/list-locations-20261113.txt'), 'utf8');
+    return async (_file, args) => {
+        const c = args.at(-1); calls.push(c);
+        if (c === 'status') return { stdout: 'Connected to ' + city.current + ' in TUN mode, running on tun0\n' };
+        if (c === 'health') return { stdout: 'state=' + health.current + '\nmonitor=alive\n' };
+        if (c === 'locations') return { stdout: locations };
+        if (c.startsWith('connect ')) { city.current = c.slice(8).toUpperCase(); return { stdout: 'Successfully Connected' }; }
+        return { stdout: '' };
+    };
+}
+test('auto switch: persistent tunnel failure moves to the nearest other city of the same country only', async () => {
+    let clock = 1000; const calls = [], city = { current: 'NEW YORK' }, health = { current: 'adguard_tunnel_failure_split_alive' }, logs = [];
+    const vpn = createVPN({ config, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }), log: t => logs.push(t) });
+    await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), 'не сразу');
+    clock += 120000; await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), '2 мин — рано');
+    clock += 200000; await vpn.refresh({ force: true });
+    assert.ok(calls.includes('connect Atlanta'), 'ближайший город США по пингу: ' + calls.join(','));
+    assert.equal(vpn.snapshot().autoSwitch.from, 'New York'); assert.equal(vpn.snapshot().autoSwitch.to, 'Atlanta');
+    assert.ok(logs.some(l => /автосмена: New York → Atlanta/.test(l)));
+    // сбой продолжается — не раньше паузы 10 мин и не обратно в Нью-Йорк
+    clock += 320000; await vpn.refresh({ force: true }); assert.equal(calls.filter(c => c.startsWith('connect')).length, 1, 'пауза между сменами');
+    clock += 400000; await vpn.refresh({ force: true }); clock += 320000; await vpn.refresh({ force: true });
+    const connects = calls.filter(c => c.startsWith('connect'));
+    assert.equal(connects[1], 'connect Chicago', 'следующий — не Нью-Йорк и не Атланта: ' + connects.join(','));
+    assert.ok(connects.every(c => !/Stockholm|Helsinki/.test(c)), 'никогда в другую страну');
+});
+test('auto switch: healthy tunnel, manual disconnect and autoSwitch:false never switch', async () => {
+    for (const variant of ['healthy', 'disconnected', 'off']) {
+        let clock = 1000; const calls = [], city = { current: 'NEW YORK' }, health = { current: variant === 'healthy' ? 'healthy' : 'adguard_tunnel_failure_split_alive' };
+        let run = autoRouter({ city, health, calls });
+        if (variant === 'disconnected') { const inner = run; run = async (f, a) => a.at(-1) === 'status' ? (calls.push('status'), { stdout: 'Disconnected' }) : inner(f, a); }
+        const vpn = createVPN({ config: variant === 'off' ? { ...config, autoSwitch: false } : config, now: () => clock, retryDelayMs: 0, run });
+        for (let i = 0; i < 6; i++) { await vpn.refresh({ force: true }); clock += 120000; }
+        assert.ok(!calls.some(c => c.startsWith('connect') || c === 'locations'), variant + ': ' + calls.join(','));
+    }
+});

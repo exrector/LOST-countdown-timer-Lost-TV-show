@@ -695,7 +695,8 @@
     // (vpn/runtime.cjs → snapshot().alert): VPN LINK DOWN — сразу, VPN RECONNECTING — дольше 3 мин,
     // VPN NO DATA — дольше 5 мин. Отличие от паузы — мигает вся надпись с рамкой, чтобы бросаться в глаза
     // издалека; чёрное поле при этом остаётся, цифры таймера под ним не мелькают. Кегль — как у паузы.
-    // Если одновременно пауза — плашка VPN уходит выше, обе читаются. Выключенный модуль VPN тревог не даёт.
+    // ~~Если одновременно пауза — плашка VPN уходит выше, обе читаются.~~ С 2026-11-14 плашка VPN всегда
+    // в верхней трети экрана, пауза — в средней (см. stationNotices). Выключенный модуль VPN тревог не даёт.
     var VPN_POLL_MS = 15000; // окна читают только готовый снимок ядра (/__vpn/state), роутер не опрашивают
     // Звук тревоги (2026-11-13): assets/sounds/vpnalarm.mp3 — один мягкий сигнал ~743 Гц, 0,52 с, вырезан из
     // «seat-belt unfastened» владельца. Период мигания = ритм исходного сигнала (~1,47 с) → 1,5 с.
@@ -706,8 +707,13 @@
     var VPN_BLINK_MS = 1500, VPN_SOUND = 'vpnalarm';
     (function stationNotices() {
         var st = document.createElement('style');
+        // 2026-11-14 (владелец): экран делится по высоте на три равные полосы, у каждой плашки своя.
+        //   ВЕРХ — тревога VPN, ЦЕНТР — пауза (MAINFRAME STANDBY), НИЗ — свободна (класс row-bottom).
+        //   БЫЛО: плашка во весь экран с надписью по центру — тревога VPN закрывала цифры таймера и строку
+        //   ввода кода; наверх уходила только при паузе. СТАЛО: VPN всегда в верхней трети.
+        //   Меню и любые панели терминала — поверх плашек (html.lost-panel-up, см. ниже).
         st.textContent = '@keyframes lostPzBlink{50%{opacity:0}}' +
-            '.pz{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;' +
+            '.pz{position:fixed;left:0;right:0;top:33.3333vh;height:33.3334vh;z-index:60;display:flex;align-items:center;justify-content:center;' +
             'pointer-events:none;opacity:0;transition:opacity .25s;font-family:"Courier New",Courier,monospace}' +
             '.pz.on{opacity:1}' +
             // рамка нарисована знаками (╔═╗), как на машинах той эпохи. Чёрное поле — ровно по рамке
@@ -731,10 +737,12 @@
             // VPN: выше паузы по слою; мигает краска знаков (надпись и рамка), поле остаётся чёрным
             '@keyframes lostVpnBlink{0%{color:#ff3b30;text-shadow:0 0 10px rgba(255,59,48,.75)}' +
             '50%{color:#3d0c09;text-shadow:none}}' +
-            '.pz.vpn{z-index:61}' +
+            '.pz.vpn{z-index:61;top:0}' +
             '.pz.vpn .win{animation:lostVpnBlink ' + VPN_BLINK_MS / 1000 + 's step-end infinite}' +
-            // вместе с паузой — плашка VPN в верхней части экрана
-            'html.lost-paused .pz.vpn{align-items:flex-start;padding-top:9vh;box-sizing:border-box}';
+            '.pz.row-bottom{top:66.6666vh}' +
+            // открытое меню / энергоконтур / AI — весь контейнер терминала над плашками (у него свой слой z-index:0,
+            // поэтому поднять одно меню внутри него нельзя). Плашки в других полосах остаются видны.
+            'html.lost-panel-up .console-container{z-index:70}';
         document.head.appendChild(st);
 
         // Краска знака: где на самом деле лежат штрихи относительно начала знака и базовой линии.
@@ -784,6 +792,9 @@
                 var chars = text.length + 8; // ║ + три клетки + текст + пробел + курсор + пробел + ║
                 var ADV = 0.66; // знак Courier = 0.6em + 0.06em разрядки
                 var fs = PAUSE_WIDTH * window.innerWidth / ((PAUSE_NOTE.length + 8) * ADV);
+                // 2026-11-14: плашка (три строки по 1.45em) обязана влезать в свою треть высоты — на широких
+                // экранах (16:9) кегль от ширины выходил бы за полосу. 0.9 — небольшой зазор до соседней полосы.
+                fs = Math.min(fs, 0.9 * (window.innerHeight / 3) / (3 * 1.45));
                 win.style.fontSize = fs + 'px';
                 // Чёрное поле срезается ровно до внешнего края штрихов рамки. Отступы хранятся в em:
                 // при смене размера они верны без нового замера, а спрятанная плашка (display:none) замер пропускает.
@@ -865,6 +876,19 @@
             beatTimer = setTimeout(function () { if (vpnNotice.isOn()) vpnBeep(); vpnBeats(); }, wait);
         }
         pollVPN(); setInterval(pollVPN, VPN_POLL_MS);
+
+        // 2026-11-14: меню поверх плашек. Открыта любая панель терминала (меню, энергоконтур, AI) —
+        // html.lost-panel-up поднимает контейнер терминала выше слоя плашек. Условие — то же, что у ввода
+        // (js/station-input.js → insideTool). Проверка по событиям панелей и раз в 0,5 с (дёшево: 3 селектора).
+        function panelUp() {
+            var ups = document.querySelector('.ups-panel');
+            var up = !!document.body && (document.body.classList.contains('lost-muse-active') || !!document.querySelector('.ctl.open') || !!(ups && !ups.hidden));
+            document.documentElement.classList.toggle('lost-panel-up', up);
+        }
+        ['lost-menu-change', 'lost-ups-open', 'lost-ups-close', 'lost-muse-open', 'lost-muse-close'].forEach(function (n) {
+            window.addEventListener(n, function () { setTimeout(panelUp, 0); });
+        });
+        setInterval(panelUp, 500);
 
         if (role === 'console') { ui.onPause = showPause; return; } // терминал: состояние паузы приходит в __state
 
