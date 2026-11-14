@@ -12,3 +12,10 @@ native/.module-cache/
 
 # Isolated local workstation preview
 .preview/
+# 2026-11-14: служебное на Mac mini — резервные копии установок, кэш и промежуточная сборка native, временные файлы состояния
+.deploy-layout/
+.review-backups/
+.native-backups/
+native/.module-cache/
+native/dist/
+cast-app/.state.json.*.tmp
