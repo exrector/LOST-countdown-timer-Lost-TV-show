@@ -10,7 +10,7 @@ body.lost-muse-active .console-input{flex:1;min-width:0;margin-left:8px}
 body.lost-muse-active .my-console{caret-color:transparent}
 
 body.lost-muse-active .my-console::placeholder{color:#747c77;text-shadow:none}
-.muse-transcript{flex:1;min-height:0;overflow:auto;padding:6px 0 12px;color:#33ff88;font:20px/1.5 "Courier New",Courier,monospace;scrollbar-width:thin;scrollbar-color:#53635a transparent;overscroll-behavior:contain}
+.muse-transcript{flex:1;min-height:0;overflow:auto;padding:6px 0 12px;color:#33ff88;font:20px/1.5 "Courier New",Courier,monospace;scrollbar-width:thin;scrollbar-color:rgba(51,255,136,.55) transparent;overscroll-behavior:contain}
 .muse-message{display:grid;grid-template-columns:9ch minmax(0,1fr);gap:0;margin:0 0 12px}
 .muse-message-role{color:#748078;text-shadow:none}
 .muse-message-text{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}

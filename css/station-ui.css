@@ -38,7 +38,7 @@ body.console-page .ctl .row.sel .k,body.console-page .ups-table tr:focus td{colo
 body.console-page .ctl .ft,body.console-page .ups-footer{
  border-top:1px solid var(--station-line);padding:4px 10px;font:var(--station-help)/1.4 var(--station-font);color:var(--station-muted);opacity:1;
 }
-body.console-page .ctl .list,body.console-page .ctl .view,body.console-page .ups-content{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-color:var(--station-line) var(--station-surface)}
+body.console-page .ctl .list,body.console-page .ctl .view,body.console-page .ups-content{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-color:rgba(51,255,136,.55) var(--station-surface)}
 body.console-page .ctl .view{width:100%;max-width:100%;font:var(--station-text)/1.4 var(--station-font);padding:8px 10px}
 body.console-page .ups-panel button,body.console-page .ups-panel input,body.console-page .ups-panel select{
  font:var(--station-help)/1.4 var(--station-font);border:1px solid var(--station-line);background:var(--station-surface);color:var(--station-ink);padding:4px 7px;text-shadow:none;
@@ -95,3 +95,15 @@ body.console-page .service-line .vpn-line[hidden]{display:none}
 body.console-page .station-explanation{white-space:pre-line;padding:6px 10px;color:var(--station-muted);font:var(--station-help)/1.4 var(--station-font);border-bottom:1px solid var(--station-line);max-height:100px;overflow:auto}
 body.console-page .station-editor{padding:10px;min-width:0}
 body.console-page .station-editor input{box-sizing:border-box;width:100%;font:var(--station-text)/1.4 var(--station-font);background:var(--station-surface);color:var(--station-ink);border:1px solid var(--station-line);padding:6px;outline:1px solid var(--station-ink)}
+/* 2026-11-14 (владелец): полосы прокрутки — в палитре терминала, на всех прокручиваемых местах (меню, ЛОКАЦИИ VPN,
+   станции ПЛАМЯ, журналы, энергоконтур, AI). БЫЛО: scrollbar-color — WebKit на Mac mini 2014 его не понимает,
+   рисовалась серая полоса macOS. СТАЛО: ::-webkit-scrollbar (понимает старый WebKit) — прямоугольная, без скруглений,
+   ползунок цвета текста терминала, дорожка цвета панели с линией-разделителем, как рамки станции. */
+body.console-page ::-webkit-scrollbar{width:10px;height:10px;background:var(--station-surface)}
+body.console-page ::-webkit-scrollbar-track{background:var(--station-surface);border-left:1px solid var(--station-line)}
+body.console-page ::-webkit-scrollbar-thumb{background:rgba(51,255,136,.55);border:2px solid var(--station-surface);border-radius:0}
+body.console-page ::-webkit-scrollbar-thumb:hover,body.console-page ::-webkit-scrollbar-thumb:active{background:var(--station-ink)}
+body.console-page ::-webkit-scrollbar-button{display:none;width:0;height:0}
+body.console-page ::-webkit-scrollbar-corner{background:var(--station-surface)}
+/* (то же, 2026-11-14) стандартный scrollbar-color в меню и в окне AI тоже перекрашен в зелёный ползунок: Chromium и новые
+   Safari берут его вместо ::-webkit-scrollbar, старый WebKit mini — наоборот. Так полоса зелёная в любом движке. */
