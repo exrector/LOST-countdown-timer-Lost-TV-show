@@ -12,6 +12,10 @@ const { createUPSService } = require('./modules');
 const { launchNative } = require('./native-host');
 const { RecoveryController } = require('./runtime');
 const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+// 2026-11-14: личное — только вне репозитория (он публичный). ~/.config/lost/local.json перекрывает поля config.json;
+// сейчас там sleepFrom — номера, от которых LOST принимает «Сон»/«Утро» по iMessage. Нет файла — пустой список.
+try { Object.assign(cfg, JSON.parse(fs.readFileSync(path.join(os.homedir(), '.config/lost/local.json'), 'utf8'))); }
+catch (e) { if (e.code !== 'ENOENT') console.log('[config] ~/.config/lost/local.json не прочитан: ' + e.message); }
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const ROOT = path.resolve(__dirname, '..');
 const nativeUI = cfg.renderer === 'native';

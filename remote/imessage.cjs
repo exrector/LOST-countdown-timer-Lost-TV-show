@@ -1,5 +1,5 @@
 'use strict';
-// Канал iMessage: сообщения на Apple ID этого Мака от разрешённых номеров (config.json → sleepFrom) читаются из базы
+// Канал iMessage: сообщения на Apple ID этого Мака от разрешённых номеров (sleepFrom из ~/.config/lost/local.json, с 14.11 — не в репозитории) читаются из базы
 // «Сообщений» раз в 10 с; ответ уходит сообщением. Пока модуль выключен, новые сообщения пропускаются, а не копятся.
 const path = require('node:path');
 const os = require('node:os');
