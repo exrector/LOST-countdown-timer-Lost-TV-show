@@ -738,8 +738,8 @@
             '@keyframes lostVpnBlink{0%{color:#ff3b30;text-shadow:0 0 10px rgba(255,59,48,.75)}' +
             '50%{color:#3d0c09;text-shadow:none}}' +
             // 2026-11-14 03:20 (владелец): ~~.pz.vpn{top:0}~~ — в верхней трети плашка VPN закрывала строку ввода
-            //   кода терминала. Теперь она стоит вплотную НАД плашкой паузы (зазор в несколько пикселей): та же полоса,
-            //   что у паузы, и сдвиг вверх на высоту чёрного поля + зазор (fit() ставит transform).
+            //   кода терминала. С 03:30 положение каждой плашки задаёт fit() по noticeArea(): область между строкой
+            //   ввода и нижней служебной строкой, три равные полосы (VPN / пауза / row-bottom).
             '.pz.vpn{z-index:61}' +
             '.pz.vpn .win{animation:lostVpnBlink ' + VPN_BLINK_MS / 1000 + 's step-end infinite}' +
             '.pz.row-bottom{top:66.6666vh}' +
@@ -766,6 +766,18 @@
                 if (x < l) l = x; if (x > r) r = x; if (y < t) t = y; if (y > b) b = y;
             }
             return r < 0 ? null : { left: l - x0, right: r + 1 - x0, ascent: y0 - t, descent: b + 1 - y0 };
+        }
+
+        // Область для плашек на терминале: от низа строки ввода кода до верха нижней служебной строки, с зазором
+        // 1% высоты экрана (не меньше 4 px). Нет этих элементов (страница таймера) или область слишком мала — весь экран.
+        function noticeArea() {
+            var h = window.innerHeight, gap = Math.max(4, Math.round(h * 0.01)), top = 0, bottom = h;
+            var input = document.querySelector('.console-input') || document.querySelector('.console-prompt');
+            var line = document.querySelector('.service-line');
+            if (input) { var a = input.getBoundingClientRect(); if (a.height) top = a.bottom + gap; }
+            if (line) { var b = line.getBoundingClientRect(); if (b.height) bottom = b.top - gap; }
+            if (bottom - top < h * 0.3) { top = 0; bottom = h; }
+            return { top: top, bottom: bottom };
         }
 
         // Одна плашка: текст в двойной рамке. extra — доп. класс (vpn). cursor=false — без курсора:
@@ -798,9 +810,14 @@
                 var chars = text.length + 8; // ║ + три клетки + текст + пробел + курсор + пробел + ║
                 var ADV = 0.66; // знак Courier = 0.6em + 0.06em разрядки
                 var fs = PAUSE_WIDTH * window.innerWidth / ((PAUSE_NOTE.length + 8) * ADV);
-                // 2026-11-14: плашка (три строки по 1.45em) обязана влезать в свою треть высоты — на широких
-                // экранах (16:9) кегль от ширины выходил бы за полосу. 0.9 — небольшой зазор до соседней полосы.
-                fs = Math.min(fs, 0.9 * (window.innerHeight / 3) / (3 * 1.45));
+                // 2026-11-14 03:30 (владелец): область плашек — от низа строки ввода кода (с зазором) до верха нижней
+                //   служебной строки (UPS/VPN/…), делится на три равные полосы: VPN — верхняя, пауза — средняя,
+                //   row-bottom — нижняя. ~~Трети всего экрана~~ / ~~VPN вплотную над паузой~~ — внизу оставалось
+                //   слишком много пустого места, а VPN закрывала строку ввода. Плашка влезает в свою полосу (кегль ≤).
+                var R = noticeArea(), slot = (R.bottom - R.top) / 3;
+                var idx = /\bvpn\b/.test(box.className) ? 0 : /\brow-bottom\b/.test(box.className) ? 2 : 1;
+                box.style.top = Math.round(R.top + idx * slot) + 'px'; box.style.height = Math.round(slot) + 'px';
+                fs = Math.min(fs, 0.9 * slot / (3 * 1.45));
                 win.style.fontSize = fs + 'px';
                 // Чёрное поле срезается ровно до внешнего края штрихов рамки. Отступы хранятся в em:
                 // при смене размера они верны без нового замера, а спрятанная плашка (display:none) замер пропускает.
@@ -816,12 +833,6 @@
                     win.style.setProperty('--pz-left', em(v.left));
                     // справа к последнему знаку добавлена разрядка — она тоже срезается
                     win.style.setProperty('--pz-right', em(rect.width - (rect.width / chars * (chars - 1) + v.right)));
-                    // плашка VPN — над плашкой паузы: у обеих один кегль и одна высота чёрного поля, центр общий,
-                    // поэтому сдвиг = высота поля + зазор. Зазор — несколько пикселей (1% высоты экрана, не меньше 4).
-                    if (/\bvpn\b/.test(box.className)) {
-                        var field = 2 * line + h.descent + h.ascent, gap = Math.max(4, Math.round(window.innerHeight * 0.01));
-                        box.style.transform = 'translateY(' + (-Math.round(field + gap)) + 'px)';
-                    }
                     done = true;
                 } catch (e) { /* старый браузер — поле просто будет по строке */ }
             }
