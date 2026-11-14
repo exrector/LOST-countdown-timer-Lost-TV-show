@@ -866,6 +866,17 @@
 
         // Тревога VPN — на обоих экранах. Снимок ядра уже содержит решение (alert) — окно только рисует.
         var vpnNotice = makeNotice('VPN', 'vpn', false), vpnBusy = false;
+
+        // РЕЗЕРВ: третья (нижняя) плашка — 2026-11-14, владелец. Место уже отведено и вымерено: нижняя из трёх полос
+        // области между строкой ввода и служебной строкой (noticeArea → fit, класс row-bottom). Вид — как у паузы
+        // (красная рамка, без мигания), без курсора, не длиннее 40 знаков; на мониторе таймера, как все плашки, скрыта.
+        // Подключить новый источник: window.LostBottomNotice.show('ТЕКСТ') / .hide(). Мигание — добавить класс по образцу .pz.vpn.
+        var bottomNotice = makeNotice('', 'row-bottom', false);
+        window.LostBottomNotice = {
+            show: function (text) { if (!text) { bottomNotice.show(false); return; } bottomNotice.setText(String(text).slice(0, 40)); bottomNotice.show(true); },
+            hide: function () { bottomNotice.show(false); },
+            isOn: function () { return bottomNotice.isOn(); }
+        };
         function pollVPN() {
             if (vpnBusy || typeof fetch !== 'function') return;
             vpnBusy = true;
