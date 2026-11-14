@@ -737,7 +737,10 @@
             // VPN: выше паузы по слою; мигает краска знаков (надпись и рамка), поле остаётся чёрным
             '@keyframes lostVpnBlink{0%{color:#ff3b30;text-shadow:0 0 10px rgba(255,59,48,.75)}' +
             '50%{color:#3d0c09;text-shadow:none}}' +
-            '.pz.vpn{z-index:61;top:0}' +
+            // 2026-11-14 03:20 (владелец): ~~.pz.vpn{top:0}~~ — в верхней трети плашка VPN закрывала строку ввода
+            //   кода терминала. Теперь она стоит вплотную НАД плашкой паузы (зазор в несколько пикселей): та же полоса,
+            //   что у паузы, и сдвиг вверх на высоту чёрного поля + зазор (fit() ставит transform).
+            '.pz.vpn{z-index:61}' +
             '.pz.vpn .win{animation:lostVpnBlink ' + VPN_BLINK_MS / 1000 + 's step-end infinite}' +
             '.pz.row-bottom{top:66.6666vh}' +
             // открытое меню / энергоконтур / AI — весь контейнер терминала над плашками (у него свой слой z-index:0,
@@ -813,6 +816,12 @@
                     win.style.setProperty('--pz-left', em(v.left));
                     // справа к последнему знаку добавлена разрядка — она тоже срезается
                     win.style.setProperty('--pz-right', em(rect.width - (rect.width / chars * (chars - 1) + v.right)));
+                    // плашка VPN — над плашкой паузы: у обеих один кегль и одна высота чёрного поля, центр общий,
+                    // поэтому сдвиг = высота поля + зазор. Зазор — несколько пикселей (1% высоты экрана, не меньше 4).
+                    if (/\bvpn\b/.test(box.className)) {
+                        var field = 2 * line + h.descent + h.ascent, gap = Math.max(4, Math.round(window.innerHeight * 0.01));
+                        box.style.transform = 'translateY(' + (-Math.round(field + gap)) + 'px)';
+                    }
                     done = true;
                 } catch (e) { /* старый браузер — поле просто будет по строке */ }
             }
