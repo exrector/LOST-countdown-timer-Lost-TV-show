@@ -208,6 +208,12 @@ test('expected VPN that is inactive is a tunnel fault; an intentional off state 
     const off = stand({ health: H('adguard_inactive_direct_online', 'expected=0\n') });
     assert.equal((await off.vpn.refresh({ force: true })).alert, null);
 });
+test('router reports an unreachable AdGuard backend as a specific operator alert', async () => {
+    const t = stand({ health: H('adguard_backend_unreachable', 'expected=1\n') });
+    const s = await t.vpn.refresh({ force: true });
+    assert.equal(s.fault.code, 'backend');
+    assert.deepEqual(s.alert, { code: 'backend', text: 'ADGUARD SERVERS UNREACHABLE' });
+});
 test('kill switch and DNS failures get their own plates; provider outage and RU-bypass do not', async () => {
     for (const [state, code] of [['adguard_killswitch_missing', 'killswitch'], ['adguard_dns_failure', 'dns'], ['adguard_route_missing', 'tunnel'], ['adguard_total_failure', 'tunnel']]) {
         const t = stand({ health: H(state) }); assert.equal((await t.vpn.refresh({ force: true })).alert.code, code, state);
@@ -298,8 +304,10 @@ test('menu: ЛОКАЦИИ is a pick list with confirmation, not a read-only vie
 });
 test('station has a separate 5 s health poll independent of the 120 s common cycle', () => {
     const start = fs.readFileSync(path.join(__dirname, '../cast-app/start.js'), 'utf8');
+    const bridge = fs.readFileSync(path.join(__dirname, '../cast-app/bridge.js'), 'utf8');
     assert.match(start, /const VPN_HEALTH_POLL_MS = 5000/);
     assert.match(start, /vpnRuntime\.refreshHealth\(\).*core\.updateVPN/);
+    assert.match(bridge, /var VPN_POLL_MS = 5000/);
 });
 
 // 2026-11-14: автосмена города — только в той же стране, после затяжного сбоя, с лимитами.
@@ -316,7 +324,7 @@ function autoRouter({ city = 'NEW YORK', health = 'adguard_tunnel_failure_split_
 }
 test('auto switch: 30 s tunnel failure moves to the nearest other city of the same country', async () => {
     let clock = 1000; const calls = [], city = { current: 'NEW YORK' }, health = { current: 'adguard_tunnel_failure_split_alive' }, logs = [];
-    const vpn = createVPN({ config, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }), log: t => logs.push(t) });
+    const vpn = createVPN({ config: { ...config, autoSwitch: true }, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }), log: t => logs.push(t) });
     await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), 'не сразу');
     clock += 29000; await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), 'до 30 с — рано');
     clock += 2000; await vpn.refresh({ force: true });
@@ -332,7 +340,7 @@ test('auto switch: 30 s tunnel failure moves to the nearest other city of the sa
 });
 test('auto switch falls back to the nearest US location when the current country has no alternative', async () => {
     let clock = 1000; const calls = [], city = { current: 'STOCKHOLM' }, health = { current: 'adguard_tunnel_failure_split_alive' };
-    const vpn = createVPN({ config, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }) });
+    const vpn = createVPN({ config: { ...config, autoSwitch: true }, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }) });
     await vpn.refresh({ force: true }); clock += 31000; await vpn.refresh({ force: true });
     assert.ok(calls.includes('connect Atlanta'), calls.join(','));
     assert.equal(vpn.snapshot().autoSwitch.country, 'United States');
@@ -342,7 +350,7 @@ test('auto switch uses the persisted same-country locations cache when list-loca
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lost-vpn-cache-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const cache = path.join(dir, 'locations.txt');
     const locations = fs.readFileSync(path.join(__dirname, 'fixtures/list-locations-20261113.txt'), 'utf8');
-    const first = createVPN({ config, locationsCacheFile: cache, retryDelayMs: 0, run: async (_f, a) => {
+    const first = createVPN({ config: { ...config, autoSwitch: true }, locationsCacheFile: cache, retryDelayMs: 0, run: async (_f, a) => {
         if (a.at(-1) === 'locations') return { stdout: locations };
         if (a.at(-1) === 'health') return { stdout: H('healthy') };
         return { stdout: 'Connected to NEW YORK in TUN mode' };
@@ -350,7 +358,7 @@ test('auto switch uses the persisted same-country locations cache when list-loca
     assert.equal((await first.execute('locations')).locations.length, 81); await first.refresh({ force: true });
     assert.equal(fs.statSync(cache).mode & 0o777, 0o600);
     let clock = 500000, failConnect = true; const calls = [];
-    const second = createVPN({ config, locationsCacheFile: cache, now: () => clock, retryDelayMs: 0, autoSwitchRetryMs: 0, run: async (_f, a) => {
+    const second = createVPN({ config: { ...config, autoSwitch: true }, locationsCacheFile: cache, now: () => clock, retryDelayMs: 0, autoSwitchRetryMs: 0, run: async (_f, a) => {
         const c = a.at(-1); calls.push(c);
         if (c === 'health') return { stdout: 'state=adguard_tunnel_failure_split_alive\nsince=1\nmonitor=alive\n' };
         if (c === 'locations' || c === 'status') throw Error('down');

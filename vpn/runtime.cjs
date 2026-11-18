@@ -27,11 +27,11 @@ function parseStatus(text) {
 // provider_path_unavailable (нет провайдера) и split_bypass_failure (не открываются исключения .ru) — не сюда.
 const FAULTS = {
     adguard_tunnel_failure_split_alive: 'tunnel', adguard_total_failure: 'tunnel', adguard_route_missing: 'tunnel',
-    adguard_killswitch_missing: 'killswitch', adguard_dns_failure: 'dns',
+    adguard_killswitch_missing: 'killswitch', adguard_dns_failure: 'dns', adguard_backend_unreachable: 'backend',
 };
 // Сбой показывается только плашкой (ALERT_TEXT). Нижняя строка VPN не меняется — она уже была и должна
 // влезать в экран 1024×600 (владелец, 2026-11-13: хвост «LAST FAULT» в строке вызвал полосы прокрутки, убран).
-const FAULT_LINE = { tunnel: 'TUNNEL FAILURE', killswitch: 'KILL SWITCH OFF', dns: 'DNS FAILURE' };
+const FAULT_LINE = { tunnel: 'TUNNEL FAILURE', killswitch: 'KILL SWITCH OFF', dns: 'DNS FAILURE', backend: 'ADGUARD SERVERS UNREACHABLE' };
 function parseHealth(text) {
     const kv = {}, events = [];
     for (const line of stripANSI(text).split('\n')) {
@@ -130,7 +130,7 @@ function validateConfig(cfg) {
 //   Неудачное чтение статуса повторяется один раз через retryDelayMs — разовый сбой SSH больше не даёт
 //   «NO DATA» на весь двухминутный цикл. Каждая смена состояния и причина отказа пишутся в журнал (log),
 //   раньше причины NO DATA нигде не оставалось.
-const ALERT_TEXT = { down: 'VPN LINK DOWN', connecting: 'VPN RECONNECTING', nodata: 'VPN NO DATA', tunnel: 'VPN TUNNEL FAILURE', killswitch: 'VPN KILL SWITCH OFF', dns: 'VPN DNS FAILURE' };
+const ALERT_TEXT = { down: 'VPN LINK DOWN', connecting: 'VPN RECONNECTING', nodata: 'VPN NO DATA', tunnel: 'VPN TUNNEL FAILURE', killswitch: 'VPN KILL SWITCH OFF', dns: 'VPN DNS FAILURE', backend: 'ADGUARD SERVERS UNREACHABLE' };
 function failureReason(error) {
     if (!error) return 'неизвестно';
     if (error.name === 'AbortError') return 'прервано';
@@ -150,7 +150,8 @@ function failureReason(error) {
 function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval, log = () => {}, retryDelayMs = 4000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), connectingAlertMs = 30000, noDataAlertMs = 30000, autoSwitchAfterMs = 30000, autoSwitchRetryMs = 60000, autoSwitchCooldownMs = 600000, autoSwitchMaxPerHour = 3, autoSwitchAvoidMs = 1800000, locationsCacheFile, locationsCacheMaxAgeMs = 604800000 } = {}) {
     let cfg, installed = false;
     try { cfg = validateConfig(config || JSON.parse(fs.readFileSync(configFile, 'utf8'))); installed = true; } catch (_) {}
-    const autoSwitch = installed && cfg.autoSwitch !== false;
+    // Failover normally runs on the router. The old LOST-side engine is opt-in only, to avoid two controllers.
+    const autoSwitch = installed && cfg.autoSwitch === true;
     // badSince — с какого цикла держится сбой; lastCity — последний город, где VPN был «подключён» (у «подключения»
     // локации нет); left — города, с которых уже уходили (не возвращаться autoSwitchAvoidMs); switches — время смен.
     let badSince = null, lastCity = '', lastSwitch = null, lastSwitchAttempt = -Infinity; const left = new Map(), switches = [];
