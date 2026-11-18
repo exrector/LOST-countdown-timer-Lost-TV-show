@@ -12,6 +12,7 @@ test('status parser distinguishes explicit disconnected, connection and unrecogn
     assert.equal(parseStatus('Disconnected').status, 'disconnected');
     assert.equal(parseStatus('Not connected').status, 'disconnected');
     assert.equal(parseStatus('Connecting...').status, 'connecting');
+    assert.deepEqual(parseStatus('Connection lost. Waiting to reconnect to LOS ANGELES in TUN mode, running on tun0'), { status: 'connecting', location: 'LOS ANGELES' });
     assert.equal(parseStatus('SSH connection refused'), null);
     assert.equal(parseStatus('Warning: not connected to SSH'), null);
 });
@@ -42,9 +43,9 @@ test('old explicit disconnected state also expires', async () => {
 test('module off stops only monitoring and blocks commands, never disconnects VPN', async () => {
     const calls = [], timers = []; let cleared = 0;
     const vpn = createVPN({ config, run: async (_file, args) => { calls.push(args.at(-1)); return { stdout: 'Disconnected' }; }, setTimer: fn => { timers.push(fn); return 1; }, clearTimer: () => cleared++ });
-    vpn.setEnabled(true); await new Promise(r => setImmediate(r)); assert.equal(calls[0], 'status');
+    vpn.setEnabled(true); await new Promise(r => setImmediate(r)); assert.equal(calls[0], 'health');
     assert.equal(vpn.setEnabled(false).enabled, false); assert.equal(cleared, 1); await timers[0]();
-    assert.equal((await vpn.execute('connect', 'Helsinki')).error, 'disabled'); assert.deepEqual(calls, ['status', 'health']); assert.equal(vpn.snapshot().status, 'disabled');
+    assert.equal((await vpn.execute('connect', 'Helsinki')).error, 'disabled'); assert.deepEqual(calls, ['health', 'status']); assert.equal(vpn.snapshot().status, 'disabled');
 });
 test('mutations are serialized, refresh status afterwards and expose no busy latch after completion', async () => {
     const calls = []; let release; const pending = new Promise(r => release = r);
@@ -107,25 +108,33 @@ test('unrecognised router output is logged with its first line', async () => {
     await vpn.refresh({ force: true });
     assert.ok(logs.some(t => t.includes('непонятный ответ') && t.includes('You are not logged in')));
 });
+test('partial reconnect output from a timed-out status is still a connecting state', async () => {
+    const vpn = createVPN({ config, retryDelayMs: 0, run: async (_f, a) => {
+        if (a.at(-1) === 'health') return { stdout: H('healthy') };
+        const e = Error('timeout'); e.killed = true; e.stdout = 'Connection lost. Waiting to reconnect to LOS ANGELES in TUN mode, running on tun0\n'; throw e;
+    } });
+    const s = await vpn.refresh({ force: true });
+    assert.equal(s.status, 'connecting'); assert.equal(s.location, 'LOS ANGELES');
+});
 test('state changes are logged once, not every poll', async () => {
     let clock = 0; const logs = [];
     const vpn = createVPN({ config, now: () => clock, log: t => logs.push(t), run: async () => ({ stdout: 'Connected to HELSINKI in TUN mode' }) });
     await vpn.refresh({ force: true }); clock += 120000; await vpn.refresh({ force: true }); clock += 120000; await vpn.refresh({ force: true });
     assert.equal(logs.filter(t => t === '[vpn] connected HELSINKI').length, 1);
 });
-test('alert: DISCONNECTED at once, CONNECTING after 3 min, NO DATA after 5 min, nothing when connected or module off', async () => {
+test('alert: DISCONNECTED at once, CONNECTING and NO DATA after 30 s, nothing when connected or module off', async () => {
     let clock = 1000, out = 'Disconnected', fail = false;
     const vpn = createVPN({ config, now: () => clock, staleMs: 180000, retryDelayMs: 0, run: async () => { if (fail) throw Error('x'); return { stdout: out }; } });
     assert.deepEqual((await vpn.refresh({ force: true })).alert, { code: 'down', text: 'VPN LINK DOWN' });
     out = 'Connecting...'; clock += 1000;
     assert.equal((await vpn.refresh({ force: true })).alert, null);
-    clock += 120000; assert.equal((await vpn.refresh({ force: true })).alert, null);      // 2 мин подключения — ещё норма
-    clock += 61000; assert.equal((await vpn.refresh({ force: true })).alert.code, 'connecting');
+    clock += 29000; assert.equal((await vpn.refresh({ force: true })).alert, null);
+    clock += 2000; assert.equal((await vpn.refresh({ force: true })).alert.code, 'connecting');
     out = 'Connected to NEW YORK in TUN mode'; clock += 1000;
     assert.equal((await vpn.refresh({ force: true })).alert, null);
     fail = true; clock += 1000;
     assert.equal((await vpn.refresh({ force: true })).alert, null);                       // разовое NO DATA — без тревоги
-    clock += 299000; assert.equal(vpn.snapshot().alert, null);
+    clock += 29000; assert.equal(vpn.snapshot().alert, null);
     clock += 2000; assert.deepEqual(vpn.snapshot().alert, { code: 'nodata', text: 'VPN NO DATA' });
     vpn.setEnabled(false); assert.equal(vpn.snapshot().alert, null);
 });
@@ -133,8 +142,7 @@ test('stale readings count NO DATA from the last good read', async () => {
     let clock = 0;
     const vpn = createVPN({ config, now: () => clock, staleMs: 180000, run: async () => ({ stdout: 'Connected to NEW YORK in TUN mode' }) });
     await vpn.refresh({ force: true });
-    clock = 181000; assert.equal(vpn.snapshot().status, 'unavailable'); assert.equal(vpn.snapshot().alert, null);
-    clock = 301000; assert.equal(vpn.snapshot().alert.code, 'nodata');
+    clock = 181000; assert.equal(vpn.snapshot().status, 'unavailable'); assert.equal(vpn.snapshot().alert.code, 'nodata');
 });
 test('not installed: never alerts', () => {
     const vpn = createVPN({ configFile: '/nonexistent/vpn.json', now: () => 10 ** 9 });
@@ -171,7 +179,7 @@ const H = (state, extra = '') => 'state=' + state + '\nsince=1794571990\nupdated
 function stand({ status = 'Connected to NEW YORK in TUN mode', health = H('healthy'), healthFails = false } = {}) {
     let clock = 1794572100000; const logs = [], cmds = [];
     const box = { status, health, healthFails };
-    const vpn = createVPN({ config, now: () => clock, staleMs: 180000, retryDelayMs: 0, log: t => logs.push(t), run: async (_f, a) => {
+    const vpn = createVPN({ config: { ...config, autoSwitch: false }, now: () => clock, staleMs: 180000, retryDelayMs: 0, log: t => logs.push(t), run: async (_f, a) => {
         const c = a.at(-1); cmds.push(c);
         if (c === 'health') { if (box.healthFails) throw Error('x'); return { stdout: box.health }; }
         return { stdout: box.status };
@@ -181,6 +189,7 @@ function stand({ status = 'Connected to NEW YORK in TUN mode', health = H('healt
 test('health parser: state, since, monitor and transitions; garbage ignored', () => {
     const h = parseHealth('state=adguard_tunnel_failure_split_alive\nsince=100\nupdated=130\nmonitor=alive\nevent=50 healthy adguard_tunnel_failure_split_alive 1000\nevent=x y z 1\nrandom line\n');
     assert.equal(h.state, 'adguard_tunnel_failure_split_alive'); assert.equal(h.since, 100000); assert.equal(h.alive, true);
+    assert.equal(h.expected, false);
     assert.deepEqual(h.events, [{ at: 50000, from: 'healthy', to: 'adguard_tunnel_failure_split_alive', duration: 1000000 }]);
     assert.equal(parseHealth('nothing'), null); assert.equal(parseHealth('state=bad;id'), null);
 });
@@ -190,8 +199,14 @@ test('connected + tunnel failure from the monitor: TUNNEL FAILURE plate at once,
     assert.equal(s.status, 'connected'); assert.equal(s.location, 'NEW YORK');
     assert.deepEqual(s.fault && s.fault.code, 'tunnel'); assert.equal(s.fault.text, 'TUNNEL FAILURE');
     assert.deepEqual(s.alert, { code: 'tunnel', text: 'VPN TUNNEL FAILURE' });
-    assert.deepEqual(t.cmds, ['status', 'health']);
+    assert.deepEqual(t.cmds, ['health', 'status']);
     assert.ok(t.logs.includes('[vpn] туннель: adguard_tunnel_failure_split_alive'));
+});
+test('expected VPN that is inactive is a tunnel fault; an intentional off state is not', async () => {
+    const expected = stand({ health: H('adguard_inactive_direct_online', 'expected=1\n') });
+    assert.equal((await expected.vpn.refresh({ force: true })).alert.code, 'tunnel');
+    const off = stand({ health: H('adguard_inactive_direct_online', 'expected=0\n') });
+    assert.equal((await off.vpn.refresh({ force: true })).alert, null);
 });
 test('kill switch and DNS failures get their own plates; provider outage and RU-bypass do not', async () => {
     for (const [state, code] of [['adguard_killswitch_missing', 'killswitch'], ['adguard_dns_failure', 'dns'], ['adguard_route_missing', 'tunnel'], ['adguard_total_failure', 'tunnel']]) {
@@ -210,6 +225,19 @@ test('a dead monitor or a failed health read never invents a fault and never bre
     const s2 = await broken.vpn.refresh({ force: true }); assert.equal(s2.status, 'connected'); assert.equal(s2.alert, null);
     assert.ok(broken.logs.some(x => x.includes('здоровье туннеля недоступно')));
 });
+test('fast health refresh starts and clears an alert while status is still hung', async () => {
+    let releaseStatus, statusStarted, releaseStarted; let healthState = 'healthy';
+    statusStarted = new Promise(r => releaseStarted = r);
+    const vpn = createVPN({ config, retryDelayMs: 0, run: async (_f, a) => {
+        if (a.at(-1) === 'health') return { stdout: H(healthState) };
+        releaseStarted(); return new Promise(r => releaseStatus = () => r({ stdout: 'Connected to NEW YORK in TUN mode' }));
+    } });
+    const full = vpn.refresh({ force: true }); await statusStarted;
+    healthState = 'adguard_tunnel_failure_split_alive';
+    assert.equal((await vpn.refreshHealth()).alert.code, 'tunnel');
+    healthState = 'healthy'; assert.equal((await vpn.refreshHealth()).alert, null);
+    releaseStatus(); await full;
+});
 test('disconnected wins over a tunnel fault; an old health reading expires with the status', async () => {
     const t = stand({ status: 'Disconnected', health: H('adguard_tunnel_failure_split_alive') });
     assert.equal((await t.vpn.refresh({ force: true })).alert.code, 'down');
@@ -227,7 +255,7 @@ test('router forced command: health is read-only, exact, and reads the monitor f
     fs.writeFileSync(helper, fs.readFileSync(path.join(__dirname, 'router-command.sh'), 'utf8').replace('/opt/var/lib/adguard-vpn-monitor', path.join(folder, 'lib')).replace('/opt/var/log/keenetic-outages', path.join(folder, 'logs')));
     const invoke = original => spawnSync('/bin/sh', [helper], { encoding: 'utf8', env: { ...process.env, SSH_ORIGINAL_COMMAND: original } });
     const r = invoke('health'); assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.stdout, 'state=healthy\nsince=10\nupdated=20\nmonitor=alive\nevent=100 healthy adguard_dns_failure 90\nevent=200 adguard_dns_failure healthy 100\n');
+    assert.equal(r.stdout, 'state=healthy\nsince=10\nupdated=20\nexpected=0\nmonitor=alive\nevent=100 healthy adguard_dns_failure 90\nevent=200 adguard_dns_failure healthy 100\n');
     for (const bad of ['health x', 'health;id', 'health\n']) assert.equal(invoke(bad).status, 64, bad);
     assert.equal(commandFor('health'), 'health'); assert.throws(() => commandFor('health', 'x'));
 });
@@ -268,6 +296,11 @@ test('menu: ЛОКАЦИИ is a pick list with confirmation, not a read-only vie
     assert.match(client, /locationsDir\(confirm\)/);
     assert.match(client, /confirm\(label,'connect -l "'\+l\.value\+'"','connect',l\.value\)/);
 });
+test('station has a separate 5 s health poll independent of the 120 s common cycle', () => {
+    const start = fs.readFileSync(path.join(__dirname, '../cast-app/start.js'), 'utf8');
+    assert.match(start, /const VPN_HEALTH_POLL_MS = 5000/);
+    assert.match(start, /vpnRuntime\.refreshHealth\(\).*core\.updateVPN/);
+});
 
 // 2026-11-14: автосмена города — только в той же стране, после затяжного сбоя, с лимитами.
 function autoRouter({ city = 'NEW YORK', health = 'adguard_tunnel_failure_split_alive', calls }) {
@@ -281,12 +314,12 @@ function autoRouter({ city = 'NEW YORK', health = 'adguard_tunnel_failure_split_
         return { stdout: '' };
     };
 }
-test('auto switch: persistent tunnel failure moves to the nearest other city of the same country only', async () => {
+test('auto switch: 30 s tunnel failure moves to the nearest other city of the same country', async () => {
     let clock = 1000; const calls = [], city = { current: 'NEW YORK' }, health = { current: 'adguard_tunnel_failure_split_alive' }, logs = [];
     const vpn = createVPN({ config, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }), log: t => logs.push(t) });
     await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), 'не сразу');
-    clock += 120000; await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), '2 мин — рано');
-    clock += 200000; await vpn.refresh({ force: true });
+    clock += 29000; await vpn.refresh({ force: true }); assert.ok(!calls.some(c => c.startsWith('connect')), 'до 30 с — рано');
+    clock += 2000; await vpn.refresh({ force: true });
     assert.ok(calls.includes('connect Atlanta'), 'ближайший город США по пингу: ' + calls.join(','));
     assert.equal(vpn.snapshot().autoSwitch.from, 'New York'); assert.equal(vpn.snapshot().autoSwitch.to, 'Atlanta');
     assert.ok(logs.some(l => /автосмена: New York → Atlanta/.test(l)));
@@ -296,6 +329,38 @@ test('auto switch: persistent tunnel failure moves to the nearest other city of 
     const connects = calls.filter(c => c.startsWith('connect'));
     assert.equal(connects[1], 'connect Chicago', 'следующий — не Нью-Йорк и не Атланта: ' + connects.join(','));
     assert.ok(connects.every(c => !/Stockholm|Helsinki/.test(c)), 'никогда в другую страну');
+});
+test('auto switch falls back to the nearest US location when the current country has no alternative', async () => {
+    let clock = 1000; const calls = [], city = { current: 'STOCKHOLM' }, health = { current: 'adguard_tunnel_failure_split_alive' };
+    const vpn = createVPN({ config, now: () => clock, retryDelayMs: 0, run: autoRouter({ city, health, calls }) });
+    await vpn.refresh({ force: true }); clock += 31000; await vpn.refresh({ force: true });
+    assert.ok(calls.includes('connect Atlanta'), calls.join(','));
+    assert.equal(vpn.snapshot().autoSwitch.country, 'United States');
+    assert.equal(vpn.snapshot().autoSwitch.fallback, true);
+});
+test('auto switch uses the persisted same-country locations cache when list-locations is down', async t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lost-vpn-cache-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const cache = path.join(dir, 'locations.txt');
+    const locations = fs.readFileSync(path.join(__dirname, 'fixtures/list-locations-20261113.txt'), 'utf8');
+    const first = createVPN({ config, locationsCacheFile: cache, retryDelayMs: 0, run: async (_f, a) => {
+        if (a.at(-1) === 'locations') return { stdout: locations };
+        if (a.at(-1) === 'health') return { stdout: H('healthy') };
+        return { stdout: 'Connected to NEW YORK in TUN mode' };
+    } });
+    assert.equal((await first.execute('locations')).locations.length, 81); await first.refresh({ force: true });
+    assert.equal(fs.statSync(cache).mode & 0o777, 0o600);
+    let clock = 500000, failConnect = true; const calls = [];
+    const second = createVPN({ config, locationsCacheFile: cache, now: () => clock, retryDelayMs: 0, autoSwitchRetryMs: 0, run: async (_f, a) => {
+        const c = a.at(-1); calls.push(c);
+        if (c === 'health') return { stdout: 'state=adguard_tunnel_failure_split_alive\nsince=1\nmonitor=alive\n' };
+        if (c === 'locations' || c === 'status') throw Error('down');
+        if (c === 'connect Atlanta') { if (failConnect) throw Error('down'); return { stdout: 'ok' }; }
+        return { stdout: '' };
+    } });
+    await second.refreshHealth(); await new Promise(r => setImmediate(r)); assert.equal(second.snapshot().autoSwitch, null, 'неудача не расходует лимит');
+    failConnect = false; clock += 1000; await second.refreshHealth();
+    await new Promise(r => setImmediate(r));
+    assert.ok(calls.includes('connect Atlanta')); assert.equal(second.snapshot().autoSwitch.to, 'Atlanta');
 });
 test('auto switch: healthy tunnel, manual disconnect and autoSwitch:false never switch', async () => {
     for (const variant of ['healthy', 'disconnected', 'off']) {

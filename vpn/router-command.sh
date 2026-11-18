@@ -5,12 +5,30 @@ export PATH=/opt/bin:/opt/sbin:/usr/bin:/usr/sbin:/bin:/sbin
 cli=/opt/bin/adguardvpn-cli
 original=${SSH_ORIGINAL_COMMAND-}
 fail() { echo 'Invalid LOST VPN command' >&2; exit 64; }
+limited() {
+  limit=$1; shift
+  umask 077
+  out=$(mktemp /tmp/lost-vpn-limited.XXXXXX) || exit 1
+  trap 'kill "$child" 2>/dev/null; rm -f "$out"' EXIT HUP INT TERM
+  "$@" >"$out" 2>&1 & child=$!
+  elapsed=0
+  while kill -0 "$child" 2>/dev/null && [ "$elapsed" -lt "$limit" ]; do sleep 1; elapsed=$((elapsed + 1)); done
+  if kill -0 "$child" 2>/dev/null; then
+    kill "$child" 2>/dev/null; sleep 1; kill -9 "$child" 2>/dev/null
+    wait "$child" 2>/dev/null
+    cat "$out"; rm -f "$out"; trap - EXIT HUP INT TERM
+    return 124
+  fi
+  wait "$child"; rc=$?
+  cat "$out"; rm -f "$out"; trap - EXIT HUP INT TERM
+  return "$rc"
+}
 [ ${#original} -le 512 ] || fail
 # Newlines, tabs and every other control character are forbidden even in arguments.
 [ "$(printf '%s' "$original" | tr -d '[:cntrl:]')" = "$original" ] || fail
 case "$original" in
- status) exec "$cli" status;;
- locations) exec "$cli" list-locations;;
+ status) limited 8 "$cli" status; exit $?;;
+ locations) limited 5 "$cli" list-locations; exit $?;;
  license) exec "$cli" license;;
  config)
   umask 077
@@ -27,6 +45,7 @@ case "$original" in
   dir=/opt/var/lib/adguard-vpn-monitor; logs=/opt/var/log/keenetic-outages
   [ -r "$dir/current-state" ] || exit 1
   grep -E '^(state|since|updated)=' "$dir/current-state"
+  [ -f /opt/etc/agvpn-guard.persist ] && echo expected=1 || echo expected=0
   pid=$(cat "$dir/pid" 2>/dev/null)
   case "$pid" in ''|*[!0-9]*) echo monitor=dead;; *) if kill -0 "$pid" 2>/dev/null; then echo monitor=alive; else echo monitor=dead; fi;; esac
   for f in "$logs/adguard-events-$(date -d @$(( $(date +%s) - 2678400 )) +%Y-%m 2>/dev/null).tsv" "$logs/adguard-events-$(date +%Y-%m).tsv"; do [ -r "$f" ] && cat "$f"; done 2>/dev/null |

@@ -13,6 +13,10 @@ function parseStatus(text) {
     text = stripANSI(text).trim();
     const connected = text.match(/(?:^|\n)Connected to\s+(.+?)(?:\s+in\s+(?:TUN|SOCKS?)\b|\s*\n|$)/i);
     if (connected && connected[1].trim()) return { status: 'connected', location: connected[1].trim().toUpperCase().slice(0, 100) };
+    // Реальный ответ CLI во время потери сервера (18.11.2026). Команда может продолжать ждать,
+    // но уже напечатанная строка однозначно означает переподключение, а не неизвестную ошибку SSH.
+    const reconnecting = text.match(/(?:^|\n)Connection lost\.\s*Waiting to reconnect(?:\s+to\s+(.+?)\s+in\s+(?:TUN|SOCKS?)\s+mode)?(?:,|\.|\n|$)/i);
+    if (reconnecting) return { status: 'connecting', location: (reconnecting[1] || '').trim().toUpperCase().slice(0, 100) };
     if (/^(?:Disconnected|Not connected|VPN is (?:not connected|disconnected)|AdGuard VPN is (?:not connected|disconnected))(?:[.!\s]|$)/i.test(text)) return { status: 'disconnected', location: '' };
     if (/^(?:Connecting|Reconnecting)(?:\s|\.|$)/i.test(text)) return { status: 'connecting', location: '' };
     return null;
@@ -38,7 +42,7 @@ function parseHealth(text) {
         } else kv[m[1]] = m[2].trim();
     }
     if (!/^[a-z_]+$/.test(kv.state || '')) return null;
-    return { state: kv.state, since: /^\d+$/.test(kv.since || '') ? Number(kv.since) * 1000 : 0, alive: kv.monitor === 'alive', events };
+    return { state: kv.state, since: /^\d+$/.test(kv.since || '') ? Number(kv.since) * 1000 : 0, alive: kv.monitor === 'alive', expected: kv.expected === '1', events };
 }
 // 2026-11-13: локации для меню — каждая строка list-locations становится пунктом «выбрать → подтвердить».
 // Колонки находятся по заголовку (ISO / COUNTRY / CITY / PING), а не по пробелам: в названиях бывают пробелы.
@@ -117,7 +121,8 @@ function validateConfig(cfg) {
     }
     return result;
 }
-// autoPoll: false — свой таймер не заводится, опрашивает общий цикл станции (cast-app/start.js, раз в 2 мин).
+// autoPoll: false — свой таймер не заводится. Полный status читает общий цикл станции раз в 2 мин,
+// а health — отдельный read-only цикл cast-app/start.js раз в 5 с.
 // 2026-11-13: красная плашка «VPN» на экранах станции. Решение о тревоге принимает ядро (snapshot().alert),
 //   окна только рисуют. Пороги: DISCONNECTED — сразу (роутер прямо говорит, что VPN выключен, а kill switch
 //   держит дом без интернета); CONNECTING — дольше connectingAlertMs (короткое переподключение — норма);
@@ -133,30 +138,63 @@ function failureReason(error) {
     const err = stripANSI(error.stderr || '').trim().split('\n').filter(x => x && !/post-quantum|store now|openssh\.com\/pq|may need to be upgraded/i.test(x)).pop() || '';
     return ('ssh код ' + (error.code ?? '?') + (err ? ': ' + err : '')).slice(0, 200);
 }
-// 2026-11-14 (владелец): автосмена города при затяжном сбое — ТОЛЬКО внутри той же страны.
+// 2026-11-18 (владелец): после подтверждённых 30 секунд сбоя — другой город той же страны;
+//   если альтернативы там нет, ближайшая доступная локация США.
 //   Условие: сбой туннеля, подтверждённый монитором роутера (fault tunnel), или «подключение» держится
-//   дольше autoSwitchAfterMs подряд (по циклам станции раз в 2 мин). Куда: список локаций с роутера,
+//   дольше autoSwitchAfterMs подряд. Начало берётся из health.since монитора роутера. Куда: список локаций
+//   с роутера или последний проверенный кэш,
 //   города той же страны (ISO текущей локации), кроме текущего и тех, с которых уже уходили за последние
 //   autoSwitchAvoidMs; ближайший по пингу. Ограничения: не чаще autoSwitchCooldownMs и не больше
 //   autoSwitchMaxPerHour за час. VPN, выключенный руками (disconnected), не трогается. Переключение идёт той же
 //   командой, что выбор в меню (connect <город> → обёртка роутера с kill switch). Выключить: в vpn.json "autoSwitch": false.
-function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval, log = () => {}, retryDelayMs = 4000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), connectingAlertMs = 180000, noDataAlertMs = 300000, autoSwitchAfterMs = 300000, autoSwitchCooldownMs = 600000, autoSwitchMaxPerHour = 3, autoSwitchAvoidMs = 1800000 } = {}) {
+function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval, log = () => {}, retryDelayMs = 4000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), connectingAlertMs = 30000, noDataAlertMs = 30000, autoSwitchAfterMs = 30000, autoSwitchRetryMs = 60000, autoSwitchCooldownMs = 600000, autoSwitchMaxPerHour = 3, autoSwitchAvoidMs = 1800000, locationsCacheFile, locationsCacheMaxAgeMs = 604800000 } = {}) {
     let cfg, installed = false;
     try { cfg = validateConfig(config || JSON.parse(fs.readFileSync(configFile, 'utf8'))); installed = true; } catch (_) {}
     const autoSwitch = installed && cfg.autoSwitch !== false;
     // badSince — с какого цикла держится сбой; lastCity — последний город, где VPN был «подключён» (у «подключения»
     // локации нет); left — города, с которых уже уходили (не возвращаться autoSwitchAvoidMs); switches — время смен.
-    let badSince = null, lastCity = '', lastSwitch = null; const left = new Map(), switches = [];
-    let enabled = true, busy = false, timer = null, generation = 0, lastAttempt = -Infinity, activeAbort = null;
+    let badSince = null, lastCity = '', lastSwitch = null, lastSwitchAttempt = -Infinity; const left = new Map(), switches = [];
+    // В тестах config передаётся объектом: не пишем в настоящий HOME. На станции кэш переживает рестарт
+    // и позволяет выбрать город той же страны, когда сам list-locations временно недоступен.
+    const cacheFile = locationsCacheFile === undefined ? (config ? null : path.join(path.dirname(configFile), 'vpn-locations-cache.txt')) : locationsCacheFile;
+    let locationsCacheText = '', locationsCache = [], locationsCacheAt = 0, locationsWarmAttemptAt = -Infinity;
+    if (cacheFile) try {
+        const stat = fs.statSync(cacheFile);
+        if (now() - stat.mtimeMs <= locationsCacheMaxAgeMs) { locationsCacheText = fs.readFileSync(cacheFile, 'utf8'); locationsCache = parseLocations(locationsCacheText); locationsCacheAt = stat.mtimeMs; }
+        lastCity = fs.readFileSync(cacheFile + '.last-city', 'utf8').trim().toUpperCase().slice(0, 100);
+    } catch (_) {}
+    let enabled = true, busy = false, healthBusy = false, switchBusy = false, timer = null, generation = 0, lastAttempt = -Infinity;
+    let manualDisconnected = false, healthRead = null;
+    const activeAborts = new Set();
     // since — когда началось текущее состояние (для порогов тревоги); при старте ядра — момент старта.
     let state = { status: 'unavailable', location: '', updatedAt: 0, since: now(), error: installed ? null : 'VPN-доступ не настроен' };
     let lastLogged = '', testUntil = 0, testText = ALERT_TEXT.down;
     // health — последнее прочитанное здоровье туннеля: { state, since, alive, events, checkedAt }
     let health = null, lastHealthNote = '';
     function healthNote(text) { if (text !== lastHealthNote) { lastHealthNote = text; try { log('[vpn] ' + text); } catch (_) {} } }
-    function faultNow(value) {
-        if (value.status !== 'connected' || !health || !health.alive || now() - health.checkedAt > staleMs) return null;
-        const code = FAULTS[health.state]; return code ? { code, text: FAULT_LINE[code], state: health.state, since: health.since } : null;
+    function faultNow(_value) {
+        // health — независимый монитор фактического трафика на роутере. Он остаётся достоверным даже когда
+        // adguardvpn-cli status зависает, поэтому не привязываем fault к успешному status.
+        if (!health || !health.alive || now() - health.checkedAt > staleMs) return null;
+        const inactiveExpected = health.state === 'adguard_inactive_direct_online' && health.expected && !manualDisconnected;
+        const code = inactiveExpected ? 'tunnel' : FAULTS[health.state];
+        return code ? { code, text: FAULT_LINE[code], state: health.state, since: health.since } : null;
+    }
+    function cacheLocations(text) {
+        const rows = parseLocations(text);
+        if (!rows.length) return rows;
+        locationsCacheText = text; locationsCache = rows; locationsCacheAt = now();
+        if (cacheFile) try {
+            fs.mkdirSync(path.dirname(cacheFile), { recursive: true, mode: 0o700 });
+            const tmp = cacheFile + '.tmp.' + process.pid;
+            fs.writeFileSync(tmp, text, { mode: 0o600 }); fs.renameSync(tmp, cacheFile);
+        } catch (error) { note('кэш локаций не сохранён — ' + error.message); }
+        return rows;
+    }
+    function rememberCity(city) {
+        lastCity = String(city || '').trim().toUpperCase().slice(0, 100);
+        if (!cacheFile || !lastCity) return;
+        try { fs.writeFileSync(cacheFile + '.last-city', lastCity + '\n', { mode: 0o600 }); fs.chmodSync(cacheFile + '.last-city', 0o600); } catch (_) {}
     }
     // Проверка плашки без выключения VPN роутера (через него идёт интернет дома): на seconds секунд
     // snapshot().alert показывает тревогу с пометкой test. Сам VPN и показания не трогаются.
@@ -173,6 +211,9 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         if (value.status === 'disconnected') return { code: 'down', text: ALERT_TEXT.down };
         if (value.fault) return { code: value.fault.code, text: ALERT_TEXT[value.fault.code] };
         if (value.status === 'connecting' && age >= connectingAlertMs) return { code: 'connecting', text: ALERT_TEXT.connecting };
+        // Фактический трафик уже восстановлен: status CLI может продолжать висеть, но красная тревога
+        // о VPN больше не соответствует действительности. Нижняя строка при этом честно остаётся NO DATA.
+        if (value.status === 'unavailable' && health && health.alive && health.state === 'healthy' && now() - health.checkedAt <= staleMs) return null;
         if (value.status === 'unavailable' && age >= noDataAlertMs) return { code: 'nodata', text: ALERT_TEXT.nodata };
         return null;
     }
@@ -191,14 +232,14 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
     async function remote(command) {
         if (!installed) throw Error('not_installed');
         const args = ['-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=5', '-o', 'ConnectionAttempts=1', '-o', 'UserKnownHostsFile=' + cfg.knownHostsFile, '-i', cfg.identityFile, '-p', String(cfg.port), cfg.user + '@' + cfg.host, command];
-        const controller = new AbortController(); activeAbort = controller;
+        const controller = new AbortController(); activeAborts.add(controller);
         try {
             const result = await run('/usr/bin/ssh', args, { timeout: ['update', 'fastest', 'last'].includes(command) || command.startsWith('connect ') ? 60000 : command === 'locations' ? 30000 : 12000, maxBuffer: 262144, encoding: 'utf8', signal: controller.signal });
             return stripANSI(result.stdout);
         } catch (error) {
-            if (command === 'status' && parseStatus(error.stdout)?.status === 'disconnected') return stripANSI(error.stdout);
+            if (command === 'status' && parseStatus(error.stdout)) return stripANSI(error.stdout);
             const failure = Error('router_unavailable'); failure.reason = failureReason(error); throw failure;
-        } finally { if (activeAbort === controller) activeAbort = null; }
+        } finally { activeAborts.delete(controller); }
     }
     // record=false — попытка, после которой будет повтор: показания не портятся раньше времени.
     async function readStatus(ownGeneration, record = true) {
@@ -206,7 +247,12 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         try {
             const output = await remote('status'), parsed = parseStatus(output);
             if (!parsed) { const e = Error('unknown_status'); e.reason = 'непонятный ответ роутера: ' + JSON.stringify(output.trim().split('\n')[0] || '').slice(0, 160); throw e; }
-            if (enabled && generation === ownGeneration) { setState({ ...parsed, updatedAt: now(), error: null }); note(parsed.status + (parsed.location ? ' ' + parsed.location : '')); }
+            if (enabled && generation === ownGeneration) {
+                setState({ ...parsed, updatedAt: now(), error: null });
+                if (parsed.location) rememberCity(parsed.location);
+                if (parsed.status === 'connected') manualDisconnected = false;
+                note(parsed.status + (parsed.location ? ' ' + parsed.location : ''));
+            }
             return output;
         } catch (error) {
             if (record && enabled && generation === ownGeneration) { setState({ status: 'unavailable', location: '', updatedAt: now(), error: 'Не удалось прочитать состояние VPN роутера' }); note('нет данных — ' + (error.reason || error.message)); }
@@ -232,6 +278,8 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         if (!enabled || !installed || busy || !force && now() - lastAttempt < intervalMs / 2) return snapshot();
         busy = true; const ownGeneration = generation;
         try {
+            // health читается первым и независимо: зависший CLI status больше не задерживает появление/снятие тревоги.
+            if (enabled && generation === ownGeneration) await readHealth(ownGeneration);
             try { await readStatus(ownGeneration, retryDelayMs <= 0); }
             catch (error) {
                 if (retryDelayMs <= 0) throw error;
@@ -239,37 +287,68 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
                 await sleep(retryDelayMs);
                 if (enabled && generation === ownGeneration) await readStatus(ownGeneration);
             }
-            if (enabled && generation === ownGeneration) await readHealth(ownGeneration);
             if (enabled && generation === ownGeneration) await maybeSwitch(ownGeneration);
         } catch (_) {} finally { busy = false; }
         return snapshot();
     }
+    async function refreshHealth() {
+        if (!enabled || !installed || healthBusy) return snapshot();
+        healthBusy = true; const ownGeneration = generation;
+        try {
+            await readHealth(ownGeneration);
+            // Switching may wait on an unhealthy AdGuard backend for tens of seconds. Do not let it
+            // block the 5-second health loop that starts and clears the LOST notification.
+            if (!busy && enabled && generation === ownGeneration) void maybeSwitch(ownGeneration).catch(() => {});
+        } finally { healthBusy = false; }
+        return snapshot();
+    }
     async function maybeSwitch(ownGeneration) {
+        if (switchBusy) return;
+        switchBusy = true;
+        try { return await maybeSwitchInner(ownGeneration); }
+        finally { switchBusy = false; }
+    }
+    async function maybeSwitchInner(ownGeneration) {
         if (!autoSwitch) return;
         const s = snapshot();
-        if (s.status === 'connected' && s.location) lastCity = s.location;
-        const bad = s.status === 'connected' && s.fault && s.fault.code === 'tunnel' || s.status === 'connecting';
+        if (s.status === 'connected' && s.location) rememberCity(s.location);
+        const bad = s.status !== 'disconnected' && (s.fault && s.fault.code === 'tunnel' || s.status === 'connecting');
         if (!bad) { badSince = null; return; }
-        if (badSince === null) badSince = now();
+        // Монитор роутера уже знает фактическое начало сбоя. Не добавляем к нему ещё один полный таймер LOST.
+        if (badSince === null) badSince = s.fault?.since > 0 && s.fault.since <= now() ? s.fault.since : now();
         if (now() - badSince < autoSwitchAfterMs) return;
+        if (now() - lastSwitchAttempt < autoSwitchRetryMs) return;
         while (switches.length && now() - switches[0] > 3600000) switches.shift();
         if (switches.length && now() - switches[switches.length - 1] < autoSwitchCooldownMs) return;
         if (switches.length >= autoSwitchMaxPerHour) { note('автосмена: лимит ' + autoSwitchMaxPerHour + ' в час исчерпан, жду'); return; }
         if (!lastCity) { note('автосмена: неизвестен текущий город, не переключаю'); return; }
         const reason = s.status === 'connecting' ? 'подключение дольше ' + Math.round(autoSwitchAfterMs / 60000) + ' мин' : 'сбой туннеля (монитор роутера) дольше ' + Math.round(autoSwitchAfterMs / 60000) + ' мин';
+        lastSwitchAttempt = now();
         let rows;
-        try { rows = parseLocations(await remote('locations')); } catch (error) { note('автосмена: не получил список локаций — ' + (error.reason || error.message)); return; }
+        try { rows = cacheLocations(await remote('locations')); }
+        catch (error) {
+            rows = locationsCache;
+            if (!rows.length) { note('автосмена: не получил список локаций и кэш пуст — ' + (error.reason || error.message)); return; }
+            note('автосмена: список недоступен, использую последний проверенный кэш');
+        }
         const current = rows.find(r => r.city.toUpperCase() === lastCity);
         if (!current) { note('автосмена: город ' + lastCity + ' не найден в списке локаций, не переключаю'); return; }
         for (const [city, at] of left) if (now() - at > autoSwitchAvoidMs) left.delete(city);
-        const target = rows.filter(r => r.iso === current.iso && r.city !== current.city && !left.has(r.city))
-            .sort((a, b) => (a.ping ?? Infinity) - (b.ping ?? Infinity))[0];
-        if (!target) { note('автосмена: в стране ' + current.country + ' нет другого города (или все недавно сбоили)'); return; }
+        let candidates = rows.filter(r => r.iso === current.iso && r.city !== current.city && !left.has(r.city));
+        let fallback = false;
+        if (!candidates.length && current.iso !== 'US') {
+            candidates = rows.filter(r => r.iso === 'US' && r.city !== current.city && !left.has(r.city));
+            fallback = true;
+        }
+        const target = candidates.sort((a, b) => (a.ping ?? Infinity) - (b.ping ?? Infinity))[0];
+        if (!target) { note('автосмена: нет доступной альтернативы в ' + current.country + ' и США'); return; }
         if (!enabled || generation !== ownGeneration) return;
+        try { await remote('connect ' + target.value); }
+        catch (error) { note('автосмена: connect ' + target.value + ' не удался — ' + (error.reason || error.message)); return; }
         left.set(current.city, now()); switches.push(now()); badSince = null;
-        lastSwitch = { from: current.city, to: target.city, country: current.country, at: now(), reason };
-        note('автосмена: ' + current.city + ' → ' + target.city + ' (' + current.country + ', ' + (target.ping ?? '?') + ' мс) — ' + reason);
-        try { await remote('connect ' + target.value); } catch (error) { note('автосмена: connect ' + target.value + ' не удался — ' + (error.reason || error.message)); }
+        lastSwitch = { from: current.city, to: target.city, country: target.country, at: now(), reason, fallback };
+        rememberCity(target.city);
+        note('автосмена: ' + current.city + ' → ' + target.city + ' (' + target.country + ', ' + (target.ping ?? '?') + ' мс' + (fallback ? ', резерв США' : '') + ') — ' + reason);
         try { await readStatus(ownGeneration); } catch (_) {}
     }
     async function execute(action, value) {
@@ -279,22 +358,24 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         if (busy) return { ok: false, error: 'busy', state: snapshot() };
         busy = true; const ownGeneration = generation;
         if (['connect', 'fastest', 'last', 'disconnect'].includes(action)) badSince = null; // ручной выбор — отсчёт автосмены заново
+        if (action === 'disconnect') manualDisconnected = true;
         try {
             const output = action === 'status' ? await readStatus(ownGeneration) : await remote(command);
+            const parsedLocations = action === 'locations' ? cacheLocations(output) : null;
             if (!['status', 'locations', 'license', 'config', 'guard', 'version', 'check-update', 'exclusions-show', 'export-logs'].includes(action)) {
                 try { await readStatus(ownGeneration); } catch (_) {}
             }
-            busy = false; return { ok: true, output: safeOutput(output), ...(action === 'locations' ? { locations: parseLocations(output) } : {}), state: snapshot() };
+            busy = false; return { ok: true, output: safeOutput(output), ...(action === 'locations' ? { locations: parsedLocations } : {}), state: snapshot() };
         } catch (_) { busy = false; return { ok: false, error: 'router_unavailable', state: snapshot() }; }
         finally { busy = false; }
     }
     function setEnabled(on) {
         if (typeof on !== 'boolean') return false;
-        enabled = on; generation++; if (!on && activeAbort) activeAbort.abort(); if (timer !== null) clearTimer(timer); timer = null;
+        enabled = on; generation++; if (!on) for (const controller of activeAborts) controller.abort(); if (timer !== null) clearTimer(timer); timer = null;
         if (on && installed) { refresh({ force: true }); if (autoPoll) { timer = setTimer(() => refresh(), intervalMs); timer?.unref?.(); } }
         return snapshot();
     }
     function close() { setEnabled(false); }
-    return { snapshot, refresh, execute, setEnabled, close, testAlert };
+    return { snapshot, refresh, refreshHealth, execute, setEnabled, close, testAlert };
 }
 module.exports = { createVPN, parseLocations, parseHealth, parseStatus, stripANSI, safeOutput, commandFor, validateConfig };

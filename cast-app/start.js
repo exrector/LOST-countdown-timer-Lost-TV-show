@@ -104,6 +104,9 @@ const museRuntime = require('../muse/supervisor.cjs').createMuse({ root: ROOT })
 // раз в 2 мин, без своих таймеров. «статус» пульта сразу отвечает тем, что собрал последний цикл (решение владельца 28.10). Срок годности показаний — полтора цикла. Вне цикла: надзор за окнами (2 с) и экранами
 // (10 с) — это перезапуск упавших окон, а не опрос; состояние AI — чтение файла его же процесса.
 const POLL_MS = 120000;
+// Фактическое здоровье VPN — отдельный дешёвый read-only SSH-запрос. Он не должен ждать общего цикла
+// станции или зависшего adguardvpn-cli status: от него зависят тревога и автосмена города.
+const VPN_HEALTH_POLL_MS = 5000;
 // log: смены состояния VPN и причины NO DATA — в core.log (2026-11-13)
 const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5, log: text => console.log(text) });
 const flameRuntime = require('../flame/runtime.cjs').createFlame({ autoPoll: false });
@@ -208,6 +211,7 @@ events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.r
     }
     // Надзор раз в 5 с: повтор восстановления окна — 5 с, «окно молчит» — 45 с (RecoveryController).
     await tick(); setInterval(tick, 5000); pollCycle(); setInterval(pollCycle, POLL_MS); // первый цикл — сразу при запуске
+    setInterval(() => vpnRuntime.refreshHealth().then(v => core.updateVPN(v)).catch(() => {}), VPN_HEALTH_POLL_MS);
     if (!nativeUI && process.env.LOST_SUPERVISED === '1') {
         run('/usr/bin/open', [path.join(ROOT, 'LOST.app')], { timeout: 5000 }).catch(() => {});
     }
