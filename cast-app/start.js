@@ -18,6 +18,7 @@ try { Object.assign(cfg, JSON.parse(fs.readFileSync(path.join(os.homedir(), '.co
 catch (e) { if (e.code !== 'ENOENT') console.log('[config] ~/.config/lost/local.json не прочитан: ' + e.message); }
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const ROOT = path.resolve(__dirname, '..');
+const LOG_DIR = path.join(os.homedir(), 'Library/Logs/LOST');
 const nativeUI = cfg.renderer === 'native';
 const NATIVE = path.join(ROOT, 'LOST.app/Contents/MacOS/LOSTNative');
 let nativeHost = null, nativeStartedAt = 0;
@@ -69,7 +70,7 @@ async function openWindow(role) {
         if (!fs.existsSync(NATIVE)) throw new Error('Native LOST app is missing; run script/build_and_run.sh --build-only');
         if (nativeHost) { await closeWindow(role); await new Promise(resolve => setTimeout(resolve, 500)); }
         if (stopping) return false;
-        const logDir = path.join(os.homedir(), 'Library/Logs/LOST'); fs.mkdirSync(logDir, { recursive: true });
+        const logDir = LOG_DIR; fs.mkdirSync(logDir, { recursive: true });
         const args = ['--managed', '--owner-pid', String(process.pid), '--url', 'http://localhost:' + core.port,
             '--display', cfg.display || 'Waveshare-625', '--status', path.join(logDir, 'native-status.json')];
         if (!localTimer) args.push('--no-timer');
@@ -108,7 +109,7 @@ const POLL_MS = 120000;
 // станции или зависшего adguardvpn-cli status: от него зависят тревога и автосмена города.
 const VPN_HEALTH_POLL_MS = 5000;
 // log: смены состояния VPN и причины NO DATA — в core.log (2026-11-13)
-const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5, log: text => console.log(text) });
+const vpnRuntime = require('../vpn/runtime.cjs').createVPN({ autoPoll: false, staleMs: POLL_MS * 1.5, log: text => console.log(text), locationLogFile: path.join(LOG_DIR, 'vpn-locations.log') });
 const flameRuntime = require('../flame/runtime.cjs').createFlame({ autoPoll: false });
 const applyUPSService = createUPSService({ root: ROOT });
 async function applyModule(id, enabled) {
@@ -201,7 +202,7 @@ events.on('quit', () => shutdown(0));
 events.on('peers', counts => { peers.tv = counts.tv; peers.console = counts.console; });
 events.on('client-alive', beat => { if (beat.role in heartbeat) heartbeat[beat.role] = Date.now(); });
 (async () => {
-    core = await start(cfg.port, { audioDefault: 'speakers', liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed, imessage:true, shortcuts: fs.existsSync('/usr/bin/shortcuts') }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
+    core = await start(cfg.port, { audioDefault: 'speakers', activityLogDir: LOG_DIR, liveInDev: cfg.liveInDev === true, stage: cfg.stage, display: cfg.display, sleepFrom: cfg.sleepFrom, applyModule, vpnRuntime, flameRuntime, moduleInstalled: { muse: museRuntime.installed(), vpn:vpnRuntime.snapshot().installed, flame:flameRuntime.snapshot().installed, imessage:true, shortcuts: fs.existsSync('/usr/bin/shortcuts') }, getMuseChat: museRuntime.chat, sendMuseMessage: museRuntime.sendMessage, sendMuseVoice: museRuntime.sendVoice, getRuntimeStatus: () => ({ ...modules, ups: core ? core.getModules().ups : modules.ups, renderer: { status: 'ready', name: nativeUI ? 'WKWebView' : 'Chrome' } }) });
     caffeinate = spawn('/usr/bin/caffeinate', ['-d','-i','-w',String(process.pid)], { stdio: 'ignore' }); caffeinate.on('error', () => {}); caffeinate.unref();
     screens = await readScreens() || []; lastScreensAt = Date.now();
     await openWindow('console'); if (localTimer) await openWindow('tv');

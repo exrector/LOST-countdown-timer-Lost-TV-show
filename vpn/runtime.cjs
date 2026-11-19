@@ -147,7 +147,7 @@ function failureReason(error) {
 //   autoSwitchAvoidMs; ближайший по пингу. Ограничения: не чаще autoSwitchCooldownMs и не больше
 //   autoSwitchMaxPerHour за час. VPN, выключенный руками (disconnected), не трогается. Переключение идёт той же
 //   командой, что выбор в меню (connect <город> → обёртка роутера с kill switch). Выключить: в vpn.json "autoSwitch": false.
-function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval, log = () => {}, retryDelayMs = 4000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), connectingAlertMs = 30000, noDataAlertMs = 30000, autoSwitchAfterMs = 30000, autoSwitchRetryMs = 60000, autoSwitchCooldownMs = 600000, autoSwitchMaxPerHour = 3, autoSwitchAvoidMs = 1800000, locationsCacheFile, locationsCacheMaxAgeMs = 604800000 } = {}) {
+function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json'), config, run = runDefault, now = Date.now, intervalMs = 60000, staleMs = 90000, autoPoll = true, setTimer = setInterval, clearTimer = clearInterval, log = () => {}, locationLogFile = null, retryDelayMs = 4000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), connectingAlertMs = 30000, noDataAlertMs = 30000, autoSwitchAfterMs = 30000, autoSwitchRetryMs = 60000, autoSwitchCooldownMs = 600000, autoSwitchMaxPerHour = 3, autoSwitchAvoidMs = 1800000, locationsCacheFile, locationsCacheMaxAgeMs = 604800000 } = {}) {
     let cfg, installed = false;
     try { cfg = validateConfig(config || JSON.parse(fs.readFileSync(configFile, 'utf8'))); installed = true; } catch (_) {}
     // Failover normally runs on the router. The old LOST-side engine is opt-in only, to avoid two controllers.
@@ -163,6 +163,11 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         const stat = fs.statSync(cacheFile);
         if (now() - stat.mtimeMs <= locationsCacheMaxAgeMs) { locationsCacheText = fs.readFileSync(cacheFile, 'utf8'); locationsCache = parseLocations(locationsCacheText); locationsCacheAt = stat.mtimeMs; }
         lastCity = fs.readFileSync(cacheFile + '.last-city', 'utf8').trim().toUpperCase().slice(0, 100);
+    } catch (_) {}
+    let lastLoggedLocation = '';
+    if (locationLogFile) try {
+        const lines = fs.readFileSync(locationLogFile, 'utf8').trim().split('\n');
+        lastLoggedLocation = (lines.at(-1) || '').split('\t').at(-1).trim().toUpperCase().slice(0, 100);
     } catch (_) {}
     let enabled = true, busy = false, healthBusy = false, switchBusy = false, timer = null, generation = 0, lastAttempt = -Infinity;
     let manualDisconnected = false, healthRead = null;
@@ -193,7 +198,16 @@ function createVPN({ configFile = path.join(os.homedir(), '.config/lost/vpn.json
         return rows;
     }
     function rememberCity(city) {
-        lastCity = String(city || '').trim().toUpperCase().slice(0, 100);
+        const next = String(city || '').trim().toUpperCase().slice(0, 100);
+        const changed = Boolean(next && next !== lastLoggedLocation);
+        lastCity = next;
+        if (changed && locationLogFile) try {
+            const d = new Date(now()), p2 = n => String(n).padStart(2, '0');
+            const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+            fs.mkdirSync(path.dirname(locationLogFile), { recursive: true, mode: 0o700 });
+            fs.appendFileSync(locationLogFile, `${stamp}\t${lastCity}\n`, { mode: 0o600 });
+            lastLoggedLocation = lastCity;
+        } catch (_) {}
         if (!cacheFile || !lastCity) return;
         try { fs.writeFileSync(cacheFile + '.last-city', lastCity + '\n', { mode: 0o600 }); fs.chmodSync(cacheFile + '.last-city', 0o600); } catch (_) {}
     }

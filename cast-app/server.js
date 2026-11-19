@@ -33,6 +33,15 @@ function lanIp() {
 }
 
 function start(port = 8765, opts = {}) {
+    const activityLogDir = opts.activityLogDir || null;
+    function activity(name, line) {
+        if (!activityLogDir) return;
+        try { fs.mkdirSync(activityLogDir, { recursive: true }); fs.appendFileSync(path.join(activityLogDir, name), line + '\n'); } catch (_) {}
+    }
+    function activityStamp(d = new Date()) {
+        const p2 = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+    }
     let clockTimer;
     const stage = opts.stage || { width: 1560, height: 720 };
     const upsGateway = createUPSGateway({ port: opts.upsPort || 8766, origin: 'http://localhost:' + port });
@@ -342,6 +351,10 @@ function start(port = 8765, opts = {}) {
                     else if (data.op === 'set' && clock.mode === 'dev' && [10,60,240,6480].includes(data.seconds)) clock.reset(data.seconds);
                     else return;
                     syncClock(); sleepOn = curPaused; saveState(); publishClock(); return;
+                }
+                if (role === 'console' && data.type === 'numberSubmitted') {
+                    const digits = String(data.value || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                    if (/^\d+(?: \d+)*$/.test(digits)) activity('terminal-input.log', `${activityStamp()}\t${digits}`);
                 }
                 if (role === 'console' && data.type === 'numberSubmitted' && data.value === '4 8 15 16 23 42') {
                     if (timerInfo().open) { if (curMode === 'live') journalAccepted(); clock.reset(); saveState(); publishClock(); }
