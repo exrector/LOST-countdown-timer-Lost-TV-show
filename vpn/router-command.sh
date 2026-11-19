@@ -65,6 +65,15 @@ case "$original" in
 set -- $original
 [ "$#" -ge 2 ] || fail
 case "$1" in
+ device-bypass)
+  case "$2" in
+   list|devices) [ "$#" -eq 2 ] || fail; exec /opt/bin/agvpn-device-bypass "$2";;
+   on|off|status)
+    [ "$#" -eq 3 ] || fail
+    printf '%s\n' "$3" | grep -Eq '^192\.168\.(1|2)\.([2-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$' || fail
+    exec /opt/bin/agvpn-device-bypass "$2" "$3";;
+   *) fail;;
+  esac;;
  exclusions-show|exclusions-mode|exclusions-clear)
   [ "$#" -eq 2 ] || fail
   case "$2" in general|selective) ;; *) fail;; esac
